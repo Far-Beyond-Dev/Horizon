@@ -62,8 +62,5 @@ impl PluginManager {
         let my_test_plugin = get_plugin!(test_plugin, plugins);
         let result = my_test_plugin.thing();
         println!("{}", result);
-
-
-        let my_vault = get_plugin!(pebblevault_plugin, plugins);
     }
 }

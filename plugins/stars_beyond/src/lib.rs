@@ -14,7 +14,6 @@ pub trait PluginAPI {
 pub trait PluginConstruct {
     // If you want default implementations, mark them with 'default'
     fn new(plugins: HashMap<&'static str, LoadedPlugin>) -> Plugin;
-    
 }
 
 // Implement constructor separately
