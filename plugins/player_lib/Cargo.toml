@@ -1,0 +1,10 @@
+[package]
+name = "player_lib"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+PebbleVault = "0.6.1"
+horizon-plugin-api = "0.1.7"
+horizon_data_types = "0.4.0"
+socketioxide = "0.15.1"

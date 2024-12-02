@@ -1,3 +1,0 @@
-players_per_pool: 5000
-num_thread_pools: 64
-log_level: "INFO"

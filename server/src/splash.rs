@@ -1,5 +1,6 @@
 pub fn splash() {
-    let splash_screen = r#"
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    let splash_screen = format!(r#"
  ___  ___  ________  ________  ___  ________  ________  ________      
 |\  \|\  \|\   __  \|\   __  \|\  \|\_____  \|\   __  \|\   ___  \    
 \ \  \\\  \ \  \|\  \ \  \|\  \ \  \\|___/  /\ \  \|\  \ \  \\ \  \   
@@ -8,7 +9,7 @@ pub fn splash() {
    \ \__\ \__\ \_______\ \__\\ _\\ \__\\________\ \_______\ \__\\ \__\
     \|__|\|__|\|_______|\|__|\|__|\|__|\|_______|\|_______|\|__| \|__|
                        The future is distributed
-                           > Version 0.0.12 <
-    "#;
+                           > Version {VERSION} <
+    "#);
     println!("{}", splash_screen);
 }

@@ -19,9 +19,7 @@ pub trait PluginConstruct {
 
 // Implement constructor separately
 impl PluginConstruct for Plugin {
-    fn new(plugins: HashMap<&'static str, LoadedPlugin>) -> Plugin {
-        println!("Hello from the test plugin!!!!!");
-        
+    fn new(plugins: HashMap<&'static str, LoadedPlugin>) -> Plugin {        
         Plugin {}
     }
     

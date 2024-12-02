@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use horizon_plugin_api::{Plugin, Pluginstate, Version, get_plugin};
+pub use horizon_plugin_api::{Plugin, Pluginstate, Version, get_plugin};
 
 pub mod plugin_macro;
 pub mod plugin_imports;
@@ -27,7 +27,6 @@ macro_rules! load_plugins {
                         instance: <$plugin::Plugin as $plugin::PluginConstruct>::new(plugins.clone()),
                     }
                 );
-                println!("Loaded plugin: {}", stringify!($plugin));
             )*
             plugins
         }
@@ -61,9 +60,5 @@ impl PluginManager {
     
         let my_test_plugin = get_plugin!(test_plugin, plugins);
         let result = my_test_plugin.thing();
-        println!("{}", result);
-
-
-        let my_vault = get_plugin!(pebblevault_plugin, plugins);
     }
 }
