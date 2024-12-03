@@ -30,7 +30,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 pub mod config;
-mod event_rep;
+pub mod event_rep;
+pub mod vault_lib;
 
 // Server state management
 
@@ -38,7 +39,7 @@ mod event_rep;
 // Horizon Server Struct
 //-----------------------------------------------------------------------------
 pub struct HorizonServer {
-    config: ServerConfig,
+    config: Arc<ServerConfig>,
     threads: RwLock<Vec<Arc<HorizonThread>>>,
 }
 
@@ -60,7 +61,7 @@ impl Server {
 impl HorizonServer {
     fn new() -> Result<Self> {
         Ok(Self {
-            config: *config::server_config()?,
+            config: config::server_config().expect("Failed to load server config"),
             threads: RwLock::new(Vec::new()),
         })
     }
@@ -166,7 +167,17 @@ pub async fn start() -> anyhow::Result<()> {
     let server = Server::new()?;
     let thread_count = config::SERVER_CONFIG
         .get()
-        .map(|config| config.num_thread_pools)
+        .map(|config: &Arc<ServerConfig>| config.num_thread_pools)
+        .unwrap();
+
+    let address = config::SERVER_CONFIG
+        .get()
+        .map(|config: &Arc<ServerConfig>| config.address.clone())
+        .unwrap();
+
+    let port = config::SERVER_CONFIG
+        .get()
+        .map(|config: &Arc<ServerConfig>| config.port)
         .unwrap();
 
     // Start 10 threads initially for handling player connections
@@ -194,17 +205,17 @@ pub async fn start() -> anyhow::Result<()> {
         .route("/", get(|| async { "Horizon Server Running" }))
         .layer(layer);
     // Start the server
-    let address = "0.0.0.0:3000";
-    log_info!(LOGGER, "SOCKET NET", "Starting server on {}", address);
+    let full_address = format!("{}:{}", address.to_string(), port.to_string());
+    log_info!(LOGGER, "SOCKET NET", "Starting server on {}:{}", address, port);
 
     futures::future::join_all(spawn_futures).await;
     log_info!(LOGGER, "SERVER", "Spawned {} threads", thread_count);
     let elapsed = start_time.elapsed();
     log_info!(LOGGER, "SERVER", "Server initialization took {:?}", elapsed);
 
-    let listener = tokio::net::TcpListener::bind(&address)
+    let listener = tokio::net::TcpListener::bind(&full_address)
         .await
-        .context(format!("Failed to bind to {}", address))?;
+        .context(format!("Failed to bind to {}", full_address))?;
     axum::serve(listener, app)
         .await
         .context("Failed to start server")?;

@@ -22,9 +22,6 @@
 //           Caznix                                                            //
 // License: Apache-2.0                                                         //
 //=============================================================================//
-#[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
-
 static CTRL_C_HANDLER: Once = Once::new();
 use std::sync::Once;
 use once_cell::sync::Lazy;
@@ -49,9 +46,8 @@ pub static LOGGER: Lazy<HorizonLogger> = Lazy::new(|| {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    collision::main();
+    //collision::main();
 
-    let mut _profiler = Some(dhat::Profiler::new_heap());
     splash();
     let config_init_time = std::time::Instant::now();
     //let server_config: std::sync::Arc<server::config::ServerConfig> = server_config().context("Failed to obtain server config")?;
@@ -72,7 +68,6 @@ async fn main() -> Result<()> {
                 terminating = true;
 
                 println!("Exit");
-                drop(_profiler.take());
                 std::process::exit(0);
                 
             }

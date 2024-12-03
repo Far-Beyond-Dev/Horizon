@@ -20,7 +20,6 @@ horizon_logger = "0.1.0"
 once_cell = "1.20.2"
 horizon_data_types = "0.4.0"
 rmpv = "1.3.0"
-dhat = "0.3.3"
 ctrlc = { version = "3.4.5", features = ["termination"] }
 parking_lot = "0.12.3"
 rayon = "1.10.0"
@@ -29,6 +28,7 @@ PebbleVault = "0.6.1"
 uuid = "1.11.0"
 nalgebra = "0.33.2"
 rstar = "0.12.2"
+horizon-plugin-api = "0.1.7"
 
 # ADD ANY CUSTOM DEPENDENCIES BELOW
 

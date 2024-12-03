@@ -1,5 +1,5 @@
 [workspace]
-members = ["server","plugin_api"]
+members = ["server","plugin_api", "plugins/chronos_plugin"]
 resolver = "2"
 
 [profile.dev]

@@ -2,38 +2,26 @@ use socketioxide::extract::SocketRef;
 use serde::{Serialize, Deserialize};
 use socketioxide::extract::Data;
 use horizon_data_types::Vec3D;
-use PebbleVault::VaultManager;
+use uuid::Uuid;
 use std::sync::{Arc, Mutex};
 use once_cell::sync::Lazy;
+use crate::server::vault_lib;
+pub use horizon_plugin_api::Plugin;
 
-static VAULT_MANAGER: Lazy<Arc<Mutex<VaultManager<PebbleVaultCustomData>>>> = 
-    Lazy::new(|| {
-        let vault_manager = VaultManager::new("./pv-horizon-plugin-data").expect("Failed to create VaultManager");
-        Arc::new(Mutex::new(vault_manager))
-    });
 
-/// Custom data structure for PebbleVault objects
-///
-/// This struct represents the custom data associated with each spatial object
-/// in the PebbleVault system. It can be extended or modified to suit specific
-/// game or application needs.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct PebbleVaultCustomData {
-    /// Name of the object
-    pub name: String,
-    /// Custom value associated with the object
-    pub value: i32,
+use super::super::vault_lib::PluginAPI;
+
+pub struct EventManager{
+    vault_ref: Uuid,
 }
 
+impl EventManager {
+    pub fn new() -> Self {
+        let vault_lib = <Plugin as vault_lib::PluginAPI>::new();
+        let region = vault_lib.create_or_load_region([0.0,0.0,0.0], 100000000.0).expect("Failed to create or load region");
 
-pub struct EventManager<'a, T: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Sized> {
-    vault_ref: &'a mut PebbleVault::VaultManager<T>,
-}
-
-impl<'a, T: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Sized> EventManager<'a, T> {
-    pub fn new(pebble_vault_ref: &'a mut PebbleVault::VaultManager<T>) -> Self {
             Self {
-                vault_ref: pebble_vault_ref
+                vault_ref: region,
             }
         }
 
@@ -82,6 +70,5 @@ impl Event {
 }
 
 pub fn test() {
-    let mut vault_manager = VAULT_MANAGER.lock().unwrap();
-    let mut evt_manager = EventManager::new(&mut *vault_manager);
+    let mut evt_manager = EventManager::new();
 }
