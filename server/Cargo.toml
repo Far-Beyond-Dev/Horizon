@@ -4,8 +4,9 @@ version = "0.13.0"
 edition = "2021"
 
 [dependencies]
-# PLUGIN API, DO NOT REMOVE
+# PLUGIN AND BACKEND APIs, DO NOT REMOVE
 plugin_api = {path = "../plugin_api/"}
+backend_api = {path = "../backend_api/"}
 
 # DEFAULT DEPENDENCIES
 anyhow = "1.0.93"
