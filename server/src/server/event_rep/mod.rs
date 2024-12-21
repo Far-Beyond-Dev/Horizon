@@ -5,6 +5,7 @@ use horizon_data_types::Vec3D;
 
 mod structs;
 
+#[allow(dead_code)]
 struct Actor {
     name: String,
     location: Vec3D,

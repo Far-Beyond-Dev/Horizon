@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use env_logger::Logger;
 use horizon_logger::log_warn;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
