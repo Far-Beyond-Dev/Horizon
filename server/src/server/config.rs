@@ -31,6 +31,7 @@ pub struct ServerConfig {
     pub num_thread_pools: u32,
 }
 
+#[allow(dead_code)]
 impl ServerConfig {
     fn new() -> Self {
         Self {

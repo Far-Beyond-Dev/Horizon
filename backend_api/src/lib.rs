@@ -4,13 +4,6 @@ pub use horizon_plugin_api::{Plugin, Pluginstate, Version, get_plugin, LoadedPlu
 pub mod plugin_macro;
 pub mod backend_imports;
 
-// Define the current plugin version
-const PLUGIN_API_VERSION: Version = Version {
-    major: 0,
-    minor: 1,
-    hotfix: 0
-};
-
 #[derive(Clone)]
 pub struct PluginManager {
     plugins: HashMap<String,(Pluginstate,Plugin)>

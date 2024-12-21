@@ -156,7 +156,7 @@ fn update_plugin_cargo_tomls(plugins_dir: &Path, plugin_paths: &[PluginInfo]) ->
         .collect();
 
     // Update each plugin that has .allow-imports
-    for (name, version, plugin_dir, has_allow) in plugin_paths {
+    for (name, _, plugin_dir, has_allow) in plugin_paths {
         if !has_allow {
             continue;
         }
@@ -171,7 +171,7 @@ fn update_plugin_cargo_tomls(plugins_dir: &Path, plugin_paths: &[PluginInfo]) ->
         let end_idx = contents.find(AUTO_GENERATED_END);
 
         let base_contents = match (start_idx, end_idx) {
-            (Some(start), Some(end)) => {
+            (Some(start), Some(_)) => {
                 contents[..start].trim_end().to_string()
             }
             _ => {
