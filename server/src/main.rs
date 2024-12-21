@@ -74,7 +74,7 @@ async fn main() -> Result<()> {
                 
             }
         })
-        .expect("Failed to handle Ctrl+C");
+        .expect("Failed to register ctrl+c handler");
     });
     Ok(())
 }
