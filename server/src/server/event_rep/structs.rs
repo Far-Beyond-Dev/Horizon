@@ -25,11 +25,12 @@ pub struct PebbleVaultCustomData {
     pub value: i32,
 }
 
-
+#[allow(dead_code, unused_variables)]
 pub struct EventManager<'a, T: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Sized> {
     vault_ref: &'a mut PebbleVault::VaultManager<T>,
 }
 
+#[allow(dead_code, unused_variables)]
 impl<'a, T: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Sized> EventManager<'a, T> {
     pub fn new(pebble_vault_ref: &'a mut PebbleVault::VaultManager<T>) -> Self {
             Self {
@@ -55,6 +56,7 @@ impl<'a, T: Clone + Serialize + for<'de> Deserialize<'de> + PartialEq + Sized> E
     }
 }
 
+#[allow(dead_code, unused_variables)]
 pub struct Event {
     instigator: SocketRef,
     origin: Vec3D,
@@ -62,6 +64,7 @@ pub struct Event {
     data: Data<serde_json::Value>,
 }
 
+#[allow(dead_code)]
 impl Event {
     pub fn new(instigator: SocketRef, origin: Vec3D, radius: f64, data: Data<serde_json::Value>) -> Self {
         Self {
@@ -81,6 +84,7 @@ impl Event {
     }
 }
 
+#[allow(dead_code, unused_variables, unused_mut)]
 pub fn test() {
     let mut vault_manager = VAULT_MANAGER.lock().unwrap();
     let mut evt_manager = EventManager::new(&mut *vault_manager);

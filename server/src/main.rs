@@ -25,14 +25,17 @@
 
 use std::sync::Once;
 use once_cell::sync::Lazy;
-use server::{config::server_config, start};
 use splash::splash;
 use anyhow::{Context, Result};
-use horizon_logger::{HorizonLogger, log_info, log_debug, log_warn, log_error, log_critical};
 
-mod server;
+use horizon_logger::{HorizonLogger, log_info};
+
+
+
+
+modserver;
 mod splash;
-mod collision;
+// mod collision;
 
 static CTRL_C_HANDLER: Once = Once::new();
 
