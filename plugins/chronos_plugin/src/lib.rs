@@ -67,7 +67,7 @@ pub trait PluginConstruct {
 
 // Implement constructor for Plugin
 impl PluginConstruct for Plugin {
-    fn new(plugins: HashMap<String, (Pluginstate, Plugin)>) -> Plugin {
+    fn new(_plugins: HashMap<String, (Pluginstate, Plugin)>) -> Plugin {
         Self::start_time_server();
         Plugin {}
     }

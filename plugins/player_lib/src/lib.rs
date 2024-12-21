@@ -1,11 +1,11 @@
 use horizon_data_types::Player;
 use socketioxide::extract::SocketRef;
 pub use horizon_plugin_api::{Plugin, Pluginstate, LoadedPlugin};
-use socketioxide::packet::Str;
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::collections::HashMap;
-use PebbleVault;
+// use socketioxide::packet::Str;
+// use PebbleVault;
 
 pub trait PluginAPI {    
     fn player_joined(&self, socket: SocketRef, player: Arc<RwLock<horizon_data_types::Player>>);   
@@ -19,7 +19,7 @@ pub trait PluginConstruct {
 }
 
 impl PluginConstruct for Plugin {
-    fn new(plugins: HashMap<String, (Pluginstate, Plugin)>) -> Plugin {        
+    fn new(_plugins: HashMap<String, (Pluginstate, Plugin)>) -> Plugin {        
         Plugin {}
     }
 
@@ -140,5 +140,5 @@ impl Character {
     }
 }
 
-fn setup_listeners(socket: SocketRef, player: Arc<RwLock<Player>>) {
+fn setup_listeners(_socket: SocketRef, _player: Arc<RwLock<Player>>) {
 }

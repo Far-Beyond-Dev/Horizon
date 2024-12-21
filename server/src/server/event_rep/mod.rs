@@ -1,10 +1,10 @@
 use uuid::Uuid;
-use rayon::prelude::*;
 use horizon_data_types::Vec3D;
 
 
 mod structs;
 
+#[allow(dead_code)]
 struct Actor {
     name: String,
     location: Vec3D,
@@ -14,6 +14,7 @@ struct Actor {
     replication_distance: f64,
 }
 
+#[allow(dead_code, unused_variables)]
 impl Actor {
     fn new(name: &str, has_collision: bool) -> Self {
         Self {
@@ -37,26 +38,7 @@ impl Actor {
     }
 }
 
-fn main() {
-    let actors = vec![
-        Actor::new("Actor1", true),
-        Actor::new("Actor2", false),
-        Actor::new("Actor3", true),
-        // Add more actors as needed
-    ];
-
-    let collidable_actors: Vec<&Actor> = actors.iter().filter(|actor| actor.has_collision).collect();
-
-    collidable_actors.par_iter().enumerate().for_each(|(i, actor1)| {
-        collidable_actors.iter().skip(i + 1).for_each(|actor2| {
-            if actor1.check_collision(actor2) {
-                println!("Collision detected between {} and {}", actor1.name, actor2.name);
-            }
-        });
-    });
-}
-
-
+#[allow(dead_code, unused_variables, unused_mut)]
 fn get_overlapping_colissions(main_actor: Actor, actors: Vec<Actor>) -> Vec<Uuid> {
     let mut overlapping_collisions = Vec::new();
 
