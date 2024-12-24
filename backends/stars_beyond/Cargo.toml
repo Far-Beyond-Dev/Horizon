@@ -15,5 +15,6 @@ parking_lot = "0.12.3"
 #
 ###### BEGIN AUTO-GENERATED BACKEND DEPENDENCIES - DO NOT EDIT THIS SECTION ######
 chronos_plugin = { path = "../../plugins/chronos_plugin", version = "0.1.0" }
+link_plugin = { path = "../../plugins/community_link_plugin", version = "0.1.0" }
 player_lib = { path = "../../plugins/player_lib", version = "0.1.0" }
 ###### END AUTO-GENERATED BACKEND DEPENDENCIES ######

@@ -6,6 +6,9 @@ use std::collections::HashMap;
 pub use chronos_plugin;
 pub use chronos_plugin::*;
 pub use chronos_plugin::Plugin as chronos_plugin_plugin;
+pub use link_plugin;
+pub use link_plugin::*;
+pub use link_plugin::Plugin as link_plugin_plugin;
 pub use player_lib;
 pub use player_lib::*;
 pub use player_lib::Plugin as player_lib_plugin;
@@ -15,6 +18,7 @@ pub use player_lib::Plugin as player_lib_plugin;
 pub fn load_plugins() -> HashMap<String, (Pluginstate, Plugin)> {
     let plugins = crate::load_plugins!(
         chronos_plugin,
+        link_plugin,
         player_lib
     );
     plugins
