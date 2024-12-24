@@ -11,7 +11,7 @@ fn main() {
     let backends_dir = Path::new("..").join("backends");
     let plugins_dir = Path::new("..").join("plugins");
     
-    println!("cargo:warning=Looking for backends in: {:?}", backends_dir);
+    println!("cargo:info=Looking for backends in: {:?}", backends_dir);
     
     if !backends_dir.exists() {
         println!("cargo:warning=Backends directory not found at {:?}", backends_dir);
@@ -20,7 +20,7 @@ fn main() {
 
     let backend_paths = discover_backends(&backends_dir);
     let plugin_paths = discover_plugins(&plugins_dir);
-    println!("cargo:warning=Found {} backends", backend_paths.len());
+    println!("cargo:info=Found {} backends", backend_paths.len());
     
     // Update main Cargo.toml
     if let Err(e) = update_cargo_toml(&backend_paths) {
@@ -91,7 +91,7 @@ fn discover_plugins(plugins_dir: &Path) -> Vec<PluginInfo> {
                         
                         if let (Some(name), Some(version)) = (name, version) {
                             let has_allow_imports = allow_imports.exists();
-                            println!("cargo:warning=Found plugin: {} v{} in {} (allow-imports: {})",
+                            println!("cargo:info=Found plugin: {} v{} in {} (allow-imports: {})",
                                    name, version, plugin_name, has_allow_imports);
                             valid_plugins.push((name, version, plugin_name, has_allow_imports));
                         }
@@ -216,20 +216,20 @@ fn update_cargo_toml(backend_paths: &[BackendInfo]) -> std::io::Result<()> {
 }
 
 fn update_backend_cargo_tomls(plugin_paths: &[PluginInfo], backends_dir: &Path, backend_paths: &[BackendInfo]) -> std::io::Result<()> {
-    println!("cargo:warning=Starting update_backend_cargo_tomls");
-    println!("cargo:warning=Found {} plugins and {} backends", plugin_paths.len(), backend_paths.len());
+    println!("cargo:info=Starting update_backend_cargo_tomls");
+    println!("cargo:info=Found {} plugins and {} backends", plugin_paths.len(), backend_paths.len());
     
     // Update each backend Cargo.toml if it has .allow-imports
     for (name, _, backend_dir, has_allow) in backend_paths.iter() {
-        println!("cargo:warning=Checking backend {} (allow_imports: {})", name, has_allow);
+        println!("cargo:info=Checking backend {} (allow_imports: {})", name, has_allow);
         
         if !*has_allow {
-            println!("cargo:warning=Skipping backend {} - no .allow-imports", name);
+            println!("cargo:info=Skipping backend {} - no .allow-imports", name);
             continue;
         }
 
         let backend_cargo_path = backends_dir.join(backend_dir).join("Cargo.toml");
-        println!("cargo:warning=Updating Cargo.toml at {:?}", backend_cargo_path);
+        println!("cargo:info=Updating Cargo.toml at {:?}", backend_cargo_path);
         
         if !backend_cargo_path.exists() {
             println!("cargo:warning=ERROR: Cargo.toml not found at {:?}", backend_cargo_path);
