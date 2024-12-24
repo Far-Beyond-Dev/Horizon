@@ -8,7 +8,7 @@ type PluginInfo = (String, String, String, bool);
 fn main() {
     let plugins_dir = Path::new("..").join("plugins");
     
-    println!("cargo:warning=Looking for plugins in: {:?}", plugins_dir);
+    println!("cargo:info=Looking for plugins in: {:?}", plugins_dir);
     
     if !plugins_dir.exists() {
         println!("cargo:warning=Plugins directory not found at {:?}", plugins_dir);
@@ -16,7 +16,7 @@ fn main() {
     }
 
     let plugin_paths = discover_plugins(&plugins_dir);
-    println!("cargo:warning=Found {} plugins", plugin_paths.len());
+    println!("cargo:info=Found {} plugins", plugin_paths.len());
     
     // Update main Cargo.toml
     if let Err(e) = update_cargo_toml(&plugin_paths) {
