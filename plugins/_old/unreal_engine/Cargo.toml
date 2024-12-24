@@ -1,6 +1,0 @@
-[package]
-name = "unreal_engine_plugin"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
