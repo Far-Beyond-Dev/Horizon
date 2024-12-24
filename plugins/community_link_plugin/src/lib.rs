@@ -33,10 +33,12 @@ pub struct listner {
 impl listner {
     pub fn on<T, F>(&self, event: &str, callback: F)
     where
-        T: DeserializeOwned + Send + 'static,
-        F: Fn(Data<T>, SocketRef) + Send + Sync + 'static,
+        T: DeserializeOwned + Send + Sync + 'static,
+        F: Fn(Data<T>, SocketRef) + Send + Sync + 'static + Clone,
     {
-        self.socket.on(event, move |data: Data<T>, socket: SocketRef| {
+        let event = event.to_string();
+        let event_clone = event.clone();
+        self.socketref.on(event_clone, move |data: Data<T>, socket: SocketRef| {
             //TODO: Pass the data to other servers as well, and strip any un-needed fields here.
 
             callback(data, socket);
