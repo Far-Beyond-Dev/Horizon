@@ -1,10 +1,10 @@
 use horizon_data_types::Player;
-use socketioxide::extract::SocketRef;
-pub use horizon_plugin_api::{Plugin, Pluginstate, LoadedPlugin};
 use parking_lot::RwLock;
 use std::sync::Arc;
-use std::collections::HashMap;\
-use socketioxide::extract::SocketRef;
+use std::collections::HashMap;
+use socketioxide::extract::{ SocketRef, Data };
+use serde::de::DeserializeOwned;
+pub use horizon_plugin_api::{Plugin, Pluginstate, LoadedPlugin};
 
 pub trait PluginConstruct {
     fn get_structs(&self) -> Vec<&str>;
