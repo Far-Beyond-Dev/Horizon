@@ -20,7 +20,7 @@ use axum::{routing::get, Router};
 use config::ServerConfig;
 use horizon_data_types::Player;
 use horizon_logger::{log_debug, log_error, log_info};
-use horizon_plugin_api::LoadedPlugin;
+use horizon_plugin_api::{LoadedPlugin};
 use parking_lot::RwLock;
 use socketioxide::{
     extract::{AckSender, Data, SocketRef},
@@ -30,6 +30,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use uuid::Uuid;
+use plugin_api::*;
 pub mod config;
 mod event_rep;
 use lazy_static::lazy_static;
@@ -187,9 +188,9 @@ fn on_connect(socket: SocketRef, Data(data): Data<serde_json::Value>) {
 
     let player_arc: Arc<horizon_data_types::Player> = Arc::new(player);
 
-    //let casted_struct = plugin_api::get_plugin!(unreal_adapter_horizon, target_thread.plugins);
+    // let casted_struct = plugin_api::get_plugin!(unreal_adapter_horizon, target_thread.plugins);
 
-    //casted_struct.player_joined(socket, player_arc);
+    // casted_struct.player_joined(socket, player_arc);
 }
 
 //-----------------------------------------------------------------------------
