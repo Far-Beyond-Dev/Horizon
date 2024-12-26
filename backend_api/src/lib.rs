@@ -2,7 +2,7 @@ use std::collections::HashMap;
 pub use horizon_plugin_api::{Plugin, Pluginstate, Version, get_plugin, LoadedPlugin};
 
 pub mod plugin_macro;
-pub mod plugin_imports;
+pub mod backend_imports;
 
 #[derive(Clone)]
 pub struct PluginManager {
@@ -10,7 +10,7 @@ pub struct PluginManager {
 }
 
 #[macro_export]
-macro_rules! load_plugins {
+macro_rules! load_backends {
     ($($plugin:ident),* $(,)?) => {
         {
             let mut plugins = HashMap::new();
@@ -49,7 +49,7 @@ impl PluginManager {
     }
 
     pub fn load_all(&mut self) ->  HashMap<String, LoadedPlugin> {
-        self.plugins = plugin_imports::load_plugins();
+        self.plugins = backend_imports::load_backends();
     
         //let my_test_plugin = get_plugin!(test_plugin, plugins);
         //let result = my_test_plugin.thing();
