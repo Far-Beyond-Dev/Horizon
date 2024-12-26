@@ -16,13 +16,12 @@
 
 use crate::LOGGER;
 use anyhow::{Context, Result};
-use axum::{routing::get, serve, Router};
+use axum::{routing::get, Router};
 use config::ServerConfig;
 use horizon_data_types::Player;
-use horizon_logger::{log_critical, log_debug, log_error, log_info, log_warn};
+use horizon_logger::{log_debug, log_error, log_info};
 use horizon_plugin_api::LoadedPlugin;
 use parking_lot::RwLock;
-use plugin_api::{Plugin, Pluginstate};
 use socketioxide::{
     extract::{AckSender, Data, SocketRef},
     SocketIo,
@@ -35,8 +34,6 @@ pub mod config;
 pub mod in_world;
 
 use lazy_static::lazy_static;
-use plugin_api::plugin_imports::*;
-
 
 lazy_static! {
     static ref SERVER: Server = Server::new().unwrap();
@@ -47,6 +44,8 @@ lazy_static! {
 //-----------------------------------------------------------------------------
 // Horizon Server Struct
 //-----------------------------------------------------------------------------
+
+#[allow(dead_code)]
 pub struct HorizonServer {
     config: ServerConfig,
     threads: RwLock<Vec<Arc<HorizonThread>>>,
@@ -91,12 +90,15 @@ impl HorizonServer {
 //-----------------------------------------------------------------------------
 // Horizon Thread Structhorizon_plugin_api::Plugin
 //-----------------------------------------------------------------------------
+
+#[allow(dead_code)]
 struct HorizonThread {
     players: Mutex<Vec<Player>>,
     plugins: HashMap<String, LoadedPlugin>,
     handle: tokio::task::JoinHandle<()>,
 }
 
+#[allow(dead_code, unused_variables)]
 impl HorizonThread {
     fn new() -> Self {
         let mut plugin_manager = plugin_api::PluginManager::new();
@@ -116,6 +118,7 @@ impl HorizonThread {
         }
     }
 
+    #[allow(dead_code)]
     fn id(&self) -> usize {
         self.players
             .try_lock()
@@ -157,6 +160,7 @@ async fn handle_socket_ack(Data(data): Data<serde_json::Value>, ack: AckSender) 
     }
 }
 
+#[allow(dead_code, unused_must_use, unused_variables)]
 fn on_connect(socket: SocketRef, Data(data): Data<serde_json::Value>) {
     //socket.on("connect", |socket: SocketRef, _| {
     log_info!(LOGGER, "SOCKET NET", "New connection from {}", socket.id);
@@ -194,12 +198,16 @@ fn on_connect(socket: SocketRef, Data(data): Data<serde_json::Value>) {
 
 
     // let casted_struct = plugin_api::get_plugin!(unreal_adapter_horizon, target_thread.plugins);
+    //let casted_struct = plugin_api::get_plugin!(unreal_adapter_horizon, target_thread.plugins);
+
     //casted_struct.player_joined(socket, player_arc);
 }
 
 //-----------------------------------------------------------------------------
 // Server startup
 //-----------------------------------------------------------------------------
+
+#[allow(dead_code, unused_variables)]
 pub async fn start() -> anyhow::Result<()> {
     let start_time = std::time::Instant::now();
 
