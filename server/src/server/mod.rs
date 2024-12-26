@@ -32,7 +32,8 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 use plugin_api::*;
 pub mod config;
-mod event_rep;
+pub mod in_world;
+
 use lazy_static::lazy_static;
 
 lazy_static! {
@@ -188,8 +189,16 @@ fn on_connect(socket: SocketRef, Data(data): Data<serde_json::Value>) {
 
     let player_arc: Arc<horizon_data_types::Player> = Arc::new(player);
 
-    // let casted_struct = plugin_api::get_plugin!(unreal_adapter_horizon, target_thread.plugins);
+    // TODO: move this to example backend
+    let player_char = in_world::Object::new("Player Character".to_string(), true);
+    println!("Player joined: {:?}", player_char.get_uuid().to_string());
 
+    let player_json_value: serde_json::Value = serde_json::json!({ "joined": true });
+    player_char.send_event(socket, "playerjoined".to_string(), player_json_value);
+    println!("Sent player joined event Successfully");
+
+
+    // let casted_struct = plugin_api::get_plugin!(unreal_adapter_horizon, target_thread.plugins);
     // casted_struct.player_joined(socket, player_arc);
 }
 
