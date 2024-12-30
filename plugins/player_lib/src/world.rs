@@ -1,10 +1,8 @@
 use socketioxide::extract::{ SocketRef, Data };
-use serde::Serialize;
 use serde_json::Value;
-use std::collections::HashMap;
 use uuid::Uuid;
 
-
+#[allow(dead_code)]
 pub struct Object {
     uuid: Uuid,
     name: String,
