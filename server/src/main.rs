@@ -33,7 +33,7 @@ use horizon_logger::{HorizonLogger, log_info};
 
 
 
-modserver;
+mod server;
 mod splash;
 // mod collision;
 
