@@ -29,3 +29,4 @@ load_test.db-journal
 /deps
 /.cargo
 Cargo.lock
+.DS_Store
