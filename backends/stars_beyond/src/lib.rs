@@ -33,7 +33,6 @@ impl PluginAPI for Plugin {
         println!("player_lib");
         setup_listeners(&socket, player);
 
-        // TODO: move this to example backend
         let player_char = world::Object::new("Player Character".to_string(), true);
         println!("Player joined: {:?}", player_char.get_uuid().to_string());
 
