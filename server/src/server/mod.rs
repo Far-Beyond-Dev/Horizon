@@ -187,6 +187,7 @@ async fn handle_socket_ack(Data(data): Data<serde_json::Value>, ack: AckSender) 
 fn on_connect(socket: SocketRef, Data(data): Data<serde_json::Value>) {
     //socket.on("connect", |socket: SocketRef, _| {
     log_info!(LOGGER, "SOCKET NET", "New connection from {}", socket.id);
+    log_info!(LOGGER, "SOCKET NET", "Connection on thread {:?}", std::thread::current().id());
     //});
 
     if let Err(e) = socket.emit("auth", &data) {

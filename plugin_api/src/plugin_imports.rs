@@ -3,6 +3,8 @@
 
 use std::collections::HashMap;
 
+pub use horizon_plugin_api::{Plugin, Pluginstate, Version, get_plugin, LoadedPlugin};
+
 pub use chronos_plugin;
 pub use chronos_plugin::Plugin as chronos_plugin_plugin;
 pub use chronos_plugin::PluginAPI as chronos_plugin_plugin_api;
