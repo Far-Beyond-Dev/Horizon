@@ -23,17 +23,14 @@
 // License: Apache-2.0                                                         //
 //=============================================================================//
 
-use std::sync::Once;
+use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use splash::splash;
-use anyhow::{Context, Result};
+use std::sync::Once;
 
-use horizon_logger::{HorizonLogger, log_info};
+use horizon_logger::{log_info, HorizonLogger};
 
-
-
-
-modserver;
+mod server;
 mod splash;
 // mod collision;
 
@@ -56,7 +53,12 @@ async fn main() -> Result<()> {
 
     splash();
     let config_init_time = std::time::Instant::now();
-    log_info!(LOGGER, "INIT", "Server config loaded in {:#?}", config_init_time.elapsed());
+    log_info!(
+        LOGGER,
+        "INIT",
+        "Server config loaded in {:#?}",
+        config_init_time.elapsed()
+    );
 
     let init_time = std::time::Instant::now();
 
@@ -65,16 +67,15 @@ async fn main() -> Result<()> {
     println!("Server started in {:#?}", init_time.elapsed());
 
     let mut terminating: bool = false;
-    
+
     CTRL_C_HANDLER.call_once(|| {
         // Register the Ctrl+C handler
-        ctrlc::set_handler(move ||  {
+        ctrlc::set_handler(move || {
             if !terminating {
                 terminating = true;
 
                 println!("Exit");
                 std::process::exit(0);
-                
             }
         })
         .expect("Failed to register ctrl+c handler");
