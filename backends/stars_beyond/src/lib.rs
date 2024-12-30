@@ -4,6 +4,7 @@ pub use horizon_plugin_api::{Plugin, Pluginstate, LoadedPlugin};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::collections::HashMap;
+use player_lib::world;
 // use socketioxide::packet::Str;
 
 pub trait PluginAPI {    
@@ -30,10 +31,18 @@ impl PluginConstruct for Plugin {
 impl PluginAPI for Plugin {
     fn player_joined(&self, socket: SocketRef, player: Arc<RwLock<horizon_data_types::Player>>) {
         println!("player_lib");
-        setup_listeners(socket, player);
+        setup_listeners(&socket, player);
+
+        let player_char = world::Object::new("Player Character".to_string(), true);
+        println!("Player joined: {:?}", player_char.get_uuid().to_string());
+
+        let player_json_value: serde_json::Value = serde_json::json!({ "joined": true });
+        player_char.send_event(socket, "playerjoined".to_string(), player_json_value);
+        println!("Sent player joined event Successfully");
     }
 }
 
 
-fn setup_listeners(_socket: SocketRef, _player: Arc<RwLock<Player>>) {
+fn setup_listeners(_socket: &SocketRef, _player: Arc<RwLock<Player>>) {
+    
 }

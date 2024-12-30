@@ -4,6 +4,8 @@ pub use horizon_plugin_api::{Plugin, Pluginstate, LoadedPlugin};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::collections::HashMap;
+
+pub mod world;
 // use socketioxide::packet::Str;
 // use PebbleVault;
 
