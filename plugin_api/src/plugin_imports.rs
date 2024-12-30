@@ -4,11 +4,11 @@
 use std::collections::HashMap;
 
 pub use chronos_plugin;
-pub use chronos_plugin::*;
 pub use chronos_plugin::Plugin as chronos_plugin_plugin;
+pub use chronos_plugin::PluginAPI as chronos_plugin_plugin_api;
 pub use player_lib;
-pub use player_lib::*;
 pub use player_lib::Plugin as player_lib_plugin;
+pub use player_lib::PluginAPI as player_lib_plugin_api;
 
 
 // Invoke the macro with all discovered plugins
