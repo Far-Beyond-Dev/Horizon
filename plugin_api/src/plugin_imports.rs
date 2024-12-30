@@ -3,15 +3,17 @@
 
 use std::collections::HashMap;
 
+pub use horizon_plugin_api::{Plugin, Pluginstate, Version, get_plugin, LoadedPlugin};
+
 pub use chronos_plugin;
-pub use chronos_plugin::*;
 pub use chronos_plugin::Plugin as chronos_plugin_plugin;
+pub use chronos_plugin::PluginAPI as chronos_plugin_plugin_api;
 pub use link_plugin;
-pub use link_plugin::*;
 pub use link_plugin::Plugin as link_plugin_plugin;
+pub use link_plugin::PluginAPI as link_plugin_plugin_api;
 pub use player_lib;
-pub use player_lib::*;
 pub use player_lib::Plugin as player_lib_plugin;
+pub use player_lib::PluginAPI as player_lib_plugin_api;
 
 
 // Invoke the macro with all discovered plugins

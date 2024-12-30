@@ -49,6 +49,7 @@ lazy_static! {
 pub struct HorizonServer {
     config: ServerConfig,
     threads: RwLock<Vec<Arc<HorizonThread>>>,
+    current_thread: Option<usize>,
 }
 
 struct Server {
@@ -71,6 +72,7 @@ impl HorizonServer {
         Ok(Self {
             config: *config::server_config()?,
             threads: RwLock::new(Vec::new()),
+            current_thread: None,
         })
     }
 
@@ -84,6 +86,26 @@ impl HorizonServer {
         };
 
         Ok(thread_id)
+    }
+
+    fn get_next_thread(&mut self) -> Arc<HorizonThread> {
+        let threads = self.threads.read();
+        let total_thread_count = threads.len();
+        if let Some(mut current_thread) = self.current_thread {
+            println!("using {} thread", current_thread);
+            if current_thread >= total_thread_count - 1 {
+                current_thread = 0;
+                self.current_thread = Some(current_thread);
+                return Arc::clone(&threads[current_thread]);
+            } else {
+                current_thread += 1;
+                self.current_thread = Some(current_thread);
+                return Arc::clone(&threads[current_thread]);
+            }
+        } else {
+            self.current_thread = Some(0);
+            return Arc::clone(&threads[self.current_thread.unwrap()]);
+        }
     }
 }
 
@@ -164,6 +186,7 @@ async fn handle_socket_ack(Data(data): Data<serde_json::Value>, ack: AckSender) 
 fn on_connect(socket: SocketRef, Data(data): Data<serde_json::Value>) {
     //socket.on("connect", |socket: SocketRef, _| {
     log_info!(LOGGER, "SOCKET NET", "New connection from {}", socket.id);
+    log_info!(LOGGER, "SOCKET NET", "Connection on thread {:?}", std::thread::current().id());
     //});
 
     if let Err(e) = socket.emit("auth", &data) {
@@ -171,19 +194,12 @@ fn on_connect(socket: SocketRef, Data(data): Data<serde_json::Value>) {
         return;
     }
 
-    // TODO: Implement proper thread management via round robin
-    let threadid = 0;
-
-    let server_instance = SERVER.get_instance();
-    let server_instance_read = server_instance.read();
-    let threads = server_instance_read.threads.read();
-
     socket.on("message", handle_socket_message);
     socket.on("message-with-ack", handle_socket_ack);
 
     let player = horizon_data_types::Player::new(socket.clone(), Uuid::new_v4());
 
-    let target_thread = Arc::clone(&threads[threadid]);
+    let target_thread = SERVER.get_instance().write().get_next_thread();
     target_thread.add_player(player.clone());
 
     let player_arc: Arc<horizon_data_types::Player> = Arc::new(player);
@@ -210,7 +226,7 @@ pub async fn start() -> anyhow::Result<()> {
 
     let thread_count = 32;
 
-    println!("Preparing to start {} threads", thread_count);
+    // println!("Preparing to start {} threads", thread_count);
     // Start 10 threads initially for handling player connections
 
     //let handles = Vec::new();
@@ -219,18 +235,18 @@ pub async fn start() -> anyhow::Result<()> {
     let server_instance = &SERVER.get_instance();
     let spawn_futures: Vec<_> = (0..thread_count)
         .map(|_| {
-            println!("Spawning thread");
+            // println!("Spawning thread");
 
             let handles = handles.clone();
             async move {
                 if let Ok(thread_id) = server_instance.read().spawn_thread() {
-                    println!("Attempting to obtain handles lock");
+                    // println!("Attempting to obtain handles lock");
                     handles.lock().await.push(thread_id);
-                    println!("Handle lock obtained");
+                    // println!("Handle lock obtained");
 
-                    println!("Thread spawned: {}", thread_id);
+                    // println!("Thread spawned: {}", thread_id);
                 } else {
-                    println!("Failed to spawn thread");
+                    // println!("Failed to spawn thread");
                 }
             }
         })
@@ -239,7 +255,7 @@ pub async fn start() -> anyhow::Result<()> {
     // Configure socket namespaces
     io.ns("/", on_connect);
     io.ns("/custom", on_connect);
-    println!("Accepting socket connections");
+    // println!("Accepting socket connections");
     // Build the application with routes
     let app = Router::new()
         .route("/", get(|| async { "Horizon Server Running" }))
