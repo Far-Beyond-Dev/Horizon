@@ -22,6 +22,7 @@ use horizon_data_types::Player;
 use horizon_logger::{log_debug, log_error, log_info};
 use horizon_plugin_api::LoadedPlugin;
 use parking_lot::RwLock;
+use plugin_api::{get_plugin, plugin_imports::link_plugin::{self, Listner}};
 use socketioxide::{
     extract::{AckSender, Data, SocketRef},
     SocketIo,
@@ -129,6 +130,9 @@ impl HorizonThread {
         plugins.iter().for_each(|(name, plugin)| {
             log_info!(LOGGER, "PLUGIN", "Loaded plugin: {}", name);
         });
+
+        let horizon_link = get_plugin!(link_plugin, plugins);
+
         Self {
             players: Mutex::new(Vec::new()),
             plugins,
@@ -150,6 +154,7 @@ impl HorizonThread {
 
     async fn add_player(&self, player: Player) -> Result<()> {
         let mut players = self.players.lock().await;
+        let listner = Listner::new(player.socket.clone());
         players.push(player);
         Ok(())
     }
