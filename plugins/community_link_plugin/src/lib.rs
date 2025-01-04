@@ -1,13 +1,13 @@
 pub use horizon_plugin_api::{LoadedPlugin, Plugin, Pluginstate};
-use lazy_static::lazy_static;
-
-use parking_lot::RwLock;
-use rust_socketio::client::Client;
 use serde::{de::DeserializeOwned, Serialize};
 use socketioxide::extract::{Data, SocketRef};
+use rust_socketio::client::Client;
 use std::collections::HashMap;
-use std::fs;
+use lazy_static::lazy_static;
+use parking_lot::RwLock;
 use std::sync::Arc;
+use std::fs;
+
 lazy_static! {
     pub static ref CLIENTS: Arc<RwLock<HashMap<String, Client>>> = {
         let config_data = fs::read_to_string("link_config.json").expect("Unable to read file");
@@ -46,30 +46,17 @@ pub trait PluginAPI {}
 impl PluginAPI for Plugin {}
 
 pub struct Listner {
-    socketref: SocketRef,
-    servers: HashMap<std::string::String, Client>,
+    pub socketref: SocketRef,
+    pub servers: HashMap<std::string::String, Client>,
 }
 
 lazy_static! {}
 
 impl Listner {
     pub fn new(socket_ref: SocketRef) -> Self {
-        let config_data = fs::read_to_string("link_config.json").expect("Unable to read file");
-        let servers = serde_json::to_string(&config_data).unwrap();
-
-        let server_addresses: Vec<String> = serde_json::from_str(&servers).unwrap();
-
-        let mut temp_connections = HashMap::new();
-        server_addresses.iter().for_each(|address| {
-            let socket = rust_socketio::ClientBuilder::new(address.clone());
-            let socket_ref: rust_socketio::client::Client =
-                socket.connect().expect("Failed to connect to server");
-            temp_connections.insert(address.clone(), socket_ref);
-        });
-
         Self {
             socketref: socket_ref,
-            servers: temp_connections,
+            servers: CLIENTS.read().clone(),
         }
     }
 
