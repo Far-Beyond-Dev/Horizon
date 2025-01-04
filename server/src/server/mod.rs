@@ -154,7 +154,10 @@ impl HorizonThread {
 
     async fn add_player(&self, player: Player) -> Result<()> {
         let mut players = self.players.lock().await;
+
+        // TODO Add player to struct. Eventually we will make the server connections global for lower resource usage
         let listner = Listner::new(player.socket.clone());
+
         players.push(player);
         Ok(())
     }
