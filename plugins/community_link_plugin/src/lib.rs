@@ -50,8 +50,6 @@ pub struct Listner {
     pub servers: HashMap<std::string::String, Client>,
 }
 
-lazy_static! {}
-
 impl Listner {
     pub fn new(socket_ref: SocketRef) -> Self {
         Self {
