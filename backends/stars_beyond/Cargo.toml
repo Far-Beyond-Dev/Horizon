@@ -10,6 +10,7 @@ horizon_data_types = "0.4.0"
 socketioxide = "0.15.1"
 parking_lot = "0.12.3"
 serde_json = "1.0.134"
+serde = "1.0.134"
 #
 #
 #
