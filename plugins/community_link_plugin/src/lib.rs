@@ -102,11 +102,12 @@ impl Listner {
         
         self.socketref
             .on(event_clone, move |data: Data<T>, socket: SocketRef| {
-                // Only replicate if event is auth-related or user is authenticated
-                let should_replicate = event.starts_with("auth") || 
-                    AUTHENTICATED_USERS.read().contains_key(&socket.id);
+                // Check if the event is auth-related or user is authenticated
+                let is_auth_event = event.starts_with("auth");
+                let is_authenticated = AUTHENTICATED_USERS.read().contains_key(&socket.id);
 
-                if should_replicate {
+                // Only proceed if it's an auth event or user is authenticated
+                if is_auth_event || is_authenticated {
                     // Forward the event to all other servers in the network
                     servers_clone.iter().for_each(|server| {
                         let socket = servers_clone.get(server.0).expect("Failed to get client");
@@ -116,9 +117,14 @@ impl Listner {
                             eprintln!("Failed to emit event: {}", e);
                         }
                     });
+                    
+                    // Only call the callback if authenticated or it's an auth event
+                    callback(data, socket);
+                } else {
+                    // Optionally notify the client that they need to authenticate
+                    let _ = socket.emit("auth_required", "Authentication required for this action");
+                    println!("Blocked unauthenticated event: {} from socket {}", event, socket.id);
                 }
-                
-                callback(data, socket);
             });
     }
 }
