@@ -1,9 +1,9 @@
 pub use horizon_plugin_api::{LoadedPlugin, Plugin, Pluginstate};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use socketioxide::extract::{Data, SocketRef};
+use std::collections::HashMap;
 use rust_socketio::client::Client;
 use socketioxide::socket::Sid;
-use std::collections::{HashMap, HashSet};
 use lazy_static::lazy_static;
 use parking_lot::RwLock;
 use std::sync::Arc;
