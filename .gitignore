@@ -30,3 +30,5 @@ load_test.db-journal
 /.cargo
 Cargo.lock
 .DS_Store
+*.glue
+dhat-heap.json
