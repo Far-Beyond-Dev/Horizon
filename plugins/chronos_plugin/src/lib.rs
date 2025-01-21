@@ -62,7 +62,14 @@ impl TimeState {
 }
 
 pub trait PluginConstruct {
-    fn new(plugins: HashMap<String, (Pluginstate, Plugin)>) -> Plugin;    
+    fn new(plugins: HashMap<String, (Pluginstate, Plugin)>) -> Plugin;
+
+    fn get_structs(&self) -> Vec<&str> {
+        vec![]
+    }
+
+    fn player_joined(&self, socket: SocketRef) {
+    }
 }
 
 // Implement constructor for Plugin

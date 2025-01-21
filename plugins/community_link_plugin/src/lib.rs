@@ -1,3 +1,14 @@
+//-----------------------------------------------------------------------------
+// Plugin: community_link_plugin
+// Version: 0.1.0 
+// Author: Trident_For_U, Caznix
+//-----------------------------------------------------------------------------
+//  The community link plugin is a plugin that allows for cross-server and
+//  metadata unwrapping for replicated events. This plugin is designed to
+//  make handling cross-server events easier, and more predictable by providing
+//  a universal format for replicated event metadata
+//-----------------------------------------------------------------------------
+
 pub use horizon_plugin_api::{LoadedPlugin, Plugin, Pluginstate};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use socketioxide::extract::{Data, SocketRef};
@@ -44,18 +55,23 @@ lazy_static! {
     static ref AUTHENTICATED_USERS: Arc<RwLock<HashMap<Sid, AuthState>>> = 
         Arc::new(RwLock::new(HashMap::new()));
     
+    // TODO: Obviously, this is not secure. This is just for testing purposes,
+    //       and will be moved to an API request in the future.
     static ref VALID_CREDENTIALS: HashMap<&'static str, &'static str> = {
         let mut creds = HashMap::new();
         creds.insert("admin", "admin123");
         creds.insert("user1", "password123");
         creds.insert("test", "test123");
+
+        // Return the credentials map
         creds
     };
 }
 
 pub trait PluginConstruct {
-    fn get_structs(&self) -> Vec<&str>;
     fn new(plugins: HashMap<String, (Pluginstate, Plugin)>) -> Plugin;
+    fn get_structs(&self) -> Vec<&str>;
+    fn player_joined(&self, socket: SocketRef);
 }
 
 impl PluginConstruct for Plugin {
@@ -66,14 +82,16 @@ impl PluginConstruct for Plugin {
     fn get_structs(&self) -> Vec<&str> {
         vec!["AuthCredentials", "AuthState"]
     }
-}
 
-pub trait PluginAPI {
     fn player_joined(&self, socket: SocketRef) {
         println!("Setting up auth and link listeners");
         let listener = Listner::new(socket);
         setup_auth_listeners(&listener);
     }
+}
+
+pub trait PluginAPI {
+
 }
 
 impl PluginAPI for Plugin {}
