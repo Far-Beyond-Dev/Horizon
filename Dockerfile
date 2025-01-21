@@ -28,7 +28,7 @@ RUN apk add --no-cache clang lld musl-dev git
 # source code into the container. Once built, copy the executable to an
 # output directory before the cache mounted /app/target is unmounted.
 COPY . . 
-RUN cargo build --locked --release && \
+RUN cargo build --release && \
 cp ./target/release/$APP_NAME /bin/server
 
 ################################################################################
