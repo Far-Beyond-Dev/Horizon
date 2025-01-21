@@ -31,8 +31,3 @@ uuid = "1.11.0"
 nalgebra = "0.33.2"
 rstar = "0.12.2"
 horizon-plugin-api = "0.2.0"
-
-# ADD ANY CUSTOM DEPENDENCIES BELOW
-
-# END CUSTOM DEPENDENCIES
-
