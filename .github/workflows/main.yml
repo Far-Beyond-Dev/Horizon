@@ -2,8 +2,7 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main, master ]
 
 jobs:
   check-version:
@@ -15,116 +14,80 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 2
-      
       - name: Check if Cargo.toml version changed
         id: check
         run: |
-          CURRENT_VERSION=$(grep -m1 version Cargo.toml | cut -d '"' -f2)
-          git checkout HEAD^1
-          PREVIOUS_VERSION=$(grep -m1 version Cargo.toml | cut -d '"' -f2)
-          if [ "$CURRENT_VERSION" != "$PREVIOUS_VERSION" ]; then
+          git diff HEAD^ HEAD -G"^version\s*=" Cargo.toml | grep "^+.*version\s*=" || echo "No version change"
+          if git diff HEAD^ HEAD -G"^version\s*=" Cargo.toml | grep "^+.*version\s*=" > /dev/null; then
             echo "should_release=true" >> $GITHUB_OUTPUT
-            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            VERSION=$(grep "^version\s*=" Cargo.toml | sed 's/version\s*=\s*"\(.*\)"/\1/')
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
           else
             echo "should_release=false" >> $GITHUB_OUTPUT
           fi
 
-  create-release:
-      needs: check-version
-      if: needs.check-version.outputs.should_release == 'true'
-      runs-on: ubuntu-latest
-      permissions:
-        contents: write
-      outputs:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-      steps:
-        - uses: actions/checkout@v3
-
-        - name: Create Release
-          id: create_release
-          env:
-            GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
-          uses: softprops/action-gh-release@v1
-          with:
-            tag_name: v${{ needs.check-version.outputs.version }}
-            name: Release v${{ needs.check-version.outputs.version }}
-            draft: false
-            prerelease: false
-
-  build-release:
-    needs: [check-version, create-release]
+  build-and-release:
+    needs: check-version
     if: needs.check-version.outputs.should_release == 'true'
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            bin_path: target/x86_64-unknown-linux-gnu/release/horizon
-            asset_name: horizon-linux
-          - os: windows-latest 
+            binary_path: target/release/horizon
+            asset_name: horizon-linux-amd64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            binary_path: target/release/horizon
+            asset_name: horizon-linux-arm64
+          - os: windows-latest
             target: x86_64-pc-windows-msvc
-            bin_path: target/x86_64-pc-windows-msvc/release/horizon.exe
-            asset_name: horizon-windows.exe
+            binary_path: target/release/horizon.exe
+            asset_name: horizon-windows-amd64.exe
           - os: macos-latest
             target: x86_64-apple-darwin
-            bin_path: target/x86_64-apple-darwin/release/horizon
-            asset_name: horizon-macos
-
+            binary_path: target/release/horizon
+            asset_name: horizon-macos-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            binary_path: target/release/horizon
+            asset_name: horizon-macos-arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Install Rust
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@master
         with:
-          profile: minimal
           toolchain: stable
           target: ${{ matrix.target }}
-          
-      - name: Build
-        uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target ${{ matrix.target }}
 
-      - name: Generate SHA256
-        shell: bash
+      - name: Install cross-compilation tools
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
-          binary_path="target/${{ matrix.target }}/release/horizon"
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            binary_path="target/${{ matrix.target }}/release/horizon.exe"
-          fi
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      - name: Build
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
           
-          if [ ! -f "$binary_path" ]; then
-            echo "Binary not found at $binary_path"
-            ls -la target/
-            ls -la target/${{ matrix.target }}/release/
-            exit 1
-          fi
-          
+      - name: Prepare asset
+        run: |
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            sha256sum "$binary_path" > "$binary_path.sha256"
+            cp target/${{ matrix.target }}/release/horizon.exe ${{ matrix.asset_name }}
           else
-            shasum -a 256 "$binary_path" > "$binary_path.sha256"
+            cp target/${{ matrix.target }}/release/horizon ${{ matrix.asset_name }}
           fi
+        shell: bash
 
-      - name: Upload Binary
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
+      - name: Upload binary to release
+        uses: softprops/action-gh-release@v1
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ matrix.bin_path }}
-          asset_name: ${{ matrix.asset_name }}
-          asset_content_type: application/octet-stream
-
-      - name: Upload SHA256
-        uses: actions/upload-release-asset@v1
+          tag_name: v${{ needs.check-version.outputs.version }}
+          files: ${{ matrix.asset_name }}
+          generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ matrix.bin_path }}.sha256
-          asset_name: ${{ matrix.asset_name }}.sha256
-          asset_content_type: text/plain
+          TOKEN_GITHUB: ${{ secrets.TOKEN_GITHUB }}
