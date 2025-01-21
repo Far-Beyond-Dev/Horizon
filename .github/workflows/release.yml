@@ -80,9 +80,9 @@ jobs:
         run: |
           mkdir -p release
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp server/target/${{ matrix.target }}/release/horizon.exe release/${{ matrix.asset_name }}
+            cp server/target/${{ matrix.target }}/release/horizon-server.exe release/${{ matrix.asset_name }}
           else
-            cp server/target/${{ matrix.target }}/release/horizon release/${{ matrix.asset_name }}
+            cp server/target/${{ matrix.target }}/release/horizon-server release/${{ matrix.asset_name }}
           fi
         shell: bash
 
