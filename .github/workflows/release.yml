@@ -32,16 +32,16 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            binary_path: target/release/ferrumc
-            asset_name: ferrumc-linux-amd64
+            binary_path: target/release/horizon
+            asset_name: horizon-linux-amd64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            binary_path: target/release/ferrumc.exe
-            asset_name: ferrumc-windows-amd64.exe
+            binary_path: target/release/horizon.exe
+            asset_name: horizon-windows-amd64.exe
           - os: macos-latest
             target: x86_64-apple-darwin
-            binary_path: target/release/ferrumc
-            asset_name: ferrumc-macos-amd64
+            binary_path: target/release/horizon
+            asset_name: horizon-macos-amd64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -49,7 +49,7 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly  # Changed to nightly since your Dockerfile uses it
+          toolchain: nightly
           target: ${{ matrix.target }}
 
       - name: Install Linux dependencies
@@ -78,10 +78,11 @@ jobs:
           
       - name: Prepare asset
         run: |
+          mkdir -p release
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            cp server/target/${{ matrix.target }}/release/ferrumc.exe ${{ matrix.asset_name }}
+            cp server/target/${{ matrix.target }}/release/horizon.exe release/${{ matrix.asset_name }}
           else
-            cp server/target/${{ matrix.target }}/release/ferrumc ${{ matrix.asset_name }}
+            cp server/target/${{ matrix.target }}/release/horizon release/${{ matrix.asset_name }}
           fi
         shell: bash
 
@@ -89,7 +90,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ needs.check-version.outputs.version }}
-          files: ${{ matrix.asset_name }}
+          files: release/${{ matrix.asset_name }}
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Changed to use default token
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
