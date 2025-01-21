@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use  std::sync::OnceLock;
 use lazy_static::lazy_static;
+use socketioxide::extract::SocketRef;
 
 // Import the plugin API publicly to allow the API to make calls against this plugin
 pub use horizon_plugin_api::{Plugin, LoadedPlugin};
@@ -62,7 +63,14 @@ impl TimeState {
 }
 
 pub trait PluginConstruct {
-    fn new(plugins: HashMap<String, (Pluginstate, Plugin)>) -> Plugin;    
+    fn new(plugins: HashMap<String, (Pluginstate, Plugin)>) -> Plugin;
+
+    fn get_structs(&self) -> Vec<&str> {
+        vec![]
+    }
+
+    fn player_joined(&self, socket: SocketRef) {
+    }
 }
 
 // Implement constructor for Plugin

@@ -36,6 +36,8 @@ Cargo.lock
 *.swp
 *.swo
 .DS_Store
+*.glue
+dhat-heap.json
 .vim/
 .nova/
 .sublime-workspace
