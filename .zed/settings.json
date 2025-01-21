@@ -1,7 +1,0 @@
-{
-  "soft_wrap": "editor_width",
-  "telemetry": {
-      "diagnostics": false,
-      "metrics": false // Good telemetry but eh..
-  }
-}
