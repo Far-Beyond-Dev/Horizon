@@ -17,10 +17,10 @@ ARG APP_NAME
 WORKDIR /app
 
 # Install host build dependencies.
-RUN apk add --no-cache clang clang-dev lld musl-dev git sqlite-dev openssl-dev build-base rustup curl
+RUN apk add --no-cache clang clang-dev lld musl-dev git sqlite-dev openssl build-base rustup curl
 
-RUN ln -sf /usr/lib/libssl.so.3 /usr/lib/libssl.so && \
-    ln -sf /usr/lib/libcrypto.so.3 /usr/lib/libcrypto.so
+#RUN ln -sf /usr/lib/libssl.so.3 /usr/lib/libssl.so && \
+#    ln -sf /usr/lib/libcrypto.so.3 /usr/lib/libcrypto.so
 
 # Build the application.
 # Leverage a cache mount to /usr/local/cargo/registry/
