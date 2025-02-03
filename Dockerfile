@@ -12,12 +12,13 @@ ARG APP_NAME=horizon-server
 ################################################################################
 # Create a stage for building the application.
 
-FROM rust:${RUST_VERSION}-alpine AS build
+FROM rust:${RUST_VERSION}-bullseye AS build
 ARG APP_NAME
 WORKDIR /app
 
 # Install host build dependencies.
-RUN apk add --no-cache clang clang-dev lld musl-dev git sqlite-dev openssl build-base rustup curl
+RUN apt-get update
+RUN apt-get install libssl-dev -y
 
 #RUN ln -sf /usr/lib/libssl.so.3 /usr/lib/libssl.so && \
 #    ln -sf /usr/lib/libcrypto.so.3 /usr/lib/libcrypto.so
