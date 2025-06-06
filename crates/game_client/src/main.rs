@@ -3,12 +3,11 @@
 use anyhow::Result;
 use clap::Parser;
 use futures::{SinkExt, StreamExt};
-use serde_json::Value;
-use shared_types::{NetworkMessage, Position, PlayerId};
+use shared_types::{NetworkMessage, Position};
 use std::time::Duration;
-use tokio::time::{interval, timeout};
+use tokio::time::timeout;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -66,8 +65,6 @@ async fn run_basic_test(args: &Args) -> Result<()> {
     let url = Url::parse(&args.url)?;
     let (ws_stream, _) = connect_async(url).await?;
     let (mut write, mut read) = ws_stream.split();
-    
-    let mut message_count = 0;
     
     // Start message handler task
     let message_handler = tokio::spawn(async move {
@@ -211,9 +208,6 @@ async fn run_plugin_test(args: &Args) -> Result<()> {
     let url = Url::parse(&args.url)?;
     let (ws_stream, _) = connect_async(url).await?;
     let (mut write, mut read) = ws_stream.split();
-    
-    // Store player ID from join response
-    let mut player_id: Option<String> = None;
     
     // Start message handler
     let message_handler = tokio::spawn(async move {

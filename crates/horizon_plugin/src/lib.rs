@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 use shared_types::*;
 use std::collections::HashMap;
-use tracing::info;
 
 /// Horizon plugin - example plugin that manages player horizons and visibility
 pub struct HorizonPlugin {
@@ -314,17 +313,17 @@ pub enum HorizonMessage {
 
 /// Required export for plugin loading
 #[no_mangle]
-pub extern "C" fn create_plugin() -> *mut dyn Plugin {
-    let plugin = HorizonPlugin::new();
-    Box::into_raw(Box::new(plugin))
+pub extern "C" fn create_plugin() -> *mut std::ffi::c_void {
+    let plugin = Box::new(HorizonPlugin::new());
+    Box::into_raw(plugin) as *mut std::ffi::c_void
 }
 
 /// Required for proper plugin cleanup
 #[no_mangle]
-pub extern "C" fn destroy_plugin(plugin: *mut dyn Plugin) {
+pub extern "C" fn destroy_plugin(plugin: *mut std::ffi::c_void) {
     if !plugin.is_null() {
         unsafe {
-            let _ = Box::from_raw(plugin);
+            let _ = Box::from_raw(plugin as *mut HorizonPlugin);
         }
     }
 }

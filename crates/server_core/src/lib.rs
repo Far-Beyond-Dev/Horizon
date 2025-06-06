@@ -14,6 +14,7 @@ use tracing::{error, info, warn, debug};
 
 type WsStream = WebSocketStream<TcpStream>;
 type WsSink = SplitSink<WsStream, Message>;
+#[allow(unused)]
 type WsReceiver = SplitStream<WsStream>;
 
 /// Main game server that manages plugins, players, and events
@@ -59,19 +60,12 @@ impl GameServer {
                     format!("Failed to load library: {}", e)
                 )))?;
             
-            let create_plugin: Symbol<PluginCreateFn> = lib.get(b"create_plugin")
+            let create_plugin: Symbol<unsafe extern "C" fn() -> Box<dyn Plugin>> = lib.get(b"create_plugin")
                 .map_err(|e| ServerError::Plugin(PluginError::InitializationFailed(
                     format!("Failed to find create_plugin function: {}", e)
                 )))?;
             
-            let plugin_ptr = create_plugin();
-            if plugin_ptr.is_null() {
-                return Err(ServerError::Plugin(PluginError::InitializationFailed(
-                    "Plugin creation returned null pointer".to_string()
-                )));
-            }
-            
-            let plugin = Box::from_raw(plugin_ptr);
+            let plugin = create_plugin();
             let plugin_name = plugin.name();
             let plugin_version = plugin.version();
             
@@ -240,6 +234,8 @@ impl GameServer {
     ) -> Result<(), ServerError> {
         let message: NetworkMessage = serde_json::from_str(text)
             .map_err(|e| ServerError::Serialization(format!("Invalid JSON: {}", e)))?;
+
+        println!("Received message from player {}: {:?}", player_id, message);
 
         match message {
             NetworkMessage::PlayerJoin { name } => {

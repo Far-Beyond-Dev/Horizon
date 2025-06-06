@@ -220,8 +220,12 @@ pub trait Plugin: Send + Sync {
     async fn shutdown(&mut self, context: &dyn ServerContext) -> Result<(), PluginError>;
 }
 
-/// Function signature for plugin creation
-pub type PluginCreateFn = unsafe extern "C" fn() -> *mut dyn Plugin;
+/// Opaque type for FFI-safe plugin pointers
+#[repr(C)]
+pub struct PluginOpaque;
+
+/// Function signature for plugin creation (FFI-safe)
+pub type PluginCreateFn = unsafe extern "C" fn() -> *mut PluginOpaque;
 
 /// Errors that can occur in the server
 #[derive(thiserror::Error, Debug)]

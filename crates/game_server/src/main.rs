@@ -305,11 +305,6 @@ async fn setup_shutdown_handler() -> tokio::sync::oneshot::Receiver<()> {
     rx
 }
 
-/// Health check endpoint handler (could be extended for HTTP health checks)
-async fn health_check() -> Result<String, ServerError> {
-    Ok("OK".to_string())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
