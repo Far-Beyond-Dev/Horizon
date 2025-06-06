@@ -19,3 +19,4 @@ dashmap = { workspace = true }
 futures = { workspace = true }
 libloading = { workspace = true }
 tokio-tungstenite = { version = "0.26.2" }
+crossbeam = { workspace = true }

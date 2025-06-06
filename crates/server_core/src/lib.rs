@@ -4,7 +4,6 @@ use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use libloading::{Library, Symbol};
 use shared_types::*;
-use std::ops::Deref;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -129,7 +128,7 @@ impl GameServer {
         info!("Region ID: {:?}", self.region_id);
         info!("Region bounds: {:?}", self.region_bounds);
         
-        // Start event processing task
+        // Start event processing if it hasn't been started already
         self.start_event_processor().await;
         
         // Accept connections
@@ -156,7 +155,7 @@ impl GameServer {
         
         Ok(())
     }
-    
+
     /// Handle a new WebSocket connection
     async fn handle_connection(&self, stream: TcpStream, addr: SocketAddr) {
         let ws_stream = match accept_async(stream).await {
@@ -166,24 +165,24 @@ impl GameServer {
                 return;
             }
         };
-        
+
         let (ws_sink, mut ws_stream) = ws_stream.split();
         let player_id = PlayerId::new();
-        
+
         // Store connection
         self.connections.insert(player_id, ws_sink);
-        
+
         let players = self.players.clone();
         let connections = self.connections.clone();
         let event_sender = self.event_sender.clone();
         let region_bounds = self.region_bounds.clone();
-        
+
         // Handle messages from this connection
         tokio::spawn(async move {
             while let Some(msg) = ws_stream.next().await {
                 match msg {
                     Ok(Message::Text(text)) => {
-                        if let Err(e) = Self::handle_message(
+                        if let Err(e) = GameServer::handle_message(
                             &text, 
                             player_id, 
                             &players, 
@@ -192,7 +191,7 @@ impl GameServer {
                             &region_bounds
                         ).await {
                             error!("Error handling message from {}: {}", player_id, e);
-                            
+
                             // Send error response to client using connections map
                             let error_response = NetworkMessage::GameData { 
                                 data: serde_json::json!({
@@ -218,7 +217,7 @@ impl GameServer {
                     _ => {} // Ignore other message types
                 }
             }
-            
+
             // Clean up on disconnect
             if let Some(player) = players.remove(&player_id) {
                 let _ = event_sender.send((
@@ -229,7 +228,7 @@ impl GameServer {
             connections.remove(&player_id);
         });
     }
-    
+
     /// Handle a message from a client
     async fn handle_message(
         text: &str,
@@ -241,13 +240,13 @@ impl GameServer {
     ) -> Result<(), ServerError> {
         let message: NetworkMessage = serde_json::from_str(text)
             .map_err(|e| ServerError::Serialization(format!("Invalid JSON: {}", e)))?;
-        
+
         match message {
             NetworkMessage::PlayerJoin { name } => {
                 let player = Player::new(name.clone(), Position::new(0.0, 0.0, 0.0));
                 let player_copy = player.clone();
                 players.insert(player_id, player);
-                
+
                 // Send success response to the joining player
                 let response = NetworkMessage::GameData { 
                     data: serde_json::json!({
@@ -257,31 +256,31 @@ impl GameServer {
                         "position": {"x": 0.0, "y": 0.0, "z": 0.0}
                     })
                 };
-                
+
                 if let Some(mut sink) = connections.get_mut(&player_id) {
                     if let Ok(response_text) = serde_json::to_string(&response) {
                         let _ = sink.send(Message::Text(response_text)).await;
                     }
                 }
-                
+
                 // Emit event for plugins
                 let _ = event_sender.send((
                     EventId::new(EventNamespace::new("core"), "player_joined"),
                     Arc::new(CoreEvent::PlayerJoined { player: player_copy })
                 ));
-                
+
                 info!("Player {} ({}) joined successfully", name, player_id);
             }
-            
+
             NetworkMessage::PlayerMove { position } => {
                 if !region_bounds.contains(&position) {
                     return Err(ServerError::Region("Position outside region bounds".to_string()));
                 }
-                
+
                 if let Some(mut player) = players.get_mut(&player_id) {
                     let old_position = player.position;
                     player.position = position;
-                    
+
                     // Send movement confirmation to player
                     let response = NetworkMessage::GameData { 
                         data: serde_json::json!({
@@ -289,13 +288,13 @@ impl GameServer {
                             "position": position
                         })
                     };
-                    
+
                     if let Some(mut sink) = connections.get_mut(&player_id) {
                         if let Ok(response_text) = serde_json::to_string(&response) {
                             let _ = sink.send(Message::Text(response_text)).await;
                         }
                     }
-                    
+
                     let _ = event_sender.send((
                         EventId::new(EventNamespace::new("core"), "player_moved"),
                         Arc::new(CoreEvent::PlayerMoved { 
@@ -304,11 +303,11 @@ impl GameServer {
                             new_position: position 
                         })
                     ));
-                    
+
                     debug!("Player {} moved to {:?}", player_id, position);
                 }
             }
-            
+
             NetworkMessage::PlayerLeave => {
                 if let Some(player) = players.remove(&player_id) {
                     // Send goodbye message
@@ -317,23 +316,23 @@ impl GameServer {
                             "type": "leave_success"
                         })
                     };
-                    
+
                     if let Some(mut sink) = connections.get_mut(&player_id) {
                         if let Ok(response_text) = serde_json::to_string(&response) {
                             let _ = sink.send(Message::Text(response_text)).await;
                         }
                     }
-                    
+
                     let _ = event_sender.send((
                         EventId::new(EventNamespace::new("core"), "player_left"),
                         Arc::new(CoreEvent::PlayerLeft { player_id: player.0 })
                     ));
-                    
+
                     info!("Player {} left", player_id);
                 }
                 connections.remove(&player_id);
             }
-            
+
             NetworkMessage::GameData { data } => {
                 // Echo the data back for testing
                 let response = NetworkMessage::GameData { 
@@ -342,19 +341,19 @@ impl GameServer {
                         "original": data
                     })
                 };
-                
+
                 if let Some(mut sink) = connections.get_mut(&player_id) {
                     if let Ok(response_text) = serde_json::to_string(&response) {
                         let _ = sink.send(Message::Text(response_text)).await;
                     }
                 }
-                
+
                 let _ = event_sender.send((
                     EventId::new(EventNamespace::new("core"), "custom_message"),
                     Arc::new(CoreEvent::CustomMessage { data })
                 ));
             }
-            
+
             NetworkMessage::PluginMessage { plugin, data } => {
                 // Forward to plugin and send response
                 let response = NetworkMessage::GameData { 
@@ -364,23 +363,24 @@ impl GameServer {
                         "data": data
                     })
                 };
-                
+
                 if let Some(mut sink) = connections.get_mut(&player_id) {
                     if let Ok(response_text) = serde_json::to_string(&response) {
                         let _ = sink.send(Message::Text(response_text)).await;
                     }
                 }
-                
+
                 let _ = event_sender.send((
                     EventId::new(EventNamespace::plugin_default(&plugin), "message"),
                     Arc::new(CoreEvent::CustomMessage { data })
                 ));
             }
         }
-        
+
         Ok(())
     }
-    
+
+    /// Start the event processing system
     pub async fn start_event_processor(&self) {
         let mut event_receiver = self.event_sender.subscribe();
         let plugins = self.plugins.clone();

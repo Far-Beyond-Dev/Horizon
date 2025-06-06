@@ -1,5 +1,3 @@
-// horizon-plugin/Cargo.toml
-
 use async_trait::async_trait;
 use shared_types::*;
 use std::collections::HashMap;

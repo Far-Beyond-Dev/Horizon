@@ -1,5 +1,3 @@
-// game-server/Cargo.toml
-
 use anyhow::Result;
 use clap::Parser;
 use server_core::{GameServer, ServerConfig};
@@ -95,7 +93,6 @@ impl Default for Config {
         }
     }
 }
-
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
