@@ -1,5 +1,5 @@
 [package]
-name = "game_server"
+name = "horizon_server"
 version = "0.1.0"
 edition = "2021"
 
@@ -20,3 +20,4 @@ futures = { workspace = true }
 libloading = { workspace = true }
 tokio-tungstenite = { version = "0.26.2" }
 crossbeam = { workspace = true }
+tempfile = { workspace = true }

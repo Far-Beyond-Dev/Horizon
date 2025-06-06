@@ -1,165 +1,63 @@
+//! Distributed Games Server - Main Entry Point
+//! 
+//! A high-performance, plugin-extensible game server with configurable regions
+//! and graceful shutdown handling.
+
 use anyhow::Result;
 use clap::Parser;
 use server_core::{GameServer, ServerConfig};
-use shared_types::{RegionBounds, ServerError};
-use std::path::{Path, PathBuf};
-use tracing::{error, info, warn};
+use shared_types::RegionBounds;
+use std::path::Path;
+use tracing::{error, info};
 
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Configuration file path
-    #[arg(short, long, default_value = "config.toml")]
-    config: PathBuf,
-    
-    /// Server listen address
-    #[arg(short, long)]
-    listen: Option<String>,
-    
-    /// Plugin directory
-    #[arg(short, long)]
-    plugins: Option<PathBuf>,
-    
-    /// Enable debug logging
-    #[arg(short, long)]
-    debug: bool,
-    
-    /// Maximum number of players
-    #[arg(long)]
-    max_players: Option<usize>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct Config {
-    server: ServerSettings,
-    region: RegionSettings,
-    plugins: PluginSettings,
-    logging: Option<LoggingSettings>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct ServerSettings {
-    listen_addr: String,
-    max_players: usize,
-    tick_rate: u64,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct RegionSettings {
-    min_x: f64,
-    max_x: f64,
-    min_y: f64,
-    max_y: f64,
-    min_z: f64,
-    max_z: f64,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct PluginSettings {
-    directory: String,
-    auto_load: Vec<String>,
-}
-
-#[derive(serde::Deserialize, serde::Serialize, Debug)]
-struct LoggingSettings {
-    level: String,
-    json_format: bool,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            server: ServerSettings {
-                listen_addr: "127.0.0.1:8080".to_string(),
-                max_players: 1000,
-                tick_rate: 50,
-            },
-            region: RegionSettings {
-                min_x: -1000.0,
-                max_x: 1000.0,
-                min_y: -1000.0,
-                max_y: 1000.0,
-                min_z: -100.0,
-                max_z: 100.0,
-            },
-            plugins: PluginSettings {
-                directory: "plugins".to_string(),
-                auto_load: vec!["horizon".to_string()],
-            },
-            logging: Some(LoggingSettings {
-                level: "info".to_string(),
-                json_format: false,
-            }),
-        }
-    }
-}
+// Import our modular components
+use horizon_server::{
+    config::{self, Args, Config},
+    logging,
+    plugins,
+    shutdown,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    // Parse command-line arguments
     let args = Args::parse();
     
-    // Initialize logging
-    if let Err(e) = setup_logging(&args) {
+    // Initialize logging system
+    if let Err(e) = logging::setup_logging(&args) {
         error!("Failed to initialize logging: {}", e);
         return Err(anyhow::anyhow!("Failed to initialize logging: {}", e));
     }
     
+    // Log startup information
     info!("Starting Distributed Games Server");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
     
-    // Load configuration
-    let config = load_config(&args).await
+    // Load configuration from file or create default
+    let config = config::load_config(&args).await
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     info!("Configuration loaded from: {}", args.config.display());
     
-    // Create server configuration
-    let region_bounds = RegionBounds {
-        min_x: config.region.min_x,
-        max_x: config.region.max_x,
-        min_y: config.region.min_y,
-        max_y: config.region.max_y,
-        min_z: config.region.min_z,
-        max_z: config.region.max_z,
-    };
+    // Create server configuration from loaded config and CLI overrides
+    let server_config = create_server_config(&config, &args)?;
     
-    let server_config = ServerConfig {
-        listen_addr: args.listen
-            .as_deref()
-            .unwrap_or(&config.server.listen_addr)
-            .parse()
-            .map_err(|e| anyhow::anyhow!("Failed to parse listen address: {}", e))?,
-        region_bounds,
-        plugin_directory: args.plugins
-            .as_deref()
-            .unwrap_or(Path::new(&config.plugins.directory))
-            .to_string_lossy()
-            .to_string(),
-        max_players: args.max_players.unwrap_or(config.server.max_players),
-        tick_rate: config.server.tick_rate,
-    };
-    
-    // Create and configure the game server
+    // Initialize the game server
     let mut server = GameServer::new(server_config.region_bounds.clone());
     
-    // START EVENT PROCESSOR BEFORE LOADING PLUGINS
+    // Start event processor before loading plugins
     info!("Starting event processor...");
-    server.start_event_processor().await;
+    server.event_processor.start().await;
     
-    // Load plugins AFTER starting event processor
-    load_plugins(&mut server, &config.plugins, &server_config.plugin_directory)
+    // Load plugins after starting event processor
+    plugins::load_plugins(&mut server, &config.plugins, &server_config.plugin_directory)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to load plugins: {}", e))?;
     
-    // Setup shutdown handler
-    let shutdown_server = setup_shutdown_handler().await;
+    // Set up graceful shutdown handling
+    let shutdown_receiver = shutdown::setup_shutdown_handler().await;
     
-    // Start the server (this will NOT start event processor again since it's already running)
-    info!("Server configuration:");
-    info!("  Listen address: {}", server_config.listen_addr);
-    info!("  Region bounds: {:?}", server_config.region_bounds);
-    info!("  Max players: {}", server_config.max_players);
-    info!("  Tick rate: {}ms", server_config.tick_rate);
-    info!("  Plugin directory: {}", server_config.plugin_directory);
+    // Log final server configuration
+    log_server_configuration(&server_config);
     
     // Run server with graceful shutdown
     tokio::select! {
@@ -172,7 +70,7 @@ async fn main() -> Result<(), anyhow::Error> {
                 }
             }
         }
-        _ = shutdown_server => {
+        _ = shutdown_receiver => {
             info!("Shutdown signal received");
             if let Err(e) = server.shutdown().await {
                 error!("Error during shutdown: {}", e);
@@ -184,130 +82,76 @@ async fn main() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-fn setup_logging(args: &Args) -> Result<()> {
-    use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+/// Create server configuration from loaded config and CLI arguments
+/// 
+/// This function merges configuration file settings with command-line
+/// argument overrides to create the final server configuration.
+/// 
+/// # Arguments
+/// * `config` - Loaded configuration from file
+/// * `args` - Parsed command-line arguments
+/// 
+/// # Returns
+/// * `Result<ServerConfig>` - Final server configuration or error
+fn create_server_config(config: &Config, args: &Args) -> Result<ServerConfig> {
+    // Create region bounds from configuration
+    let region_bounds = RegionBounds {
+        min_x: config.region.min_x,
+        max_x: config.region.max_x,
+        min_y: config.region.min_y,
+        max_y: config.region.max_y,
+        min_z: config.region.min_z,
+        max_z: config.region.max_z,
+    };
     
-    let level = if args.debug { "debug" } else { "info" };
+    // Parse listen address (CLI override takes precedence)
+    let listen_addr = args.listen
+        .as_deref()
+        .unwrap_or(&config.server.listen_addr)
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Failed to parse listen address: {}", e))?;
     
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(level));
+    // Determine plugin directory (CLI override takes precedence)
+    let plugin_directory = args.plugins
+        .as_deref()
+        .unwrap_or(Path::new(&config.plugins.directory))
+        .to_string_lossy()
+        .to_string();
     
-    tracing_subscriber::registry()
-        .with(filter)
-        .with(fmt::layer().with_target(false))
-        .init();
+    // Determine max players (CLI override takes precedence)
+    let max_players = args.max_players.unwrap_or(config.server.max_players);
     
-    Ok(())
+    Ok(ServerConfig {
+        listen_addr,
+        region_bounds,
+        plugin_directory,
+        max_players,
+        tick_rate: config.server.tick_rate,
+        ping_interval: config.server.ping_interval,
+        connection_timeout: config.server.connection_timeout,
+        event_queue_capacity: config.server.event_queue_capacity,
+    })
 }
 
-async fn load_config(args: &Args) -> Result<Config> {
-    if args.config.exists() {
-        let config_str = tokio::fs::read_to_string(&args.config).await?;
-        let config: Config = toml::from_str(&config_str)?;
-        Ok(config)
-    } else {
-        warn!("Configuration file not found: {}, using defaults", args.config.display());
-        
-        // Create default config file
-        let default_config = Config::default();
-        let config_str = toml::to_string_pretty(&default_config)?;
-        tokio::fs::write(&args.config, config_str).await?;
-        info!("Created default configuration file: {}", args.config.display());
-        
-        Ok(default_config)
-    }
-}
-
-async fn load_plugins(
-    server: &mut GameServer,
-    plugin_config: &PluginSettings,
-    plugin_dir: &str,
-) -> Result<(), ServerError> {
-    let plugin_path = Path::new(plugin_dir);
-
-    if !plugin_path.exists() {
-        warn!("Plugin directory does not exist: {}", plugin_dir);
-        if let Err(e) = tokio::fs::create_dir_all(plugin_path).await {
-            error!("Failed to create plugin directory: {}", e);
-            return Err(ServerError::Internal(format!("Failed to create plugin directory: {}", e)));
-        }
-        info!("Created plugin directory: {}", plugin_dir);
-    }
-
-    // Load auto-load plugins
-    for plugin_name in &plugin_config.auto_load {
-        let plugin_file = if cfg!(target_os = "windows") {
-            format!("{}.dll", plugin_name)
-        } else if cfg!(target_os = "macos") {
-            format!("lib{}.dylib", plugin_name)
-        } else {
-            format!("lib{}.so", plugin_name)
-        };
-
-        let plugin_path = plugin_path.join(&plugin_file);
-
-        if plugin_path.exists() {
-            info!("Loading plugin: {}", plugin_name);
-            match server.load_plugin(&plugin_path).await {
-                Ok(_) => info!("Successfully loaded plugin: {}", plugin_name),
-                Err(e) => {
-                    error!("Failed to load plugin {}: {}", plugin_name, e);
-                    return Err(e.into());
-                }
-            }
-        } else {
-            warn!("Plugin file not found: {}", plugin_path.display());
-            info!("Expected plugin file: {}", plugin_file);
-            info!("To build the horizon plugin, run: cargo build --release --package horizon-plugin");
-        }
-    }
-
-    Ok(())
-}
-
-async fn setup_shutdown_handler() -> tokio::sync::oneshot::Receiver<()> {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    
-    tokio::spawn(async move {
-        let mut tx = Some(tx);
-        
-        #[cfg(unix)]
-        {
-            use tokio::signal::unix::{signal, SignalKind};
-            
-            let mut sigint = signal(SignalKind::interrupt()).expect("Failed to create SIGINT handler");
-            let mut sigterm = signal(SignalKind::terminate()).expect("Failed to create SIGTERM handler");
-            
-            tokio::select! {
-                _ = sigint.recv() => {
-                    info!("SIGINT received");
-                }
-                _ = sigterm.recv() => {
-                    info!("SIGTERM received");
-                }
-            }
-        }
-        
-        #[cfg(windows)]
-        {
-            use tokio::signal::windows::ctrl_c;
-            
-            let mut ctrl_c = ctrl_c().expect("Failed to create Ctrl+C handler");
-            ctrl_c.recv().await;
-            info!("Ctrl+C received");
-        }
-        
-        if let Some(tx) = tx.take() {
-            let _ = tx.send(());
-        }
-    });
-    
-    rx
+/// Log the final server configuration
+/// 
+/// Outputs all relevant server settings for debugging and verification.
+/// 
+/// # Arguments
+/// * `config` - The final server configuration to log
+fn log_server_configuration(config: &ServerConfig) {
+    info!("Server configuration:");
+    info!("  Listen address: {}", config.listen_addr);
+    info!("  Region bounds: {:?}", config.region_bounds);
+    info!("  Max players: {}", config.max_players);
+    info!("  Tick rate: {}ms", config.tick_rate);
+    info!("  Plugin directory: {}", config.plugin_directory);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared_types::{Position, RegionBounds};
     use std::time::Duration;
     use tokio::time::timeout;
     
@@ -330,15 +174,29 @@ mod tests {
     }
     
     #[test]
-    fn test_config_default() {
+    fn test_create_server_config() {
         let config = Config::default();
-        assert_eq!(config.server.listen_addr, "127.0.0.1:8080");
-        assert_eq!(config.server.max_players, 1000);
-        assert!(!config.plugins.auto_load.is_empty());
+        let args = Args::default();
+        
+        let server_config = create_server_config(&config, &args).unwrap();
+        assert_eq!(server_config.max_players, 1000);
+        assert_eq!(server_config.tick_rate, 50);
     }
     
     #[test]
-    fn test_region_bounds() {
+    fn test_create_server_config_with_overrides() {
+        let config = Config::default();
+        let mut args = Args::default();
+        args.max_players = Some(500);
+        args.listen = Some("0.0.0.0:9090".to_string());
+        
+        let server_config = create_server_config(&config, &args).unwrap();
+        assert_eq!(server_config.max_players, 500);
+        // Note: listen_addr comparison would require parsing SocketAddr
+    }
+    
+    #[test]
+    fn test_region_bounds_functionality() {
         let bounds = RegionBounds {
             min_x: -50.0,
             max_x: 50.0,
@@ -348,8 +206,8 @@ mod tests {
             max_z: 5.0,
         };
         
-        let inside_pos = shared_types::Position::new(0.0, 0.0, 0.0);
-        let outside_pos = shared_types::Position::new(100.0, 0.0, 0.0);
+        let inside_pos = Position::new(0.0, 0.0, 0.0);
+        let outside_pos = Position::new(100.0, 0.0, 0.0);
         
         assert!(bounds.contains(&inside_pos));
         assert!(!bounds.contains(&outside_pos));
