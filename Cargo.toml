@@ -1,102 +1,23 @@
-[package]
-name = "horizon2"
-version = "2.0.0"
-edition = "2021"
-authors = ["Horizon Team"]
-description = "Next-generation distributed game server with dynamic plugin system"
-license = "Apache-2.0"
+[workspace]
+members = [
+    "crates/game_client",
+    "crates/server_core",
+    "crates/shared_types", 
+    "crates/horizon_plugin",
+    "crates/game_server"
+]
 
-[[bin]]
-name = "horizon2"
-path = "src/main.rs"
-
-[dependencies]
-# Async runtime and utilities
-tokio = { version = "1.45.1", features = ["full"] }
-tokio-util = "0.7.15"
-futures = "0.3.31"
-async-trait = "0.1.88"
-num_cpus = "1.16.0"
-ring = "0.17.7"
-
-# Web framework and networking
-axum = { version = "0.8.4", features = ["ws", "macros"] }
-tower = { version = "0.5.2", features = ["full"] }
-tower-http = { version = "0.6.6", features = ["cors", "trace", "compression-gzip"] }
-hyper = { version = "1.6.0", features = ["full"] }
-socketioxide = "0.17.1"
-
-# Serialization
-serde = { version = "1.0.219", features = ["derive"] }
-serde_json = "1.0.140"
-rmp-serde = "1.3.0"
-bincode = "2.0.1"
-
-# Logging and observability
+[workspace.dependencies]
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+thiserror = "1.0"
+anyhow = "1.0"
 tracing = "0.1.41"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
-tracing-opentelemetry = "0.31.0"
-opentelemetry = "0.30.0"
-opentelemetry_sdk = "0.30.0"
-opentelemetry-jaeger = "0.22.0"
-metrics = "0.24.2"
-metrics-exporter-prometheus = "0.17.0"
-
-# Spatial and math
-nalgebra = { version = "0.32", features = ["serde-serialize"] }
-rstar = { version = "0.10", features = ["serde"] }
-geo = "0.30.0"
-kdtree = "0.7.0"
-
-# Concurrency and data structures
-dashmap = "6.1.0"
-parking_lot = "0.12.4"
-crossbeam = "0.8.4"
-rayon = "1.10.0"
-arc-swap = "1.7.1"
-
-# Utilities
-uuid = { version = "1.17.0", features = ["v4", "serde"] }
-chrono = { version = "0.4.41", features = ["serde"] }
-anyhow = "1.0.98"
-thiserror = "2.0.12"
-config = "0.15.11"
-clap = { version = "4.5.39", features = ["derive"] }
-once_cell = "1.21.3"
-toml = "0.8.22"
-
-# Dynamic loading
-libloading = "0.8.8"
-dlopen = "0.1.8"
-dlopen_derive = "0.1.4"
-
-# System
-nix = "0.30.1"
-sysinfo = "0.35.2"
-
-[dev-dependencies]
-tokio-test = "0.4.4"
-criterion = "0.6.0"
-proptest = "1.6.0"
-
-[features]
-default = ["full"]
-full = ["metrics", "tracing"]
-metrics = []
-tracing = []
-
-[profile.dev]
-opt-level = 0
-debug = true
-overflow-checks = true
-
-[profile.release]
-opt-level = 3
-debug = false
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-
-[profile.bench]
-inherits = "release"
-debug = true
+tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+async-trait = "0.1"
+libloading = "0.8"
+dashmap = "5.5"
+futures = "0.3"
+crossbeam = "0.8"

@@ -45,3 +45,4 @@ dhat-heap.json
 *.iml
 *.iws
 .vs/
+*.dll

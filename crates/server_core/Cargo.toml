@@ -1,0 +1,23 @@
+[package]
+name = "server_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib"]
+
+[dependencies]
+shared_types = { path = "../shared_types" }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+libloading = { workspace = true }
+dashmap = { workspace = true }
+futures = { workspace = true }
+crossbeam = { workspace = true }
+tokio-tungstenite = "0.20"
