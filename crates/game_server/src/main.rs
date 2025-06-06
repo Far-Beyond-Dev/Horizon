@@ -1,7 +1,7 @@
-//! Distributed Games Server - Main Entry Point
+//! Distributed Games Server - Main Entry Point with Callback-Based Events
 //! 
-//! A high-performance, plugin-extensible game server with configurable regions
-//! and graceful shutdown handling.
+//! A high-performance, plugin-extensible game server with configurable regions,
+//! callback-based event system, and graceful shutdown handling.
 
 use anyhow::Result;
 use clap::Parser;
@@ -30,7 +30,7 @@ async fn main() -> Result<(), anyhow::Error> {
     }
     
     // Log startup information
-    info!("Starting Distributed Games Server");
+    info!("Starting Distributed Games Server with Callback-Based Events");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
     
     // Load configuration from file or create default
@@ -41,17 +41,26 @@ async fn main() -> Result<(), anyhow::Error> {
     // Create server configuration from loaded config and CLI overrides
     let server_config = create_server_config(&config, &args)?;
     
-    // Initialize the game server
+    // Initialize the game server with callback-based event system
     let mut server = GameServer::new(server_config.region_bounds.clone());
     
-    // Start event processor before loading plugins
-    info!("Starting event processor...");
-    server.event_processor.start().await;
-    
-    // Load plugins after starting event processor
+    // Load plugins with automatic callback registration
+    // Note: Event processor starts automatically when the server starts
+    info!("Loading plugins with callback registration...");
     plugins::load_plugins(&mut server, &config.plugins, &server_config.plugin_directory)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to load plugins: {}", e))?;
+    
+    // Log plugin and event system status
+    let server_stats = server.get_server_stats().await;
+    info!("Plugin system initialized:");
+    info!("  - {} plugins loaded", server_stats.plugin_count);
+    info!("  - {} event types registered", server_stats.registered_events);
+    info!("  - {} total callbacks registered", server_stats.total_callbacks);
+    
+    for (event_name, callback_count) in &server_stats.event_details {
+        info!("    * {}: {} callbacks", event_name, callback_count);
+    }
     
     // Set up graceful shutdown handling
     let shutdown_receiver = shutdown::setup_shutdown_handler().await;
@@ -146,6 +155,7 @@ fn log_server_configuration(config: &ServerConfig) {
     info!("  Max players: {}", config.max_players);
     info!("  Tick rate: {}ms", config.tick_rate);
     info!("  Plugin directory: {}", config.plugin_directory);
+    info!("  Event system: Callback-based dispatch");
 }
 
 #[cfg(test)]
@@ -156,7 +166,7 @@ mod tests {
     use tokio::time::timeout;
     
     #[tokio::test]
-    async fn test_server_startup_shutdown() {
+    async fn test_server_startup_shutdown_callback_system() {
         let region_bounds = RegionBounds {
             min_x: -100.0,
             max_x: 100.0,

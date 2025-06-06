@@ -1,7 +1,6 @@
-//! Dynamic plugin loading and management system
+//! Safe Rust plugin loading using trait objects directly
 //! 
-//! Handles loading plugins from dynamic libraries, initializing them,
-//! and managing their lifecycle.
+//! Since plugins are written in Rust, we can safely pass trait objects across FFI.
 
 use crate::context::ServerContextImpl;
 use crate::server::{ConnectionManager, EventProcessor};
@@ -13,13 +12,27 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
-/// Manages dynamic plugin loading and lifecycle
-/// 
-/// The PluginLoader handles:
-/// - Loading plugins from dynamic libraries
-/// - Plugin initialization and shutdown
-/// - Event subscription management
-/// - Plugin error handling and recovery
+/// Plugin reference for callback dispatch
+#[derive(Clone)]
+pub struct PluginRef {
+    pub plugin: Arc<RwLock<Box<dyn Plugin>>>,
+    pub context: Arc<dyn ServerContext>,
+}
+
+/// Safe FFI signatures for Rust plugins that export trait objects directly
+type CreatePluginFn = unsafe extern "C" fn() -> *mut dyn Plugin;
+type DestroyPluginFn = unsafe extern "C" fn(*mut dyn Plugin);
+
+/// Plugin instance with associated context
+#[derive(Clone)]
+struct PluginInstance {
+    plugin: Arc<RwLock<Box<dyn Plugin>>>,
+    context: Arc<ServerContextImpl>,
+    name: String,
+    version: String,
+}
+
+/// Manages plugin loading and lifecycle with callback-based events
 pub struct PluginLoader {
     /// Server region identifier
     region_id: RegionId,
@@ -27,24 +40,16 @@ pub struct PluginLoader {
     players: Arc<DashMap<PlayerId, Player>>,
     /// Connection management system
     connection_manager: Arc<ConnectionManager>,
-    /// Event processing system
+    /// Event processing system with callback dispatch
     event_processor: Arc<EventProcessor>,
-    /// Loaded plugin instances
-    plugins: Arc<RwLock<Vec<Arc<RwLock<Box<dyn Plugin>>>>>>,
-    /// Dynamic libraries for loaded plugins
+    /// Loaded plugin instances with their contexts
+    plugins: Arc<RwLock<Vec<PluginInstance>>>,
+    /// Dynamic libraries for loaded plugins (kept alive to prevent unloading)
     plugin_libraries: Vec<Library>,
-    /// Event subscription mappings (event_id -> plugin indices)
-    event_subscriptions: Arc<DashMap<EventId, Vec<usize>>>,
 }
 
 impl PluginLoader {
     /// Create a new plugin loader
-    /// 
-    /// # Arguments
-    /// * `region_id` - Server region identifier
-    /// * `players` - Shared player registry
-    /// * `connection_manager` - Connection management system
-    /// * `event_processor` - Event processing system
     pub fn new(
         region_id: RegionId,
         players: Arc<DashMap<PlayerId, Player>>,
@@ -58,37 +63,13 @@ impl PluginLoader {
             event_processor,
             plugins: Arc::new(RwLock::new(Vec::new())),
             plugin_libraries: Vec::new(),
-            event_subscriptions: Arc::new(DashMap::new()),
         }
     }
     
-    /// Load a plugin from a dynamic library
-    /// 
-    /// This method:
-    /// 1. Loads the dynamic library
-    /// 2. Finds and calls the plugin creation function
-    /// 3. **Starts event processing for the plugin FIRST**
-    /// 4. Initializes the plugin with server context
-    /// 5. Registers event subscriptions
-    /// 
-    /// # Arguments
-    /// * `library_path` - Path to the plugin dynamic library
-    /// 
-    /// # Returns
-    /// Result indicating success or failure of plugin loading
-    /// 
-    /// # Safety
-    /// This function uses unsafe code to load dynamic libraries and call foreign functions.
-    /// The plugin must implement the required interface correctly.
-    /// 
-    /// # Errors
-    /// Returns `ServerError::Plugin` if:
-    /// - The library cannot be loaded
-    /// - The required symbols are not found
-    /// - Plugin initialization fails
+    /// Load a plugin from a dynamic library using safe trait object FFI
     pub async fn load_plugin(&mut self, library_path: impl AsRef<Path>) -> Result<(), ServerError> {
         let lib_path = library_path.as_ref();
-        info!("Loading plugin from: {}", lib_path.display());
+        info!("Loading Rust plugin from: {}", lib_path.display());
         
         unsafe {
             // Load the dynamic library
@@ -97,131 +78,93 @@ impl PluginLoader {
                     format!("Failed to load library: {}", e)
                 )))?;
             
-            // Find the plugin creation function
-            let create_plugin: Symbol<unsafe extern "C" fn() -> Box<dyn Plugin>> = lib.get(b"create_plugin")
+            // Find the plugin creation function that returns *mut dyn Plugin directly
+            let create_plugin: Symbol<CreatePluginFn> = lib.get(b"create_plugin")
                 .map_err(|e| ServerError::Plugin(PluginError::InitializationFailed(
                     format!("Failed to find create_plugin function: {}", e)
                 )))?;
             
-            // Create the plugin instance
-            let plugin = create_plugin();
-            let plugin_name = plugin.name();
-            let plugin_version = plugin.version();
+            // Call the creation function - this returns *mut dyn Plugin
+            let plugin_ptr = create_plugin();
+            if plugin_ptr.is_null() {
+                return Err(ServerError::Plugin(PluginError::InitializationFailed(
+                    "create_plugin returned null pointer".to_string()
+                )));
+            }
             
-            info!("Created plugin: {} v{}", plugin_name, plugin_version);
+            // SAFE: Convert the trait object pointer back to a Box
+            // This is safe because:
+            // 1. The plugin was created as Box<ConcretePlugin> and converted to Box<dyn Plugin>
+            // 2. Both sides use the same Rust trait object layout
+            // 3. The pointer is guaranteed to be valid until we call destroy_plugin
+            let plugin: Box<dyn Plugin> = Box::from_raw(plugin_ptr);
+            
+            let plugin_name = plugin.name().to_string();
+            let plugin_version = plugin.version().to_string();
+            
+            info!("Created Rust plugin: {} v{}", plugin_name, plugin_version);
             
             // Get subscribed events before we move the plugin
             let subscribed_events = plugin.subscribed_events();
             
-            // Store the plugin and get its index
-            let plugin_index = {
-                let mut plugins = self.plugins.write().await;
-                let index = plugins.len();
-                plugins.push(Arc::new(RwLock::new(plugin)));
-                index
-            };
+            // Wrap plugin in Arc<RwLock<>>
+            let plugin_arc = Arc::new(RwLock::new(plugin));
             
-            // Register event subscriptions
-            for event_id in subscribed_events {
-                self.event_subscriptions
-                    .entry(event_id.clone())
-                    .or_insert_with(Vec::new)
-                    .push(plugin_index);
-                info!("Plugin {} subscribed to event: {}", plugin_name, event_id);
-            }
+            // Create server context for this plugin
+            let context = Arc::new(ServerContextImpl::new(
+                self.region_id,
+                self.players.clone(),
+                self.connection_manager.clone(),
+                self.event_processor.clone(),
+            ));
             
-            // **CRITICAL FIX: Start event processing BEFORE initializing the plugin**
-            // This ensures receivers are active when the plugin tries to emit events during init
-            self.start_plugin_event_processing(plugin_index).await;
-            
-            // Now initialize the plugin (it can safely emit events)
+            // Initialize the plugin
             {
-                let plugins = self.plugins.read().await;
-                let plugin_arc = plugins[plugin_index].clone();
-                let mut plugin = plugin_arc.write().await;
-                let context = ServerContextImpl::new(
-                    self.region_id,
-                    self.players.clone(),
-                    self.connection_manager.clone(),
-                    self.event_processor.clone()
-                );
-                
-                plugin.initialize(&context).await.map_err(|e| {
+                let mut plugin_guard = plugin_arc.write().await;
+                plugin_guard.initialize(context.as_ref()).await.map_err(|e| {
                     error!("Plugin {} initialization failed: {}", plugin_name, e);
                     e
                 })?;
             }
             
+            // Register plugin callbacks with the event processor
+            info!("Registering {} event callbacks for plugin '{}'", subscribed_events.len(), plugin_name);
+            self.event_processor
+                .register_plugin_callbacks(
+                    plugin_arc.clone(),
+                    context.clone(),
+                    subscribed_events,
+                )
+                .await
+                .map_err(|e| {
+                    error!("Failed to register callbacks for plugin {}: {}", plugin_name, e);
+                    e
+                })?;
+            
+            // Store plugin instance
+            let plugin_instance = PluginInstance {
+                plugin: plugin_arc,
+                context,
+                name: plugin_name.clone(),
+                version: plugin_version.clone(),
+            };
+            
+            {
+                let mut plugins = self.plugins.write().await;
+                plugins.push(plugin_instance);
+            }
+            
             // Store the library to prevent it from being unloaded
             self.plugin_libraries.push(lib);
             
-            info!("Successfully loaded and initialized plugin: {} v{}", plugin_name, plugin_version);
+            info!("Successfully loaded and initialized Rust plugin: {} v{}", plugin_name, plugin_version);
+            info!("Plugin '{}' is now registered for event callbacks", plugin_name);
         }
         
         Ok(())
     }
     
-    /// Start event processing for a specific plugin
-    /// 
-    /// # Arguments
-    /// * `plugin_index` - Index of the plugin in the plugins vector
-    async fn start_plugin_event_processing(&self, plugin_index: usize) {
-        let mut event_receiver = self.event_processor.subscribe();
-        let plugins = self.plugins.clone();
-        let event_subscriptions = self.event_subscriptions.clone();
-        let players = self.players.clone();
-        let connection_manager = self.connection_manager.clone();
-        let event_processor = self.event_processor.clone();
-        let region_id = self.region_id;
-        
-        tokio::spawn(async move {
-            info!("Started event processing for plugin index {}", plugin_index);
-            
-            while let Ok((event_id, event)) = event_receiver.recv().await {
-                // Check if this plugin is subscribed to this event
-                if let Some(subscriber_indices) = event_subscriptions.get(&event_id) {
-                    if subscriber_indices.contains(&plugin_index) {
-                        let plugins_guard = plugins.read().await;
-                        
-                        if let Some(plugin_arc) = plugins_guard.get(plugin_index) {
-                            let plugin_arc = plugin_arc.clone();
-                            let event_id = event_id.clone();
-                            let event = event.clone();
-                            let players = players.clone();
-                            let connection_manager = connection_manager.clone();
-                            let event_processor = event_processor.clone();
-                            
-                            // Process the event in a separate task to avoid blocking
-                            tokio::spawn(async move {
-                                let mut plugin = plugin_arc.write().await;
-                                let context = ServerContextImpl::new(
-                                    region_id,
-                                    players,
-                                    connection_manager,
-                                    event_processor
-                                );
-                                
-                                if let Err(e) = plugin.handle_event(&event_id, event.as_ref(), &context).await {
-                                    error!("Plugin error handling event {}: {}", event_id, e);
-                                }
-                            });
-                        }
-                    }
-                }
-            }
-        });
-    }
-    
     /// Load all plugins from a directory
-    /// 
-    /// Scans the specified directory for dynamic library files and attempts
-    /// to load each one as a plugin.
-    /// 
-    /// # Arguments
-    /// * `plugin_dir` - Directory path containing plugin libraries
-    /// 
-    /// # Returns
-    /// Result with the number of successfully loaded plugins
     pub async fn load_plugins_from_directory(&mut self, plugin_dir: impl AsRef<Path>) -> Result<usize, ServerError> {
         let plugin_dir = plugin_dir.as_ref();
         
@@ -265,50 +208,51 @@ impl PluginLoader {
     }
     
     /// Get information about all loaded plugins
-    /// 
-    /// # Returns
-    /// Vector of plugin information including name, version, and description
     pub async fn get_plugin_info(&self) -> Vec<PluginInfo> {
         let plugins = self.plugins.read().await;
         let mut plugin_info = Vec::new();
         
-        for plugin_arc in plugins.iter() {
-            let plugin = plugin_arc.read().await;
+        for plugin_instance in plugins.iter() {
             plugin_info.push(PluginInfo {
-                name: plugin.name().to_owned(),
-                version: plugin.version().to_owned(),
+                name: plugin_instance.name.clone(),
+                version: plugin_instance.version.clone(),
             });
         }
         
         plugin_info
     }
     
+    /// Get event processor statistics
+    pub async fn get_event_stats(&self) -> EventStats {
+        EventStats {
+            registered_events: self.event_processor.registered_event_count().await,
+            total_callbacks: self.event_processor.total_callback_count().await,
+            callback_details: self.event_processor.get_callback_stats().await,
+        }
+    }
+    
     /// Shutdown all loaded plugins gracefully
-    /// 
-    /// Calls the shutdown method on each plugin and handles any errors.
-    /// 
-    /// # Returns
-    /// Result indicating overall success or any critical failures
     pub async fn shutdown_all(&self) -> Result<(), ServerError> {
         info!("Shutting down all plugins...");
         
         let plugins = self.plugins.read().await;
         let mut shutdown_errors = Vec::new();
         
-        for (index, plugin_arc) in plugins.iter().enumerate() {
-            let mut plugin = plugin_arc.write().await;
-            let context = ServerContextImpl::new(
-                self.region_id,
-                self.players.clone(),
-                self.connection_manager.clone(),
-                self.event_processor.clone()
-            );
+        for plugin_instance in plugins.iter() {
+            // Shutdown the plugin
+            {
+                let mut plugin = plugin_instance.plugin.write().await;
+                if let Err(e) = plugin.shutdown(plugin_instance.context.as_ref()).await {
+                    error!("Error shutting down plugin {}: {}", plugin_instance.name, e);
+                    shutdown_errors.push(e);
+                } else {
+                    info!("Plugin '{}' shut down successfully", plugin_instance.name);
+                }
+            }
             
-            if let Err(e) = plugin.shutdown(&context).await {
-                error!("Error shutting down plugin {}: {}", index, e);
-                shutdown_errors.push(e);
-            } else {
-                info!("Plugin {} shut down successfully", plugin.name());
+            // Unregister callbacks (best effort)
+            if let Err(e) = self.event_processor.unregister_plugin(&plugin_instance.name).await {
+                warn!("Failed to unregister callbacks for plugin '{}': {}", plugin_instance.name, e);
             }
         }
         
@@ -326,6 +270,12 @@ impl PluginLoader {
     pub async fn plugin_count(&self) -> usize {
         self.plugins.read().await.len()
     }
+    
+    /// Check if a specific plugin is loaded
+    pub async fn is_plugin_loaded(&self, plugin_name: &str) -> bool {
+        let plugins = self.plugins.read().await;
+        plugins.iter().any(|p| p.name == plugin_name)
+    }
 }
 
 /// Information about a loaded plugin
@@ -333,4 +283,12 @@ impl PluginLoader {
 pub struct PluginInfo {
     pub name: String,
     pub version: String,
+}
+
+/// Statistics about the event callback system
+#[derive(Debug, Clone)]
+pub struct EventStats {
+    pub registered_events: usize,
+    pub total_callbacks: usize,
+    pub callback_details: std::collections::HashMap<String, usize>,
 }

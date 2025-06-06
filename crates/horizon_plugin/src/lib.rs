@@ -3,6 +3,9 @@ use shared_types::*;
 use std::collections::HashMap;
 
 /// Horizon plugin - example plugin that manages player horizons and visibility
+/// 
+/// This plugin demonstrates the callback-based event system by registering
+/// for specific game events and handling them through direct callbacks.
 pub struct HorizonPlugin {
     name: &'static str,
     version: &'static str,
@@ -55,12 +58,12 @@ impl HorizonPlugin {
             horizon_distance,
         };
         
-        // Emit the event
+        // Emit the event through callback system
         let namespace = EventNamespace::plugin_default(self.name);
         context.emit_event(namespace, Box::new(visibility_event)).await
-            .map_err(|e| PluginError::ExecutionError(format!("Failed to emit event: {}", e)))?;
+            .map_err(|e| PluginError::ExecutionError(format!("Failed to emit event through callback system: {}", e)))?;
         
-        context.log(LogLevel::Debug, &format!("Updated visibility for player {}: {} visible players", player_id, visible_players_count));
+        context.log(LogLevel::Debug, &format!("Updated visibility for player {} via callback system: {} visible players", player_id, visible_players_count));
         
         Ok(())
     }
@@ -87,7 +90,7 @@ impl HorizonPlugin {
         
         let namespace = EventNamespace::plugin_default(self.name);
         context.emit_event(namespace, Box::new(horizon_event)).await
-            .map_err(|e| PluginError::ExecutionError(format!("Failed to emit horizon change event: {}", e)))?;
+            .map_err(|e| PluginError::ExecutionError(format!("Failed to emit horizon change event through callback system: {}", e)))?;
         
         Ok(())
     }
@@ -114,60 +117,70 @@ impl Plugin for HorizonPlugin {
             return Err(PluginError::InitializationFailed("Plugin already initialized".to_string()));
         }
         
-        context.log(LogLevel::Info, &format!("Initializing Horizon plugin v{}", self.version));
-        println!("Horizon plugin initialized with default distance: {}", self.default_horizon_distance);
+        context.log(LogLevel::Info, &format!("Initializing Horizon plugin v{} with callback-based events", self.version));
+        println!("Horizon plugin initializing with callback-based event system");
+        println!("Default horizon distance: {}", self.default_horizon_distance);
 
-        // Emit initialization event
+        // Emit initialization event through callback system
         let init_event = HorizonEvent::PluginInitialized {
             default_horizon_distance: self.default_horizon_distance,
         };
 
-        println!("Emitting plugin initialized event");
+        println!("Emitting plugin initialized event through callback system");
         
         let namespace = EventNamespace::plugin_default(self.name);
         context.emit_event(namespace, Box::new(init_event)).await
-            .map_err(|e| PluginError::InitializationFailed(format!("Failed to emit init event: {}", e)))?;
+            .map_err(|e| PluginError::InitializationFailed(format!("Failed to emit init event through callback system: {}", e)))?;
         
-        context.log(LogLevel::Info, "Horizon plugin initialization complete");
+        context.log(LogLevel::Info, "Horizon plugin initialization complete using callback-based events");
 
         self.initialized = true;
-        context.log(LogLevel::Info, "Horizon plugin initialized successfully");
+        context.log(LogLevel::Info, "Horizon plugin initialized successfully with callback dispatch");
 
-        println!("Horizon plugin initialized successfully");
+        println!("Horizon plugin initialized successfully with callback-based event system");
 
         Ok(())
     }
     
+    /// Handle events through callback-based dispatch
+    /// 
+    /// This method is called directly by the event processor when events
+    /// that this plugin has subscribed to are emitted. No polling required!
     async fn handle_event(&mut self, event_id: &EventId, event: &dyn GameEvent, context: &dyn ServerContext) -> Result<(), PluginError> {
         if !self.initialized {
             return Err(PluginError::ExecutionError("Plugin not initialized".to_string()));
         }
+        
+        context.log(LogLevel::Debug, &format!("Horizon plugin handling event {} via callback dispatch", event_id));
         
         // Handle core events
         if event_id.namespace.0 == "core" {
             if let Some(core_event) = event.as_any().downcast_ref::<CoreEvent>() {
                 match core_event {
                     CoreEvent::PlayerJoined { player } => {
-                        context.log(LogLevel::Info, &format!("Player {} joined, setting up horizon", player.name));
+                        context.log(LogLevel::Info, &format!("Player {} joined (callback dispatch), setting up horizon", player.name));
                         self.visibility_ranges.insert(player.id, self.default_horizon_distance);
                         self.update_player_visibility(player.id, context).await?;
                     }
                     
                     CoreEvent::PlayerLeft { player_id } => {
-                        context.log(LogLevel::Info, &format!("Player {} left, cleaning up horizon data", player_id));
+                        context.log(LogLevel::Info, &format!("Player {} left (callback dispatch), cleaning up horizon data", player_id));
                         self.visibility_ranges.remove(player_id);
                     }
                     
                     CoreEvent::PlayerMoved { player_id, old_position: _, new_position: _ } => {
-                        // Update visibility when player moves
+                        // Update visibility when player moves (called via callback)
+                        context.log(LogLevel::Debug, &format!("Player {} moved (callback dispatch), updating visibility", player_id));
                         self.update_player_visibility(*player_id, context).await?;
                     }
                     
                     CoreEvent::CustomMessage { data } => {
                         // Check if this is a horizon-related message
                         if let Ok(horizon_msg) = serde_json::from_value::<HorizonMessage>(data.clone()) {
+                            context.log(LogLevel::Debug, "Processing horizon message via callback dispatch");
                             match horizon_msg {
                                 HorizonMessage::SetHorizonDistance { player_id, distance } => {
+                                    context.log(LogLevel::Info, &format!("Setting horizon distance {} for player {} (callback dispatch)", distance, player_id));
                                     self.handle_horizon_change(player_id, distance, context).await?;
                                 }
                                 HorizonMessage::GetHorizonInfo { player_id } => {
@@ -175,6 +188,8 @@ impl Plugin for HorizonPlugin {
                                         .get(&player_id)
                                         .copied()
                                         .unwrap_or(self.default_horizon_distance);
+                                    
+                                    context.log(LogLevel::Info, &format!("Getting horizon info for player {} (callback dispatch): distance {}", player_id, current_distance));
                                     
                                     let info_event = HorizonEvent::HorizonInfo {
                                         player_id,
@@ -185,14 +200,14 @@ impl Plugin for HorizonPlugin {
                                     
                                     let namespace = EventNamespace::plugin_default(self.name);
                                     context.emit_event(namespace, Box::new(info_event)).await
-                                        .map_err(|e| PluginError::ExecutionError(format!("Failed to emit info event: {}", e)))?;
+                                        .map_err(|e| PluginError::ExecutionError(format!("Failed to emit info event through callback system: {}", e)))?;
                                 }
                             }
                         }
                     }
                     
                     CoreEvent::RegionChanged { region_id } => {
-                        context.log(LogLevel::Info, &format!("Region changed to {:?}, recalculating all horizons", region_id));
+                        context.log(LogLevel::Info, &format!("Region changed to {:?} (callback dispatch), recalculating all horizons", region_id));
                         // Recalculate visibility for all players
                         let player_ids: Vec<PlayerId> = self.visibility_ranges.keys().copied().collect();
                         for player_id in player_ids {
@@ -203,17 +218,22 @@ impl Plugin for HorizonPlugin {
             }
         }
         
-        // Handle plugin-specific events
+        // Handle plugin-specific events (also via callback dispatch)
         if event_id.namespace == EventNamespace::plugin_default(self.name) {
             if let Some(horizon_event) = event.as_any().downcast_ref::<HorizonEvent>() {
                 match horizon_event {
                     HorizonEvent::VisibilityUpdated { player_id, visible_players, horizon_distance } => {
                         context.log(LogLevel::Debug, &format!(
-                            "Visibility updated for {}: {} players visible within {} units", 
+                            "Visibility updated for {} via callback dispatch: {} players visible within {} units", 
                             player_id, visible_players.len(), horizon_distance
                         ));
                     }
-                    _ => {} // Other horizon events don't need special handling here
+                    HorizonEvent::PluginInitialized { default_horizon_distance } => {
+                        context.log(LogLevel::Info, &format!("Horizon plugin initialization event processed via callback (default distance: {})", default_horizon_distance));
+                    }
+                    _ => {
+                        context.log(LogLevel::Debug, "Other horizon event processed via callback dispatch");
+                    }
                 }
             }
         }
@@ -221,18 +241,23 @@ impl Plugin for HorizonPlugin {
         Ok(())
     }
     
+    /// Return events this plugin wants to receive via callback dispatch
+    /// 
+    /// The event processor will register callbacks for these events,
+    /// eliminating the need for polling.
     fn subscribed_events(&self) -> Vec<EventId> {
         vec![
-            // Core events
+            // Core events - will be delivered via callback dispatch
             EventId::new(EventNamespace::new("core"), "player_joined"),
             EventId::new(EventNamespace::new("core"), "player_left"),
             EventId::new(EventNamespace::new("core"), "player_moved"),
             EventId::new(EventNamespace::new("core"), "region_changed"),
             EventId::new(EventNamespace::new("core"), "custom_message"),
             
-            // Plugin-specific events
+            // Plugin-specific events - also delivered via callback dispatch
             EventId::new(EventNamespace::plugin_default(self.name), "visibility_updated"),
             EventId::new(EventNamespace::plugin_default(self.name), "horizon_distance_changed"),
+            EventId::new(EventNamespace::plugin_default(self.name), "plugin_initialized"),
         ]
     }
     
@@ -241,19 +266,19 @@ impl Plugin for HorizonPlugin {
             return Ok(()); // Already shut down
         }
         
-        context.log(LogLevel::Info, "Shutting down Horizon plugin");
+        context.log(LogLevel::Info, "Shutting down Horizon plugin (callback-based events)");
         
         // Clear all data
         self.visibility_ranges.clear();
         self.initialized = false;
         
-        // Emit shutdown event
+        // Emit shutdown event through callback system
         let shutdown_event = HorizonEvent::PluginShutdown;
         let namespace = EventNamespace::plugin_default(self.name);
         context.emit_event(namespace, Box::new(shutdown_event)).await
-            .map_err(|e| PluginError::ExecutionError(format!("Failed to emit shutdown event: {}", e)))?;
+            .map_err(|e| PluginError::ExecutionError(format!("Failed to emit shutdown event through callback system: {}", e)))?;
         
-        context.log(LogLevel::Info, "Horizon plugin shutdown complete");
+        context.log(LogLevel::Info, "Horizon plugin shutdown complete (callbacks will be automatically unregistered)");
         
         Ok(())
     }
@@ -311,19 +336,23 @@ pub enum HorizonMessage {
     GetHorizonInfo { player_id: PlayerId },
 }
 
-/// Required export for plugin loading
+/// CORRECT FFI EXPORTS - These return trait objects directly for safe Rust-to-Rust FFI
+
+/// Required export for plugin creation - returns *mut dyn Plugin directly
 #[no_mangle]
-pub extern "C" fn create_plugin() -> *mut std::ffi::c_void {
+pub unsafe extern "C" fn create_plugin() -> *mut dyn Plugin {
     let plugin = Box::new(HorizonPlugin::new());
-    Box::into_raw(plugin) as *mut std::ffi::c_void
+    // Convert concrete plugin to trait object
+    let trait_object: Box<dyn Plugin> = plugin;
+    // Return the raw pointer to the trait object
+    Box::into_raw(trait_object)
 }
 
-/// Required for proper plugin cleanup
+/// Required export for plugin destruction - takes *mut dyn Plugin directly
 #[no_mangle]
-pub extern "C" fn destroy_plugin(plugin: *mut std::ffi::c_void) {
+pub unsafe extern "C" fn destroy_plugin(plugin: *mut dyn Plugin) {
     if !plugin.is_null() {
-        unsafe {
-            let _ = Box::from_raw(plugin as *mut HorizonPlugin);
-        }
+        // Convert back to Box and let it drop
+        let _ = Box::from_raw(plugin);
     }
 }

@@ -1,6 +1,7 @@
-//! Server context implementation for plugin interaction
+//! Server context implementation for plugin interaction with callback-based events
 //! 
-//! Provides a safe interface for plugins to interact with the game server.
+//! Provides a safe interface for plugins to interact with the game server
+//! using the new callback-based event system.
 
 use crate::server::{ConnectionManager, EventProcessor};
 use async_trait::async_trait;
@@ -9,10 +10,10 @@ use shared_types::*;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
-/// Implementation of ServerContext for plugins
+/// Implementation of ServerContext for plugins with callback-based events
 /// 
 /// Provides plugins with controlled access to server functionality including:
-/// - Event emission and handling
+/// - Event emission through the callback-based event processor
 /// - Player data access
 /// - Message sending capabilities
 /// - Logging services
@@ -24,7 +25,7 @@ pub struct ServerContextImpl {
     players: Arc<DashMap<PlayerId, Player>>,
     /// Connection management system
     connection_manager: Arc<ConnectionManager>,
-    /// Event processing system
+    /// Callback-based event processing system
     event_processor: Arc<EventProcessor>,
 }
 
@@ -35,7 +36,7 @@ impl ServerContextImpl {
     /// * `region_id` - Server region identifier
     /// * `players` - Shared player registry
     /// * `connection_manager` - Connection management system
-    /// * `event_processor` - Event processing system
+    /// * `event_processor` - Callback-based event processing system
     pub fn new(
         region_id: RegionId,
         players: Arc<DashMap<PlayerId, Player>>,
@@ -53,7 +54,10 @@ impl ServerContextImpl {
 
 #[async_trait]
 impl ServerContext for ServerContextImpl {
-    /// Emit a game event to the event system
+    /// Emit a game event to the callback-based event system
+    /// 
+    /// Events are directly dispatched to registered plugin callbacks
+    /// instead of being polled by background tasks.
     /// 
     /// # Arguments
     /// * `namespace` - Event namespace for organization
@@ -63,7 +67,18 @@ impl ServerContext for ServerContextImpl {
     /// Result indicating success or failure of event emission
     async fn emit_event(&self, namespace: EventNamespace, event: Box<dyn GameEvent>) -> Result<(), ServerError> {
         let event_id = EventId::new(namespace, event.event_type());
-        self.event_processor.emit_event(event_id, event.into()).await?;
+        
+        // Convert Box<dyn GameEvent> to Arc<dyn GameEvent + Send + Sync>
+        let event_arc: Arc<dyn GameEvent + Send + Sync> = event.into();
+        
+        // Emit through callback-based event processor
+        self.event_processor.emit_event(event_id.clone(), event_arc).await
+            .map_err(|e| {
+                error!("Failed to emit event {}: {}", event_id, e);
+                e
+            })?;
+        
+        debug!("Successfully emitted event: {}", event_id);
         Ok(())
     }
     
@@ -176,6 +191,47 @@ impl ServerContextImpl {
     pub fn connection_count(&self) -> usize {
         self.connection_manager.connection_count()
     }
+    
+    /// Get event processor statistics
+    /// 
+    /// # Returns
+    /// Statistics about the callback-based event system
+    pub async fn get_event_stats(&self) -> std::collections::HashMap<String, usize> {
+        self.event_processor.get_callback_stats().await
+    }
+    
+    /// Emit a typed core event with proper namespace
+    /// 
+    /// Convenience method for emitting core game events.
+    /// 
+    /// # Arguments
+    /// * `event` - Core event to emit
+    /// 
+    /// # Returns
+    /// Result indicating success or failure
+    pub async fn emit_core_event(&self, event: CoreEvent) -> Result<(), ServerError> {
+        self.emit_event(
+            EventNamespace::new("core"),
+            Box::new(event)
+        ).await
+    }
+    
+    /// Emit a plugin event with automatic namespace
+    /// 
+    /// Convenience method for plugins to emit events in their own namespace.
+    /// 
+    /// # Arguments
+    /// * `plugin_name` - Name of the plugin emitting the event
+    /// * `event` - Event to emit
+    /// 
+    /// # Returns
+    /// Result indicating success or failure
+    pub async fn emit_plugin_event(&self, plugin_name: &str, event: Box<dyn GameEvent>) -> Result<(), ServerError> {
+        self.emit_event(
+            EventNamespace::plugin_default(plugin_name),
+            event
+        ).await
+    }
 }
 
 #[cfg(test)]
@@ -219,5 +275,33 @@ mod tests {
         let result = context.get_players().await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
+    }
+    
+    #[tokio::test]
+    async fn test_event_emission() {
+        let region_id = RegionId::new();
+        let players = Arc::new(DashMap::new());
+        let connection_manager = Arc::new(ConnectionManager::new());
+        let event_processor = Arc::new(EventProcessor::new());
+        
+        // Start the event processor
+        event_processor.start().await;
+        
+        let context = ServerContextImpl::new(
+            region_id,
+            players,
+            connection_manager,
+            event_processor,
+        );
+        
+        // Test emitting a core event
+        let test_event = CoreEvent::CustomMessage { 
+            data: serde_json::json!({
+                "test": "callback_system"
+            })
+        };
+        
+        let result = context.emit_core_event(test_event).await;
+        assert!(result.is_ok());
     }
 }

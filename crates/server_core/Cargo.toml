@@ -21,3 +21,4 @@ dashmap = { workspace = true }
 futures = { workspace = true }
 crossbeam = { workspace = true }
 tokio-tungstenite = "0.20"
+libc = { version = "0.2", features = ["extra_traits"] }
