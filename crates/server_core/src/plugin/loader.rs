@@ -292,3 +292,21 @@ pub struct EventStats {
     pub total_callbacks: usize,
     pub callback_details: std::collections::HashMap<String, usize>,
 }
+
+
+
+
+
+pub struct Car {
+    pub make: String,
+    pub model: String,
+    pub year: u16,
+}
+
+pub fn get_car_year(car: &Car) -> u16 {
+    car.year
+}
+
+fn get_car_make(car: &Car) -> &str {
+    &car.make
+}

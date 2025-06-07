@@ -44,8 +44,11 @@ async fn main() -> Result<(), anyhow::Error> {
     // Initialize the game server with callback-based event system
     let mut server = GameServer::new(server_config.region_bounds.clone());
     
+    // Start the event processor before loading plugins
+    info!("Starting event processor...");
+    server.get_event_processor().start().await;
+    
     // Load plugins with automatic callback registration
-    // Note: Event processor starts automatically when the server starts
     info!("Loading plugins with callback registration...");
     plugins::load_plugins(&mut server, &config.plugins, &server_config.plugin_directory)
         .await
