@@ -4,6 +4,8 @@ members = [
     "crates/server_core",
     "crates/shared_types", 
     "crates/horizon_plugin",
+    "crates/recipe_smith",
+    "crates/test_game",
     "crates/game_server"
 ]
 

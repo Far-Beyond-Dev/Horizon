@@ -16,7 +16,7 @@ max_z = 100.0
 
 [plugins]
 directory = "plugins"
-auto_load = ["horizon"]
+auto_load = ["horizon", "recipe_smith", "test_game"]
 
 [logging]
 level = "info"
