@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use log::info;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
@@ -49,7 +50,7 @@ impl Default for RegionId {
 pub struct EventNamespace(pub String);
 
 impl EventNamespace {
-    pub fn new(name: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String> + std::marker::Copy) -> Self {
         Self(name.into())
     }
     
@@ -72,7 +73,8 @@ pub struct EventId {
 }
 
 impl EventId {
-    pub fn new(namespace: EventNamespace, event_type: impl Into<String>) -> Self {
+    pub fn new(namespace: EventNamespace, event_type: impl Into<String> + Clone) -> Self {
+        println!("Creating EventId with namespace: {}, event_type: {}", namespace, event_type.clone().into());
         Self {
             namespace,
             event_type: event_type.into(),

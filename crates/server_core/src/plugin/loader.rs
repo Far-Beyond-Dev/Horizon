@@ -162,8 +162,18 @@ impl PluginLoader {
         }
         
         Ok(())
+
     }
-    
+
+    /// List all loaded plugins
+    pub async fn get_loaded_plugins(&self) -> Vec<PluginRef> {
+        let plugins = self.plugins.read().await;
+        plugins.iter().map(|p| PluginRef {
+            plugin: p.plugin.clone(),
+            context: p.context.clone(),
+        }).collect()
+    }
+
     /// Load all plugins from a directory
     pub async fn load_plugins_from_directory(&mut self, plugin_dir: impl AsRef<Path>) -> Result<usize, ServerError> {
         let plugin_dir = plugin_dir.as_ref();

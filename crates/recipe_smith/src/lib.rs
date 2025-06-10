@@ -216,30 +216,33 @@ impl Plugin for RecipeSmith {
                     }
 
                     CoreEvent::CustomMessage { data } => {
-                        // Check if this is a RecipeSmith-related message
-                        if let Ok(recipe_message) = serde_json::from_value::<RecipeSmithMessage>(data.clone()) {
-                            context.log(LogLevel::Debug, "Processing RecipeSmith message via callback dispatch");
-                            match recipe_message {
-                                RecipeSmithMessage::AddOrUpdateRecipe { recipe } => {
-                                    context.log(LogLevel::Info, &format!("Received request to add/update recipe: {}", recipe.name));
-                                    self.add_or_update_recipe(recipe, context).await?;
-                                }
-                                RecipeSmithMessage::RecordCraftingOutcome { player_id, outcome } => {
-                                    context.log(LogLevel::Info, &format!("Received request to record crafting outcome for player {}.", player_id));
-                                    self.record_crafting_outcome(player_id, outcome, context).await?;
-                                }
-                                RecipeSmithMessage::GetAllRecipes { player_id } => {
-                                    context.log(LogLevel::Info, &format!("Received request for all recipes from player {}.", player_id));
-                                    self.get_all_recipes(player_id, context).await?;
-                                }
-                                RecipeSmithMessage::GetRecipeInfo { player_id, recipe_id } => {
-                                    // FIX: Use {:?} for RecipeId
-                                    context.log(LogLevel::Info, &format!("Received request for recipe info for ID {:?} from player {}.", recipe_id, player_id));
-                                    self.get_recipe_info(player_id, recipe_id, context).await?;
-                                }
-                                RecipeSmithMessage::GetPlayerCraftingHistory { player_id, target_player_id } => {
-                                    context.log(LogLevel::Info, &format!("Received request for player {}'s crafting history from player {}.", target_player_id, player_id));
-                                    self.get_player_crafting_history(player_id, target_player_id, context).await?;
+                        // Try to parse the message as a JSON string first 
+                        if let Some(message_str) = data.as_str() {
+                            // Try to deserialize directly from string to our message type
+                            if let Ok(recipe_message) = serde_json::from_str::<RecipeSmithMessage>(message_str) {
+                                context.log(LogLevel::Debug, "Processing RecipeSmith message via callback dispatch");
+                                match recipe_message {
+                                    RecipeSmithMessage::AddOrUpdateRecipe { recipe } => {
+                                        context.log(LogLevel::Info, &format!("Received request to add/update recipe: {}", recipe.name));
+                                        println!("Received AddOrUpdateRecipe message: {:?}", recipe);
+                                        self.add_or_update_recipe(recipe, context).await?;
+                                    }
+                                    RecipeSmithMessage::RecordCraftingOutcome { player_id, outcome } => {
+                                        context.log(LogLevel::Info, &format!("Received request to record crafting outcome for player {}.", player_id));
+                                        self.record_crafting_outcome(player_id, outcome, context).await?;
+                                    }
+                                    RecipeSmithMessage::GetAllRecipes { player_id } => {
+                                        context.log(LogLevel::Info, &format!("Received request for all recipes from player {}.", player_id));
+                                        self.get_all_recipes(player_id, context).await?;
+                                    }
+                                    RecipeSmithMessage::GetRecipeInfo { player_id, recipe_id } => {
+                                        context.log(LogLevel::Info, &format!("Received request for recipe info for ID {:?} from player {}.", recipe_id, player_id));
+                                        self.get_recipe_info(player_id, recipe_id, context).await?;
+                                    }
+                                    RecipeSmithMessage::GetPlayerCraftingHistory { player_id, target_player_id } => {
+                                        context.log(LogLevel::Info, &format!("Received request for player {}'s crafting history from player {}.", target_player_id, player_id));
+                                        self.get_player_crafting_history(player_id, target_player_id, context).await?;
+                                    }
                                 }
                             }
                         }

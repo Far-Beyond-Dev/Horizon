@@ -12,6 +12,18 @@ use tracing::{error, info, warn};
 
 use crate::config::PluginSettings;
 
+pub struct PluginLoadStats {
+    pub plugin_count: usize,
+    pub registered_events: usize,
+    pub total_callbacks: usize,
+    pub plugins: Vec<PluginCallbackStats>,
+}
+
+pub struct PluginCallbackStats {
+    pub path: String,
+    pub callbacks_by_event: Vec<(String, usize)>,
+}
+
 /// Load plugins based on configuration
 /// 
 /// This function loads plugins specified in the server configuration.

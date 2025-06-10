@@ -8,18 +8,21 @@ use clap::Parser;
 use server_core::{GameServer, ServerConfig};
 use shared_types::RegionBounds;
 use std::path::Path;
+use std::time::Instant;
 use tracing::{error, info};
 
 // Import our modular components
 use horizon_server::{
     config::{self, Args, Config},
     logging,
-    plugins,
+    plugins::{self, PluginLoadStats},
     shutdown,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), anyhow::Error> {
+    let startup_start = Instant::now(); // ⏱️ Start measuring startup time
+
     // Parse command-line arguments
     let args = Args::parse();
     
@@ -33,45 +36,46 @@ async fn main() -> Result<(), anyhow::Error> {
     info!("Starting Distributed Games Server with Callback-Based Events");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
     
-    // Load configuration from file or create default
+    // Load configuration
     let config = config::load_config(&args).await
         .map_err(|e| anyhow::anyhow!("Failed to load config: {}", e))?;
     info!("Configuration loaded from: {}", args.config.display());
     
-    // Create server configuration from loaded config and CLI overrides
+    // Create server configuration
     let server_config = create_server_config(&config, &args)?;
     
-    // Initialize the game server with callback-based event system
+    // Initialize the game server
     let mut server = GameServer::new(server_config.region_bounds.clone());
     
-    // Start the event processor before loading plugins
+    // Start the event processor
     info!("Starting event processor...");
+    let event_processor_start = Instant::now();
     server.get_event_processor().start().await;
+    info!("Event processor started in {:.2?}", event_processor_start.elapsed());
     
-    // Load plugins with automatic callback registration
+    // Load plugins and time it
     info!("Loading plugins with callback registration...");
-    plugins::load_plugins(&mut server, &config.plugins, &server_config.plugin_directory)
-        .await
-        .map_err(|e| anyhow::anyhow!("Failed to load plugins: {}", e))?;
+    let plugin_load_start = Instant::now();
+    plugins::load_plugins(
+            &mut server, 
+            &config.plugins, 
+            &server_config.plugin_directory
+        ).await.map_err(|e| anyhow::anyhow!("Failed to load plugins: {}", e))?;
+    let plugin_load_time = plugin_load_start.elapsed();
     
-    // Log plugin and event system status
-    let server_stats = server.get_server_stats().await;
-    info!("Plugin system initialized:");
-    info!("  - {} plugins loaded", server_stats.plugin_count);
-    info!("  - {} event types registered", server_stats.registered_events);
-    info!("  - {} total callbacks registered", server_stats.total_callbacks);
-    
-    for (event_name, callback_count) in &server_stats.event_details {
-        info!("    * {}: {} callbacks", event_name, callback_count);
-    }
-    
-    // Set up graceful shutdown handling
+    // Log plugin load summary
+    info!("Plugin system initialized in {:.2?}", plugin_load_time);
+    // If you want to log plugin stats, retrieve them from the server or plugin manager here if available.
+
+    // Setup shutdown handler
     let shutdown_receiver = shutdown::setup_shutdown_handler().await;
-    
+
     // Log final server configuration
     log_server_configuration(&server_config);
-    
-    // Run server with graceful shutdown
+
+    info!("Startup complete in {:.2?}", startup_start.elapsed());
+
+    // Run the server and wait for shutdown
     tokio::select! {
         result = server.start(server_config.listen_addr) => {
             match result {
@@ -83,30 +87,20 @@ async fn main() -> Result<(), anyhow::Error> {
             }
         }
         _ = shutdown_receiver => {
+            let shutdown_start = Instant::now();
             info!("Shutdown signal received");
             if let Err(e) = server.shutdown().await {
                 error!("Error during shutdown: {}", e);
             }
+            info!("Server shutdown completed in {:.2?}", shutdown_start.elapsed());
         }
     }
-    
-    info!("Server shutdown complete");
+
     Ok(())
 }
 
 /// Create server configuration from loaded config and CLI arguments
-/// 
-/// This function merges configuration file settings with command-line
-/// argument overrides to create the final server configuration.
-/// 
-/// # Arguments
-/// * `config` - Loaded configuration from file
-/// * `args` - Parsed command-line arguments
-/// 
-/// # Returns
-/// * `Result<ServerConfig>` - Final server configuration or error
 fn create_server_config(config: &Config, args: &Args) -> Result<ServerConfig> {
-    // Create region bounds from configuration
     let region_bounds = RegionBounds {
         min_x: config.region.min_x,
         max_x: config.region.max_x,
@@ -116,21 +110,18 @@ fn create_server_config(config: &Config, args: &Args) -> Result<ServerConfig> {
         max_z: config.region.max_z,
     };
     
-    // Parse listen address (CLI override takes precedence)
     let listen_addr = args.listen
         .as_deref()
         .unwrap_or(&config.server.listen_addr)
         .parse()
         .map_err(|e| anyhow::anyhow!("Failed to parse listen address: {}", e))?;
     
-    // Determine plugin directory (CLI override takes precedence)
     let plugin_directory = args.plugins
         .as_deref()
         .unwrap_or(Path::new(&config.plugins.directory))
         .to_string_lossy()
         .to_string();
     
-    // Determine max players (CLI override takes precedence)
     let max_players = args.max_players.unwrap_or(config.server.max_players);
     
     Ok(ServerConfig {
@@ -146,11 +137,6 @@ fn create_server_config(config: &Config, args: &Args) -> Result<ServerConfig> {
 }
 
 /// Log the final server configuration
-/// 
-/// Outputs all relevant server settings for debugging and verification.
-/// 
-/// # Arguments
-/// * `config` - The final server configuration to log
 fn log_server_configuration(config: &ServerConfig) {
     info!("Server configuration:");
     info!("  Listen address: {}", config.listen_addr);
@@ -181,7 +167,6 @@ mod tests {
         
         let server = GameServer::new(region_bounds);
         
-        // Test that server can be created and shut down
         let shutdown_result = timeout(Duration::from_millis(100), server.shutdown()).await;
         assert!(shutdown_result.is_ok());
     }
@@ -205,7 +190,6 @@ mod tests {
         
         let server_config = create_server_config(&config, &args).unwrap();
         assert_eq!(server_config.max_players, 500);
-        // Note: listen_addr comparison would require parsing SocketAddr
     }
     
     #[test]

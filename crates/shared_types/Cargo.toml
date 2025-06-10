@@ -13,3 +13,4 @@ uuid = { workspace = true }
 thiserror = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
+log = "0.4.27"
