@@ -5,7 +5,6 @@
 
 use tokio::sync::oneshot;
 use tracing::info;
-use horizon_server::shutdown::setup_shutdown_handler;
 
 /// Set up a shutdown signal handler
 /// 
