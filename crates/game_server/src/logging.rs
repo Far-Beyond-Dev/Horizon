@@ -22,14 +22,6 @@ use crate::config::Args;
 /// 
 /// # Environment Variables
 /// * `RUST_LOG` - Override the default logging filter (e.g., "debug", "my_crate=trace")
-/// 
-/// # Examples
-/// ```
-/// use your_crate::{Args, setup_logging};
-/// 
-/// let args = Args::default();
-/// setup_logging(&args).expect("Failed to initialize logging");
-/// ```
 pub fn setup_logging(args: &Args) -> Result<()> {
     // Determine the base logging level from arguments
     let level = if args.debug { "debug" } else { "info" };
