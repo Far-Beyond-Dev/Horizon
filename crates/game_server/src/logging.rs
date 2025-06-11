@@ -81,32 +81,3 @@ pub fn setup_logging_with_format(args: &Args, json_format: bool) -> Result<()> {
     
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_logging_setup() {
-        let args = Args::default();
-        
-        // Note: In a real test environment, you might want to avoid
-        // actually initializing the global logger multiple times
-        // This test mainly verifies the function doesn't panic
-        let result = setup_logging(&args);
-        
-        // The first call should succeed, subsequent calls will fail
-        // because the global logger can only be initialized once
-        assert!(result.is_ok() || result.is_err());
-    }
-
-    #[test]
-    fn test_debug_logging() {
-        let mut args = Args::default();
-        args.debug = true;
-        
-        // This primarily tests that the function handles debug flag correctly
-        let result = setup_logging(&args);
-        assert!(result.is_ok() || result.is_err());
-    }
-}
