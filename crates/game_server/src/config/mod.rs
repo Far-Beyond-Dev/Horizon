@@ -76,21 +76,28 @@ mod tests {
         let mut temp_file = NamedTempFile::new().unwrap();
         let config_content = r#"
 [server]
-listen_addr = "0.0.0.0:9090"
-max_players = 500
-tick_rate = 60
+listen_addr = "127.0.0.1:8080"
+max_players = 1000
+tick_rate = 50
+ping_interval = 1000
+connection_timeout = 10000
+event_queue_capacity = 1024
 
 [region]
-min_x = -500.0
-max_x = 500.0
-min_y = -500.0
-max_y = 500.0
-min_z = -50.0
-max_z = 50.0
+min_x = -1000.0
+max_x = 1000.0
+min_y = -1000.0
+max_y = 1000.0
+min_z = -100.0
+max_z = 100.0
 
 [plugins]
-directory = "test_plugins"
-auto_load = ["test_plugin"]
+directory = "plugins"
+auto_load = ["horizon", "recipe_smith", "test_game"]
+
+[logging]
+level = "info"
+json_format = false
         "#;
         
         temp_file.write_all(config_content.as_bytes()).unwrap();
