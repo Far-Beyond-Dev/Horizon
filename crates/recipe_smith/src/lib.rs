@@ -1,8 +1,9 @@
 use async_trait::async_trait;
 use shared_types::*;
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize}; // Added for Recipe and RecipeOutput serialization
-use std::fmt; // Import for Display trait
+use serde::{Serialize, Deserialize}; 
+use std::fmt;
+use std::str::FromStr;
 
 /// RecipeSmith plugin - tracks recipes, their results, and byproducts.
 ///
@@ -31,7 +32,8 @@ impl RecipeSmith {
 
     /// Add or update a recipe in the plugin's internal state.
     async fn add_or_update_recipe(&mut self, recipe: Recipe, context: &dyn ServerContext) -> Result<(), PluginError> {
-        context.log(LogLevel::Debug, &format!("Attempting to add or update recipe: {}", recipe.name));
+        println!("Attempting to add or update recipe: {}", recipe.name);
+
         let recipe_id = recipe.id.clone();
         self.recipes.insert(recipe_id.clone(), recipe.clone());
 
@@ -41,79 +43,76 @@ impl RecipeSmith {
         context.emit_event(namespace, Box::new(event)).await
             .map_err(|e| PluginError::ExecutionError(format!("Failed to emit RecipeUpdated event: {}", e)))?;
 
-        // FIX: Use {:?} for RecipeId
-        context.log(LogLevel::Info, &format!("Recipe '{}' (ID: {:?}) added/updated successfully.", recipe.name, recipe_id));
+        println!("{}", &format!("Recipe '{}' (ID: {:?}) added/updated successfully.", recipe.name, recipe_id));
         Ok(())
     }
 
     /// Record a crafting outcome for a player.
     async fn record_crafting_outcome(&mut self, player_id: PlayerId, outcome: CraftingOutcome, context: &dyn ServerContext) -> Result<(), PluginError> {
-        context.log(LogLevel::Debug, &format!("Recording crafting outcome for player {}.", player_id));
-        self.player_crafting_history.entry(player_id).or_default().push(outcome.clone());
+        println!("{}", &format!("Recording crafting outcome for player {}.", player_id));
+        self.player_crafting_history.entry(player_id.clone()).or_default().push(outcome.clone());
 
         let event = RecipeSmithEvent::CraftingCompleted {
-            player_id,
+            player_id: player_id.clone(),
             outcome,
         };
         let namespace = EventNamespace::plugin_default(self.name);
         context.emit_event(namespace, Box::new(event)).await
             .map_err(|e| PluginError::ExecutionError(format!("Failed to emit CraftingCompleted event: {}", e)))?;
 
-        context.log(LogLevel::Info, &format!("Crafting outcome recorded for player {}.", player_id));
+        println!("{}", &format!("Crafting outcome recorded for player {}.", player_id));
         Ok(())
     }
 
     /// Get all known recipes.
     async fn get_all_recipes(&self, player_id: PlayerId, context: &dyn ServerContext) -> Result<(), PluginError> {
-        context.log(LogLevel::Debug, &format!("Player {} requested all recipes.", player_id));
+        println!("{}", &format!("Player {} requested all recipes.", player_id));
         let recipes_vec: Vec<Recipe> = self.recipes.values().cloned().collect();
 
         let event = RecipeSmithEvent::AllRecipesInfo {
-            player_id,
+            player_id: player_id.clone(),
             recipes: recipes_vec,
         };
         let namespace = EventNamespace::plugin_default(self.name);
         context.emit_event(namespace, Box::new(event)).await
             .map_err(|e| PluginError::ExecutionError(format!("Failed to emit AllRecipesInfo event: {}", e)))?;
 
-        context.log(LogLevel::Info, &format!("Sent all recipe info to player {}.", player_id));
+        println!("{}", &format!("Sent all recipe info to player {}.", player_id));
         Ok(())
     }
 
     /// Get a specific recipe by ID.
     async fn get_recipe_info(&self, player_id: PlayerId, recipe_id: RecipeId, context: &dyn ServerContext) -> Result<(), PluginError> {
-        // FIX: Use {:?} for RecipeId
-        context.log(LogLevel::Debug, &format!("Player {} requested info for recipe ID: {:?}.", player_id, recipe_id));
+        println!("{}", &format!("Player {} requested info for recipe ID: {:?}.", player_id, recipe_id));
         let recipe = self.recipes.get(&recipe_id).cloned()
-            .ok_or_else(|| PluginError::ExecutionError(format!("Recipe with ID {:?} not found.", recipe_id)))?; // FIX: Use {:?} for RecipeId
+            .ok_or_else(|| PluginError::ExecutionError(format!("Recipe with ID {:?} not found.", recipe_id)))?;
 
         let event = RecipeSmithEvent::RecipeInfo {
-            player_id,
+            player_id: player_id.clone(),
             recipe,
         };
         let namespace = EventNamespace::plugin_default(self.name);
         context.emit_event(namespace, Box::new(event)).await
             .map_err(|e| PluginError::ExecutionError(format!("Failed to emit RecipeInfo event: {}", e)))?;
 
-        // FIX: Use {:?} for RecipeId
-        context.log(LogLevel::Info, &format!("Sent recipe info for ID {:?} to player {}.", recipe_id, player_id));
+        println!("{}", &format!("Sent recipe info for ID {:?} to player {}.", recipe_id, player_id));
         Ok(())
     }
 
     /// Get crafting history for a specific player.
     async fn get_player_crafting_history(&self, player_id: PlayerId, target_player_id: PlayerId, context: &dyn ServerContext) -> Result<(), PluginError> {
-        context.log(LogLevel::Debug, &format!("Player {} requested crafting history for player {}.", player_id, target_player_id));
+        println!("{}", &format!("Player {} requested crafting history for player {}.", player_id, target_player_id));
         let history = self.player_crafting_history.get(&target_player_id).cloned().unwrap_or_default();
 
         let event = RecipeSmithEvent::PlayerCraftingHistory {
-            player_id: target_player_id,
+            player_id: target_player_id.clone(),
             history,
         };
         let namespace = EventNamespace::plugin_default(self.name);
         context.emit_event(namespace, Box::new(event)).await
             .map_err(|e| PluginError::ExecutionError(format!("Failed to emit PlayerCraftingHistory event: {}", e)))?;
 
-        context.log(LogLevel::Info, &format!("Sent crafting history for player {} to player {}.", target_player_id, player_id));
+        println!("{}", &format!("Sent crafting history for player {} to player {}.", target_player_id, player_id));
         Ok(())
     }
 }
@@ -139,7 +138,7 @@ impl Plugin for RecipeSmith {
             return Err(PluginError::InitializationFailed("Plugin already initialized".to_string()));
         }
 
-        context.log(LogLevel::Info, &format!("Initializing RecipeSmith plugin v{}", self.version));
+        println!("{}", &format!("Initializing RecipeSmith plugin v{}", self.version));
         println!("RecipeSmith plugin initializing with callback-based event system");
 
         // Example: Pre-load some dummy recipes for demonstration
@@ -165,7 +164,7 @@ impl Plugin for RecipeSmith {
                 RecipeProduct { item_id: ItemId(301), quantity: 1, name: "Stone Shard".to_string() },
             ],
         });
-        context.log(LogLevel::Info, &format!("Loaded {} initial recipes.", self.recipes.len()));
+        println!("{}", &format!("Loaded {} initial recipes.", self.recipes.len()));
 
 
         // Emit initialization event through callback system
@@ -179,11 +178,11 @@ impl Plugin for RecipeSmith {
         context.emit_event(namespace, Box::new(init_event)).await
             .map_err(|e| PluginError::InitializationFailed(format!("Failed to emit init event through callback system: {}", e)))?;
 
-        context.log(LogLevel::Info, "RecipeSmith plugin initialization complete using callback-based events");
+        println!("RecipeSmith plugin initialization complete using callback-based events");
 
         
         self.initialized = true;
-        context.log(LogLevel::Info, "RecipeSmith plugin initialized successfully with callback dispatch");
+        println!("RecipeSmith plugin initialized successfully with callback dispatch");
         Ok(())
     }
 
@@ -196,62 +195,186 @@ impl Plugin for RecipeSmith {
         if !self.initialized {
             return Err(PluginError::ExecutionError("Plugin not initialized".to_string()));
         } else {
-            context.log(LogLevel::Debug, &format!("RecipeSmith plugin handling event {} via callback dispatch", event_id));
-            println!("RecipeSmith plugin handling event {} via callback dispatch", event_id);
+            println!("{}", &format!("RecipeSmith plugin handling event {}: type={}", event_id, event.event_type()));
+            println!("RecipeSmith plugin handling event {}: type={}", event_id, event.event_type());
+            
+            // Debug log the actual event content
+            if let Some(core_event) = event.as_any().downcast_ref::<CoreEvent>() {
+                if let Ok(serialized) = serde_json::to_string(core_event) {
+                    println!("CoreEvent content: {}", serialized);
+                }
+            } else if let Some(recipe_event) = event.as_any().downcast_ref::<RecipeSmithEvent>() {
+                if let Ok(serialized) = serde_json::to_string(recipe_event) {
+                    println!("RecipeSmithEvent content: {}", serialized);
+                }
+            } else {
+                println!("Event content: unable to serialize unknown event type");
+            }
         }
-
 
         // Handle core events
         if event_id.namespace.0 == "core" {
             if let Some(core_event) = event.as_any().downcast_ref::<CoreEvent>() {
                 match core_event {
                     CoreEvent::PlayerJoined { player } => {
-                        context.log(LogLevel::Info, &format!("Player {} joined (callback dispatch).", player.name));
+                        println!("{}", &format!("Player {} joined (callback dispatch).", player.name));
                         // Optionally initialize crafting history for new player if needed
-                        self.player_crafting_history.entry(player.id).or_default();
+                        self.player_crafting_history.entry(player.id.to_string()).or_default();
                     }
 
                     CoreEvent::PlayerLeft { player_id } => {
-                        context.log(LogLevel::Info, &format!("Player {} left (callback dispatch), cleaning up crafting data.", player_id));
-                        self.player_crafting_history.remove(player_id);
+                        println!("{}", &format!("Player {} left (callback dispatch), cleaning up crafting data.", player_id));
+                        self.player_crafting_history.remove(player_id.to_string().as_str());
                     }
 
                     CoreEvent::CustomMessage { data } => {
-                        // Try to parse the message as a JSON string first 
+                        // Debug log the raw data
+                        println!("Received CustomMessage data: {:?}", data);
+                        
+                        // If data is a string, try to parse it
                         if let Some(message_str) = data.as_str() {
-                            // Try to deserialize directly from string to our message type
-                            if let Ok(recipe_message) = serde_json::from_str::<RecipeSmithMessage>(message_str) {
-                                context.log(LogLevel::Debug, "Processing RecipeSmith message via callback dispatch");
-                                match recipe_message {
-                                    RecipeSmithMessage::AddOrUpdateRecipe { recipe } => {
-                                        context.log(LogLevel::Info, &format!("Received request to add/update recipe: {}", recipe.name));
-                                        println!("Received AddOrUpdateRecipe message: {:?}", recipe);
-                                        self.add_or_update_recipe(recipe, context).await?;
+                            // Parse the string as JSON first
+                            match serde_json::from_str::<serde_json::Value>(message_str) {
+                                Ok(json_value) => {
+                                    println!("Successfully parsed outer JSON");
+                                    // Now handle your specific message structure
+                                    if let Some(msg_type) = json_value.get("type").and_then(|t| t.as_str()) {
+                                        if let Some(msg_data) = json_value.get("data") {
+                                            println!("Found message type: {}, data: {:?}", msg_type, msg_data);
+                                            
+                                            // Handle based on message type
+                                            match msg_type {
+                                                "AddOrUpdateRecipe" => {
+                                                    if let Some(recipe_value) = msg_data.get("recipe") {
+                                                        match serde_json::from_value::<Recipe>(recipe_value.clone()) {
+                                                            Ok(recipe) => {
+                                                                println!("Successfully parsed Recipe: {:?}", recipe);
+                                                                self.add_or_update_recipe(recipe, context).await?;
+                                                            },
+                                                            Err(e) => {
+                                                                println!("Error parsing Recipe: {}", e);
+                                                                println!("{}", &format!("Failed to parse Recipe: {}", e));
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "RecordCraftingOutcome" => {
+                                                    if let (Some(player_id_value), Some(outcome_value)) = (
+                                                        msg_data.get("player_id"),
+                                                        msg_data.get("outcome")
+                                                    ) {
+                                                        // Parse player_id 
+                                                        let player_id = parse_player_id(player_id_value).ok_or_else(|| {
+                                                            PluginError::ExecutionError("Invalid player_id format".to_string())
+                                                        })?;
+                                                        
+                                                        // Parse the outcome
+                                                        match serde_json::from_value::<CraftingOutcome>(outcome_value.clone()) {
+                                                            Ok(outcome) => {
+                                                                self.record_crafting_outcome(player_id, outcome, context).await?;
+                                                            },
+                                                            Err(e) => {
+                                                                println!("{}", &format!("Failed to parse CraftingOutcome: {}", e));
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "GetRecipeInfo" => {
+                                                    if let (Some(player_id_value), Some(recipe_id_value)) = (
+                                                        msg_data.get("player_id"),
+                                                        msg_data.get("recipe_id")
+                                                    ) {
+                                                        // Parse player_id
+                                                        let player_id = parse_player_id(player_id_value).ok_or_else(|| {
+                                                            PluginError::ExecutionError("Invalid player_id format".to_string())
+                                                        })?;
+                                                        
+                                                        // Parse the recipe_id
+                                                        match serde_json::from_value::<RecipeId>(recipe_id_value.clone()) {
+                                                            Ok(recipe_id) => {
+                                                                self.get_recipe_info(player_id, recipe_id, context).await?;
+                                                            },
+                                                            Err(e) => {
+                                                                println!("{}", &format!("Failed to parse RecipeId: {}", e));
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                "GetAllRecipes" => {
+                                                    if let Some(player_id_value) = msg_data.get("player_id") {
+                                                        // Parse player_id
+                                                        let player_id = parse_player_id(player_id_value).ok_or_else(|| {
+                                                            PluginError::ExecutionError("Invalid player_id format".to_string())
+                                                        })?;
+                                                        
+                                                        self.get_all_recipes(player_id, context).await?;
+                                                    }
+                                                },
+                                                "GetPlayerCraftingHistory" => {
+                                                    if let (Some(player_id_value), Some(target_player_id_value)) = (
+                                                        msg_data.get("player_id"),
+                                                        msg_data.get("target_player_id")
+                                                    ) {
+                                                        // Parse player_ids
+                                                        let player_id = parse_player_id(player_id_value).ok_or_else(|| {
+                                                            PluginError::ExecutionError("Invalid player_id format".to_string())
+                                                        })?;
+                                                        let target_player_id = parse_player_id(target_player_id_value).ok_or_else(|| {
+                                                            PluginError::ExecutionError("Invalid target_player_id format".to_string())
+                                                        })?;
+                                                        
+                                                        self.get_player_crafting_history(player_id, target_player_id, context).await?;
+                                                    }
+                                                },
+                                                _ => {
+                                                    println!("{}", &format!("Unknown message type: {}", msg_type));
+                                                }
+                                            }
+                                        } else {
+                                            println!("JSON missing 'data' field");
+                                        }
+                                    } else {
+                                        println!("JSON missing 'type' field");
                                     }
-                                    RecipeSmithMessage::RecordCraftingOutcome { player_id, outcome } => {
-                                        context.log(LogLevel::Info, &format!("Received request to record crafting outcome for player {}.", player_id));
-                                        self.record_crafting_outcome(player_id, outcome, context).await?;
-                                    }
-                                    RecipeSmithMessage::GetAllRecipes { player_id } => {
-                                        context.log(LogLevel::Info, &format!("Received request for all recipes from player {}.", player_id));
-                                        self.get_all_recipes(player_id, context).await?;
-                                    }
-                                    RecipeSmithMessage::GetRecipeInfo { player_id, recipe_id } => {
-                                        context.log(LogLevel::Info, &format!("Received request for recipe info for ID {:?} from player {}.", recipe_id, player_id));
-                                        self.get_recipe_info(player_id, recipe_id, context).await?;
-                                    }
-                                    RecipeSmithMessage::GetPlayerCraftingHistory { player_id, target_player_id } => {
-                                        context.log(LogLevel::Info, &format!("Received request for player {}'s crafting history from player {}.", target_player_id, player_id));
-                                        self.get_player_crafting_history(player_id, target_player_id, context).await?;
+                                },
+                                Err(e) => {
+                                    println!("{}", &format!("Failed to parse message as JSON: {}", e));
+                                    println!("{}", &format!("Raw message: {}", message_str));
+                                }
+                            }
+                        } else {
+                            // Try to extract data from a nested JSON structure if it's not a string
+                            if let Some(inner_data) = data.as_object().and_then(|obj| obj.get("data")).and_then(|d| d.as_str()) {
+                                println!("Found nested data string: {}", inner_data);
+                                
+                                // Try to parse the inner data
+                                match serde_json::from_str::<serde_json::Value>(inner_data) {
+                                    Ok(json_value) => {
+                                        // Handle same as above with json_value
+                                        if let Some(msg_type) = json_value.get("type").and_then(|t| t.as_str()) {
+                                            println!("Found nested message type: {}", msg_type);
+                                            // Process message same as above
+                                        }
+                                    },
+                                    Err(e) => {
+                                        println!("{}", &format!("Failed to parse nested data as JSON: {}", e));
                                     }
                                 }
+                            } else {
+                                println!("{}", &format!("Could not parse custom message: {:?}", data));
+                                println!("Received unknown custom message format: {:?}", data);
                             }
                         }
                     }
 
-                    _ => { /* Ignore other core events not relevant to RecipeSmith */ }
+                    _ => { 
+                        println!("Received core event {} via callback dispatch, but no specific handling implemented.", core_event.event_type());
+                     }
                 }
             }
+
+            println!("RecipeSmith plugin processed core event {}: type={}", event_id, event.event_type());
+            println!("Post-event state: {:#?}", self.recipes);
         }
 
         // Handle plugin-specific events (also via callback dispatch)
@@ -259,30 +382,30 @@ impl Plugin for RecipeSmith {
             if let Some(recipe_smith_event) = event.as_any().downcast_ref::<RecipeSmithEvent>() {
                 match recipe_smith_event {
                     RecipeSmithEvent::RecipeUpdated { recipe } => {
-                        context.log(LogLevel::Debug, &format!(
+                        println!("{}", &format!(
                             "Recipe updated event processed via callback: {}", recipe.name
                         ));
                     }
                     RecipeSmithEvent::CraftingCompleted { player_id, outcome } => {
-                        context.log(LogLevel::Debug, &format!(
+                        println!("{}", &format!(
                             "Crafting completed event processed via callback for player {}: produced {}",
                             player_id, outcome.main_product.name
                         ));
                     }
                     RecipeSmithEvent::PluginInitialized { recipe_count } => {
-                        context.log(LogLevel::Info, &format!("RecipeSmith plugin initialization event processed via callback (recipes: {})", recipe_count));
+                        println!("{}", &format!("RecipeSmith plugin initialization event processed via callback (recipes: {})", recipe_count));
                     }
                     RecipeSmithEvent::AllRecipesInfo { player_id, recipes } => {
-                         context.log(LogLevel::Debug, &format!("Sent {} recipes to player {} in AllRecipesInfo event.", recipes.len(), player_id));
+                         println!("{}", &format!("Sent {} recipes to player {} in AllRecipesInfo event.", recipes.len(), player_id));
                     }
                     RecipeSmithEvent::RecipeInfo { player_id, recipe } => {
-                         context.log(LogLevel::Debug, &format!("Sent recipe {} info to player {}.", recipe.name, player_id));
+                         println!("{}", &format!("Sent recipe {} info to player {}.", recipe.name, player_id));
                     }
                     RecipeSmithEvent::PlayerCraftingHistory { player_id, history } => {
-                        context.log(LogLevel::Debug, &format!("Sent crafting history for player {} with {} entries.", player_id, history.len()));
+                        println!("{}", &format!("Sent crafting history for player {} with {} entries.", player_id, history.len()));
                     }
                     _ => {
-                        context.log(LogLevel::Debug, "Other RecipeSmith event processed via callback dispatch");
+                        println!("Other RecipeSmith event processed via callback dispatch");
                     }
                 }
             }
@@ -318,7 +441,7 @@ impl Plugin for RecipeSmith {
             return Ok(()); // Already shut down
         }
 
-        context.log(LogLevel::Info, "Shutting down RecipeSmith plugin (callback-based events)");
+        println!("Shutting down RecipeSmith plugin (callback-based events)");
 
         // Clear all data
         self.recipes.clear();
@@ -331,10 +454,41 @@ impl Plugin for RecipeSmith {
         context.emit_event(namespace, Box::new(shutdown_event)).await
             .map_err(|e| PluginError::ExecutionError(format!("Failed to emit shutdown event through callback system: {}", e)))?;
 
-        context.log(LogLevel::Info, "RecipeSmith plugin shutdown complete (callbacks will be automatically unregistered)");
+        println!("RecipeSmith plugin shutdown complete (callbacks will be automatically unregistered)");
 
         Ok(())
     }
+}
+
+/// Helper function to parse PlayerId from JSON value
+fn parse_player_id(value: &serde_json::Value) -> Option<PlayerId> {
+    // Try different formats of PlayerId based on what's in your shared_types
+    
+    // Option 1: If PlayerId is a String type
+    if let Some(id_str) = value.as_str() {
+        return Some(id_str.to_string());
+    }
+    
+    // Option 2: If PlayerId is a numeric type
+    if let Some(id_num) = value.as_u64() {
+        return Some(id_num.to_string());
+    }
+    
+    // Option 3: If PlayerId is a structured type like { "0": "value" }
+    if let Some(obj) = value.as_object() {
+        if let Some(inner_val) = obj.get("0") {
+            if let Some(id_str) = inner_val.as_str() {
+                return Some(id_str.to_string());
+            }
+            if let Some(id_num) = inner_val.as_u64() {
+                return Some(id_num.to_string());
+            }
+        }
+    }
+    
+    // Fallback: Print the actual value for debugging
+    println!("Unknown PlayerId format: {:?}", value);
+    None
 }
 
 /// Events specific to the RecipeSmith plugin
@@ -396,12 +550,16 @@ pub enum RecipeSmithMessage {
 }
 
 
-// --- New Structs for RecipeSmith Logic ---
+// --- Structs for RecipeSmith Logic ---
+
+// Use type alias to match your shared_types definition
+type PlayerId = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]  // This makes it serialize as just the inner value
 pub struct RecipeId(pub u32);
 
-// OPTION 2: Implement Display for RecipeId (if you want a specific string representation)
+// Implement Display for RecipeId for better debug output
 impl fmt::Display for RecipeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)

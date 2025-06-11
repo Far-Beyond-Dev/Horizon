@@ -3,7 +3,7 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Display};
 use std::sync::Arc;
 use uuid::Uuid;
 
@@ -64,7 +64,6 @@ impl fmt::Display for EventNamespace {
         write!(f, "{}", self.0)
     }
 }
-
 /// Event identifier combining namespace and event type
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EventId {
