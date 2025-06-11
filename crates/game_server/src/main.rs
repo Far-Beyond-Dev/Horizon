@@ -5,7 +5,7 @@
 
 use anyhow::Result;
 use clap::Parser;
-use server_core::{GameServer, ServerConfig};
+use server_core::{plugin, GameServer, ServerConfig};
 use shared_types::RegionBounds;
 use std::path::Path;
 use std::time::Instant;
@@ -75,6 +75,15 @@ async fn main() -> Result<(), anyhow::Error> {
 
     info!("Startup complete in {:.2?}", startup_start.elapsed());
 
+            
+    // Start the callback-based event processing system 
+    info!("Starting callback-based event processor...");
+    server.event_processor.start().await;
+    
+    plugins::initialize_plugins(&mut server)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize plugins: {}", e))?;
+
     // Run the server and wait for shutdown
     tokio::select! {
         result = server.start(server_config.listen_addr) => {
@@ -95,6 +104,8 @@ async fn main() -> Result<(), anyhow::Error> {
             info!("Server shutdown completed in {:.2?}", shutdown_start.elapsed());
         }
     }
+
+
 
     Ok(())
 }

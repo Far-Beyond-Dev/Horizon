@@ -6,6 +6,7 @@
 use crate::context::ServerContextImpl;
 use crate::plugin::PluginLoader;
 use crate::server::{ConnectionManager, EventProcessor, MessageHandler, ServerConfig};
+use crate::plugin::loader::{PluginInstance, PluginRef};
 use dashmap::DashMap;
 use shared_types::*;
 use std::net::SocketAddr;
@@ -121,11 +122,7 @@ impl GameServer {
     /// Returns `ServerError::Network` if binding fails
     pub async fn start(&self, addr: impl Into<SocketAddr>) -> Result<(), ServerError> {
         let addr = addr.into();
-        
-        // Start the callback-based event processing system FIRST
-        info!("Starting callback-based event processor...");
-        self.event_processor.start().await;
-        
+
         let listener = TcpListener::bind(addr).await
             .map_err(|e| ServerError::Network(format!("Failed to bind to {}: {}", addr, e)))?;
         
@@ -249,6 +246,12 @@ impl GameServer {
     pub async fn is_plugin_loaded(&self, plugin_name: &str) -> bool {
         self.plugin_loader.is_plugin_loaded(plugin_name).await
     }
+
+    /// Get access to all loaded plugins
+    pub async fn get_plugins(&self) -> Vec<PluginRef> {
+        // Return a new Arc-wrapped RwLock containing the loaded plugin instances
+        self.plugin_loader.get_loaded_plugins().await
+    }
     
     /// Emit a core event through the server's event system
     /// 
@@ -265,6 +268,7 @@ impl GameServer {
         self.event_processor.emit_event(event_id, event_arc).await
     }
 }
+
 
 /// Comprehensive server statistics
 #[derive(Debug, Clone)]

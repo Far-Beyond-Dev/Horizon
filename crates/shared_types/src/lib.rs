@@ -208,9 +208,15 @@ pub trait Plugin: Send + Sync {
     
     /// Plugin version
     fn version(&self) -> &'static str;
-    
-    /// Initialize the plugin
-    async fn initialize(&mut self, context: &dyn ServerContext) -> Result<(), PluginError>;
+
+    /// Pre-initialize the plugin (This is where you register ALL event handlers)
+    async fn pre_initialize(&mut self, context: &dyn ServerContext) -> Result<(), PluginError>;
+
+    /// Initialize the plugin (This is where you load resources, send events to other plugins, etc.)
+    async fn initialize(&mut self, context: &(dyn ServerContext + 'static)) -> Result<(), PluginError> {
+        info!("Initializing plugin: {} v{}", self.name(), self.version());
+        Ok(())
+    }
     
     /// Handle an event
     async fn handle_event(&mut self, event_id: &EventId, event: &dyn GameEvent, context: &dyn ServerContext) -> Result<(), PluginError>;

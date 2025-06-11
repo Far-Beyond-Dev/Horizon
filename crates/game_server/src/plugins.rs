@@ -5,8 +5,8 @@
 //! and can be loaded at runtime.
 
 use anyhow::Result;
-use server_core::GameServer;
-use shared_types::ServerError;
+use server_core::{plugin::loader::PluginRef, GameServer};
+use shared_types::{ServerError, Plugin};
 use std::path::Path;
 use tracing::{error, info, warn};
 
@@ -87,6 +87,35 @@ pub async fn load_plugins(
             provide_build_instructions(plugin_name);
         }
     }
+
+    Ok(())
+}
+
+/// Initialize plugins to allow them to call events against each other
+pub async fn initialize_plugins(
+    server: &mut GameServer,
+) -> Result<(), ServerError> {
+    let mut stats = PluginLoadStats {
+        plugin_count: 0,
+        registered_events: 0,
+        total_callbacks: 0,
+        plugins: Vec::new(),
+    };
+
+    // Iterate over all loaded plugins
+    for PluginRef{plugin, context} in server.get_plugins().await.iter_mut() {
+        let mut plugin = plugin.write().await;
+        stats.plugin_count += 1;
+
+        // Initialize the plugin
+        if let Err(e) = plugin.initialize(context.as_ref()).await {
+            error!("Failed to initialize plugin {}: {}", plugin.name(), e);
+            return Err(server_core::ServerError::Plugin(e));
+        }
+
+        info!("Initialized plugin: {} v{}", plugin.name(), plugin.version());
+    }
+    info!("All plugins initialized successfully");
 
     Ok(())
 }

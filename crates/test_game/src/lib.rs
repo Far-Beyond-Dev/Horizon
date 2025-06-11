@@ -117,6 +117,11 @@ impl Plugin for TestGamePlugin {
     fn name(&self) -> &'static str { self.name }
     fn version(&self) -> &'static str { self.version }
 
+    async fn pre_initialize(&mut self, _context: &dyn ServerContext) -> Result<(), PluginError> {
+        // Pre-initialize logic if needed
+        Ok(())
+    }
+
     async fn initialize(&mut self, context: &dyn ServerContext) -> Result<(), PluginError> {
         if self.initialized {
             return Err(PluginError::InitializationFailed("Already initialized".to_string()));

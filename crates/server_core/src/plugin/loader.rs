@@ -5,6 +5,7 @@
 use crate::context::ServerContextImpl;
 use crate::server::{ConnectionManager, EventProcessor};
 use dashmap::DashMap;
+use futures::TryFutureExt;
 use libloading::{Library, Symbol};
 use shared_types::*;
 use std::path::Path;
@@ -25,11 +26,11 @@ type DestroyPluginFn = unsafe extern "C" fn(*mut dyn Plugin);
 
 /// Plugin instance with associated context
 #[derive(Clone)]
-struct PluginInstance {
-    plugin: Arc<RwLock<Box<dyn Plugin>>>,
-    context: Arc<ServerContextImpl>,
-    name: String,
-    version: String,
+pub struct PluginInstance {
+    pub plugin: Arc<RwLock<Box<dyn Plugin>>>,
+    pub context: Arc<ServerContextImpl>,
+    pub name: String,
+    pub version: String,
 }
 
 /// Manages plugin loading and lifecycle with callback-based events
@@ -43,7 +44,7 @@ pub struct PluginLoader {
     /// Event processing system with callback dispatch
     event_processor: Arc<EventProcessor>,
     /// Loaded plugin instances with their contexts
-    plugins: Arc<RwLock<Vec<PluginInstance>>>,
+    pub plugins: Arc<RwLock<Vec<PluginInstance>>>,
     /// Dynamic libraries for loaded plugins (kept alive to prevent unloading)
     plugin_libraries: Vec<Library>,
 }
@@ -121,10 +122,10 @@ impl PluginLoader {
             // Initialize the plugin
             {
                 let mut plugin_guard = plugin_arc.write().await;
-                plugin_guard.initialize(context.as_ref()).await.map_err(|e| {
+                plugin_guard.pre_initialize(context.as_ref()).map_err(|e| {
                     error!("Plugin {} initialization failed: {}", plugin_name, e);
                     e
-                })?;
+                });
             }
             
             // Register plugin callbacks with the event processor

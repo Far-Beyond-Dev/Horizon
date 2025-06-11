@@ -112,7 +112,7 @@ impl Plugin for HorizonPlugin {
         self.version
     }
     
-    async fn initialize(&mut self, context: &dyn ServerContext) -> Result<(), PluginError> {
+    async fn pre_initialize(&mut self, context: &dyn ServerContext) -> Result<(), PluginError> {
         if self.initialized {
             return Err(PluginError::InitializationFailed("Plugin already initialized".to_string()));
         }

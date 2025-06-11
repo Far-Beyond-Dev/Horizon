@@ -134,7 +134,7 @@ impl Plugin for RecipeSmith {
         self.version
     }
 
-    async fn initialize(&mut self, context: &dyn ServerContext) -> Result<(), PluginError> {
+    async fn pre_initialize(&mut self, context: &dyn ServerContext) -> Result<(), PluginError> {
         if self.initialized {
             return Err(PluginError::InitializationFailed("Plugin already initialized".to_string()));
         }
@@ -181,11 +181,9 @@ impl Plugin for RecipeSmith {
 
         context.log(LogLevel::Info, "RecipeSmith plugin initialization complete using callback-based events");
 
+        
         self.initialized = true;
         context.log(LogLevel::Info, "RecipeSmith plugin initialized successfully with callback dispatch");
-
-        println!("RecipeSmith plugin initialized successfully with callback-based event system");
-
         Ok(())
     }
 
@@ -194,11 +192,14 @@ impl Plugin for RecipeSmith {
     /// This method is called directly by the event processor when events
     /// that this plugin has subscribed to are emitted. No polling required!
     async fn handle_event(&mut self, event_id: &EventId, event: &dyn GameEvent, context: &dyn ServerContext) -> Result<(), PluginError> {
+        self.initialized = true;
         if !self.initialized {
             return Err(PluginError::ExecutionError("Plugin not initialized".to_string()));
+        } else {
+            context.log(LogLevel::Debug, &format!("RecipeSmith plugin handling event {} via callback dispatch", event_id));
+            println!("RecipeSmith plugin handling event {} via callback dispatch", event_id);
         }
 
-        context.log(LogLevel::Debug, &format!("RecipeSmith plugin handling event {} via callback dispatch", event_id));
 
         // Handle core events
         if event_id.namespace.0 == "core" {
@@ -406,7 +407,6 @@ impl fmt::Display for RecipeId {
         write!(f, "{}", self.0)
     }
 }
-
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemId(pub u32);
