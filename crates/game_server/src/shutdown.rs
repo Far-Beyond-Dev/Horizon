@@ -5,6 +5,7 @@
 
 use tokio::sync::oneshot;
 use tracing::info;
+use horizon_server::shutdown::setup_shutdown_handler;
 
 /// Set up a shutdown signal handler
 /// 
@@ -17,23 +18,6 @@ use tracing::info;
 /// 
 /// # Returns
 /// * `oneshot::Receiver<()>` - Receiver that will be triggered on shutdown signal
-/// 
-/// # Usage
-/// ```rust,no_run
-/// use tokio::select;
-/// 
-/// let shutdown_signal = setup_shutdown_handler().await;
-/// 
-/// select! {
-///     _ = server.run() => {
-///         println!("Server completed normally");
-///     }
-///     _ = shutdown_signal => {
-///         println!("Shutdown signal received");
-///         server.shutdown().await;
-///     }
-/// }
-/// ```
 pub async fn setup_shutdown_handler() -> oneshot::Receiver<()> {
     let (tx, rx) = oneshot::channel();
     
