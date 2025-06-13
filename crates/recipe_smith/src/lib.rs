@@ -549,9 +549,6 @@ pub enum RecipeSmithMessage {
     GetPlayerCraftingHistory { player_id: PlayerId, target_player_id: PlayerId },
 }
 
-
-// --- Structs for RecipeSmith Logic ---
-
 // Use type alias to match your shared_types definition
 type PlayerId = String;
 
