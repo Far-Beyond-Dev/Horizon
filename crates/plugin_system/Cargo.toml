@@ -1,0 +1,14 @@
+[package]
+name = "plugin_system"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libloading = {workspace = true}
+tracing = {workspace = true}
+tokio = {workspace = true}
+serde = { workspace = true }
+serde_json = { workspace = true }
+types = { path = "../types" }
+event_system = { path = "../event_system" }
+async-trait = { workspace = true }
