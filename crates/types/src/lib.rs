@@ -228,14 +228,6 @@ pub trait EventSystem: Send + Sync {
 #[async_trait]
 pub trait EventSystemExt {
     /// Register an event handler with automatic type deserialization
-    /// 
-    /// # Example
-    /// ```rust
-    /// event_system.on("player_joined", |event: PlayerJoinedEvent| {
-    ///     println!("Player {} joined", event.username);
-    ///     Ok(())
-    /// }).await?;
-    /// ```
     async fn on<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
     where
         T: Event + 'static,
@@ -248,14 +240,6 @@ pub trait EventSystemExt {
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static;
     
     /// Emit an event with automatic serialization
-    /// 
-    /// # Example
-    /// ```rust
-    /// event_system.emit("player_joined", &PlayerJoinedEvent {
-    ///     username: "alice".to_string(),
-    ///     level: 42,
-    /// }).await?;
-    /// ```
     async fn emit<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
     where
         T: Event;
