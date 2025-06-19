@@ -48,7 +48,7 @@ pub struct WelcomePluginState {
     /// Player statistics
     player_stats: RwLock<HashMap<PlayerId, PlayerStats>>,
     /// Server context for interacting with the game world
-    server_context: Option<Arc<dyn ServerContext>>,
+    server_context: RwLock<Option<Arc<dyn ServerContext>>>,
     /// Plugin configuration
     config: WelcomeConfig,
 }
@@ -113,7 +113,7 @@ impl WelcomePlugin {
     pub fn new() -> Self {
         let state = WelcomePluginState {
             player_stats: RwLock::new(HashMap::new()),
-            server_context: None,
+            server_context: RwLock::new(None),
             config: WelcomeConfig::default(),
         };
 
@@ -132,7 +132,9 @@ impl WelcomePlugin {
 
     /// Send a welcome message to a player
     async fn send_welcome_message(&self, player: &Player) -> Result<(), PluginError> {
-        let context = self.state.server_context.as_ref()
+        let guard = self.state.server_context.read().await;
+        let context = guard
+            .as_ref()
             .ok_or_else(|| PluginError::ExecutionError("Server context not available".to_string()))?;
 
         let message = self.state.config.welcome_message
@@ -175,7 +177,8 @@ impl WelcomePlugin {
             return Ok(());
         }
 
-        let context = self.state.server_context.as_ref()
+        let guard = self.state.server_context.read().await;
+        let context = guard.as_ref()
             .ok_or_else(|| PluginError::ExecutionError("Server context not available".to_string()))?;
 
         let timestamp = Self::current_timestamp();
@@ -228,7 +231,8 @@ impl WelcomePlugin {
             return Ok(());
         }
 
-        let context = self.state.server_context.as_ref()
+        let guard = self.state.server_context.read().await;
+        let context = guard.as_ref()
             .ok_or_else(|| PluginError::ExecutionError("Server context not available".to_string()))?;
 
         // Update stats
@@ -283,10 +287,8 @@ impl Plugin for WelcomePlugin {
         info!("Welcome Plugin: Starting pre-initialization");
 
         // Store server context for later use
-        unsafe {
-            let state_ptr = Arc::as_ptr(&self.state) as *mut WelcomePluginState;
-            (*state_ptr).server_context = Some(context.clone());
-        }
+        let mut server_context = self.state.server_context.write().await;
+        *server_context = Some(context.clone());
 
         let events = context.events();
 
