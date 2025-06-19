@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+use async_trait::async_trait;
 
 // ============================================================================
 // Plugin Manager
@@ -451,9 +452,19 @@ pub trait SimplePlugin: Send + Sync {
     }
 }
 
-/// Auto-implement Plugin trait for SimplePlugin implementations
+/// Wrapper type to allow implementing the foreign Plugin trait for SimplePlugin types
+pub struct SimplePluginWrapper<T: SimplePlugin + 'static> {
+    inner: T,
+}
+
+impl<T: SimplePlugin + 'static> SimplePluginWrapper<T> {
+    pub fn new(inner: T) -> Self {
+        Self { inner }
+    }
+}
+
 #[async_trait]
-impl<T> Plugin for T
+impl<T> Plugin for SimplePluginWrapper<T>
 where
     T: SimplePlugin + 'static,
 {
@@ -466,15 +477,15 @@ where
     }
     
     async fn pre_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        self.register_handlers(context).await
+        self.inner.register_handlers(context).await
     }
     
     async fn init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        self.on_init(context).await
+        self.inner.on_init(context).await
     }
     
     async fn shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        self.on_shutdown(context).await
+        self.inner.on_shutdown(context).await
     }
 }
 

@@ -1,9 +1,11 @@
 [workspace]
 members = [
     "crates/types",
+    "crates/horizon",
+    "crates/game_server",
     "crates/event_system",
     "crates/plugin_system",
-    "crates/horizon",
+    "crates/example_plugin",
 ]
 
 [workspace.dependencies]
@@ -24,3 +26,4 @@ tempfile = "3.5"
 clap = { version = "4.0", features = ["derive"] }
 toml = "0.8"
 tokio-tungstenite = "0.27.0"
+rayon = "1.7.0"

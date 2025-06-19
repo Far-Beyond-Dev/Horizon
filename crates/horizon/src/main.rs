@@ -14,8 +14,6 @@ use types;
 use event_system;
 use plugin_system;
 
-// Import the game server module  
-mod game_server;
 use game_server::{GameServer, ServerConfig};
 use types::*;
 
@@ -358,9 +356,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create and run application
     let app = Application::new(args).await?;
     app.run().await?;
-
-    let my_number = test(5, 10);
-    info!("Test function result: {}", my_number);
     
     Ok(())
 

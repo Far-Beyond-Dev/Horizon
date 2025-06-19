@@ -56,7 +56,7 @@ impl EventRegistry {
         debug!("Registered handler for event: {}", event_id);
         Ok(())
     }
-    
+
     /// Emit an event to all registered handlers
     pub async fn emit_event(
         &self,
@@ -390,6 +390,7 @@ pub fn current_timestamp() -> u64 {
 mod tests {
     use super::*;
     use types::EventSystemExt; // Import the extension trait
+    use serde::de::Error as _; // Bring Error::custom into scope
     
     // Mock Event implementation for testing
     #[derive(Debug, Clone)]
@@ -409,18 +410,19 @@ mod tests {
             if parts.len() == 2 {
                 Ok(TestEvent {
                     message: parts[0].to_string(),
-                    value: parts[1].parse().map_err(|e| EventError::Serialization(Box::new(e)))?,
+                    value: parts[1].parse().map_err(|e| EventError::Serialization(serde_json::Error::custom(e)))?,
                 })
             } else {
-                Err(EventError::Serialization(Box::new(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    "Invalid format"
-                ))))
+                Err(EventError::Serialization(serde_json::Error::custom("Invalid format")))
             }
         }
         
         fn type_name() -> &'static str {
             "TestEvent"
+        }
+
+        fn as_any(&self) -> &dyn Any {
+            self
         }
     }
     

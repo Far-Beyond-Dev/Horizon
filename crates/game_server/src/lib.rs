@@ -3,9 +3,9 @@
 //! High-performance game server with plugin system, event-driven architecture,
 //! and WebSocket-based client communication.
 
-use crate::event_system::{create_event_system, current_timestamp};
-use crate::plugin_system::{PluginManager, ServerContextImpl};
-use crate::types::*;
+use event_system::{create_event_system, current_timestamp};
+use plugin_system::{PluginManager, ServerContextImpl};
+use types::*;
 use futures::{SinkExt, StreamExt};
 use serde_json;
 use std::collections::HashMap;
@@ -344,19 +344,27 @@ async fn handle_connection(
     let ws_stream = accept_async(stream).await
         .map_err(|e| ServerError::Network(format!("WebSocket handshake failed: {}", e)))?;
     
-    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+    let (ws_sender, mut ws_receiver) = ws_stream.split();
+    let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
     let connection_id = connection_manager.add_connection(addr).await;
-    
+
     // Subscribe to outgoing messages
     let mut message_receiver = connection_manager.subscribe();
-    
-    // Handle incoming and outgoing messages
+
+    // Clone handles for tasks
     let connection_manager_clone = connection_manager.clone();
     let server_context_clone = server_context.clone();
-    
-    tokio::select! {
-        // Handle incoming messages from client
-        _ = async {
+    let config_clone = config.clone();
+    let ws_sender_incoming = ws_sender.clone();
+    let ws_sender_outgoing = ws_sender.clone();
+
+    // Incoming messages task
+    let incoming_task = {
+        let connection_manager = connection_manager.clone();
+        let server_context = server_context.clone();
+        let config = config.clone();
+        let ws_sender = ws_sender_incoming;
+        async move {
             while let Some(msg) = ws_receiver.next().await {
                 match msg {
                     Ok(Message::Text(text)) => {
@@ -368,13 +376,14 @@ async fn handle_connection(
                             &config,
                         ).await {
                             error!("Error handling client message: {}", e);
-                            
+
                             // Send error response
                             let error_response = NetworkResponse::Error {
                                 message: e.to_string(),
                             };
                             if let Ok(response_text) = serde_json::to_string(&error_response) {
-                                let _ = ws_sender.send(Message::Text(response_text)).await;
+                                let mut ws_sender = ws_sender.lock().await;
+                                let _ = ws_sender.send(Message::Text(response_text.into())).await;
                             }
                         }
                     }
@@ -383,6 +392,7 @@ async fn handle_connection(
                         break;
                     }
                     Ok(Message::Ping(data)) => {
+                        let mut ws_sender = ws_sender.lock().await;
                         let _ = ws_sender.send(Message::Pong(data)).await;
                     }
                     Err(e) => {
@@ -392,22 +402,32 @@ async fn handle_connection(
                     _ => {}
                 }
             }
-        } => {}
-        
-        // Handle outgoing messages to client
-        _ = async {
+        }
+    };
+
+    // Outgoing messages task
+    let outgoing_task = {
+        let ws_sender = ws_sender_outgoing;
+        async move {
             while let Ok((target_connection_id, message)) = message_receiver.recv().await {
                 if target_connection_id == connection_id {
                     let message_text = String::from_utf8_lossy(&message);
-                    if let Err(e) = ws_sender.send(Message::Text(message_text.to_string())).await {
+                    let mut ws_sender = ws_sender.lock().await;
+                    if let Err(e) = ws_sender.send(Message::Text(message_text.to_string().into())).await {
                         error!("Failed to send message to client: {}", e);
                         break;
                     }
                 }
             }
-        } => {}
+        }
+    };
+
+    // Run both tasks concurrently, exit when either finishes
+    tokio::select! {
+        _ = incoming_task => {},
+        _ = outgoing_task => {},
     }
-    
+
     // Clean up on disconnect
     if let Some(player_id) = connection_manager.get_player_id(connection_id).await {
         // Emit player left event
@@ -415,17 +435,17 @@ async fn handle_connection(
             player_id,
             timestamp: current_timestamp(),
         };
-        
+
         let _ = server_context.events().emit_namespaced(
             EventId::core("player_left"),
             &event,
         ).await;
-        
+
         let _ = server_context.events().emit("player_left_internal", &event).await;
     }
-    
+
     connection_manager_clone.remove_connection(connection_id).await;
-    
+
     Ok(())
 }
 
@@ -508,7 +528,8 @@ async fn handle_player_move(
         let response = NetworkResponse::MoveFailed {
             reason: "Position outside region bounds".to_string(),
         };
-        let response_text = serde_json::to_string(&response)?;
+        let response_text = serde_json::to_string(&response)
+            .map_err(|e| ServerError::Network(format!("Failed to serialize response: {}", e)))?;
         connection_manager.send_to_connection(connection_id, response_text.into_bytes()).await;
         return Ok(());
     }
@@ -527,7 +548,8 @@ async fn handle_player_move(
     
     // Send success response
     let response = NetworkResponse::MoveSuccess;
-    let response_text = serde_json::to_string(&response)?;
+    let response_text = serde_json::to_string(&response)
+        .map_err(|e| ServerError::Network(format!("Failed to serialize response: {}", e)))?;
     connection_manager.send_to_connection(connection_id, response_text.into_bytes()).await;
     
     // Emit player moved event
@@ -597,7 +619,8 @@ async fn handle_client_data(
         }),
     };
     
-    let response_text = serde_json::to_string(&response)?;
+    let response_text = serde_json::to_string(&response)
+        .map_err(|e| ServerError::Network(format!("Failed to serialize response: {}", e)))?;
     connection_manager.send_to_connection(connection_id, response_text.into_bytes()).await;
     
     Ok(())
