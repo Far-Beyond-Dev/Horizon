@@ -1,12 +1,9 @@
 [workspace]
 members = [
-    "crates/game_client",
-    "crates/server_core",
-    "crates/shared_types", 
-    "crates/horizon_plugin",
-    "crates/recipe_smith",
-    "crates/test_game",
-    "crates/game_server"
+    "crates/types",
+    "crates/event_system",
+    "crates/plugin_system",
+    "crates/horizon",
 ]
 
 [workspace.dependencies]
@@ -14,13 +11,16 @@ tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 uuid = { version = "1.0", features = ["v4", "serde"] }
-thiserror = "1.0"
+thiserror = "2.0.12"
 anyhow = "1.0"
+async-trait = "0.1"
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter", "json"] }
-async-trait = "0.1"
 libloading = "0.8"
-dashmap = "5.5"
+dashmap = "6.1.0"
 futures = "0.3"
 crossbeam = "0.8"
 tempfile = "3.5"
+clap = { version = "4.0", features = ["derive"] }
+toml = "0.8"
+tokio-tungstenite = "0.27.0"
