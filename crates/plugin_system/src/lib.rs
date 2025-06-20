@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 /// Manages loaded plugins and their lifecycles with enhanced event system
 pub struct PluginManager {
     /// Event system shared across all plugins
-    event_system: Arc<dyn EventSystem>,
+    event_system: Arc<EventSystemImpl>,
     /// Server context shared with plugins
     server_context: Arc<ServerContextImpl>,
     /// Loaded plugins
@@ -67,7 +67,7 @@ struct PluginMetadata {
 impl PluginManager {
     /// Create a new plugin manager with enhanced event system
     pub fn new(
-        event_system: Arc<dyn EventSystem>,
+        event_system: Arc<EventSystemImpl>,
         plugin_directory: impl AsRef<Path>,
         region_id: RegionId,
     ) -> Self {
@@ -408,14 +408,14 @@ impl PluginManager {
 
 /// Enhanced server context with client event system support
 pub struct ServerContextImpl {
-    event_system: Arc<dyn EventSystem>,
+    event_system: Arc<EventSystemImpl>,
     region_id: RegionId,
     players: Arc<RwLock<HashMap<PlayerId, Player>>>,
     client_event_router: Arc<RwLock<Option<Arc<ClientEventRouter>>>>,
 }
 
 impl ServerContextImpl {
-    pub fn new(event_system: Arc<dyn EventSystem>, region_id: RegionId) -> Self {
+    pub fn new(event_system: Arc<EventSystemImpl>, region_id: RegionId) -> Self {
         Self {
             event_system,
             region_id,
@@ -477,7 +477,7 @@ impl ServerContextImpl {
 
 #[async_trait]
 impl ServerContext for ServerContextImpl {
-    fn events(&self) -> Arc<dyn EventSystem> {
+    fn events(&self) -> Arc<EventSystemImpl> {
         self.event_system.clone()
     }
     

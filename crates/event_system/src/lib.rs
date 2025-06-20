@@ -490,7 +490,7 @@ impl ClientEventRouter {
         message_type: &str,
         raw_data: &[u8],
         player_id: PlayerId,
-        event_system: Arc<dyn EventSystem>,
+        event_system: Arc<EventSystemImpl>,
     ) -> Result<(), EventError> {
         let mut stats = self.routing_stats.write().await;
         stats.total_messages_routed += 1;
@@ -550,7 +550,7 @@ impl ClientEventRouter {
         &self,
         raw_data: &[u8],
         player_id: PlayerId,
-        event_system: Arc<dyn EventSystem>,
+        event_system: Arc<EventSystemImpl>,
     ) -> Result<(), EventError> {
         let chat_data: serde_json::Value = serde_json::from_slice(raw_data)
             .map_err(EventError::Deserialization)?;
@@ -572,7 +572,7 @@ impl ClientEventRouter {
         &self,
         raw_data: &[u8],
         player_id: PlayerId,
-        event_system: Arc<dyn EventSystem>,
+        event_system: Arc<EventSystemImpl>,
     ) -> Result<(), EventError> {
         let move_data: serde_json::Value = serde_json::from_slice(raw_data)
             .map_err(EventError::Deserialization)?;
@@ -599,7 +599,7 @@ impl ClientEventRouter {
         &self,
         raw_data: &[u8],
         player_id: PlayerId,
-        event_system: Arc<dyn EventSystem>,
+        event_system: Arc<EventSystemImpl>,
     ) -> Result<(), EventError> {
         let combat_event: CombatActionEvent = serde_json::from_slice(raw_data)
             .map_err(EventError::Deserialization)?;
@@ -614,7 +614,7 @@ impl ClientEventRouter {
         &self,
         raw_data: &[u8],
         player_id: PlayerId,
-        event_system: Arc<dyn EventSystem>,
+        event_system: Arc<EventSystemImpl>,
     ) -> Result<(), EventError> {
         let crafting_event: CraftingRequestEvent = serde_json::from_slice(raw_data)
             .map_err(EventError::Deserialization)?;
@@ -629,7 +629,7 @@ impl ClientEventRouter {
         &self,
         raw_data: &[u8],
         player_id: PlayerId,
-        event_system: Arc<dyn EventSystem>,
+        event_system: Arc<EventSystemImpl>,
     ) -> Result<(), EventError> {
         let interaction_event: PlayerInteractionEvent = serde_json::from_slice(raw_data)
             .map_err(EventError::Deserialization)?;
@@ -651,7 +651,7 @@ impl ClientEventRouter {
 // ============================================================================
 
 /// Create a new event system instance
-pub fn create_event_system() -> Arc<dyn EventSystem> {
+pub fn create_event_system() -> Arc<EventSystemImpl> {
     Arc::new(EventSystemImpl::new())
 }
 
@@ -661,12 +661,12 @@ pub fn create_event_system_with_routing() -> Arc<EventSystemImpl> {
 }
 
 /// Create event system with specific namespace
-pub fn create_event_system_with_namespace(namespace: EventNamespace) -> Arc<dyn EventSystem> {
+pub fn create_event_system_with_namespace(namespace: EventNamespace) -> Arc<EventSystemImpl> {
     Arc::new(EventSystemImpl::with_namespace(namespace))
 }
 
 /// Create event system with client event router
-pub fn create_event_system_with_router() -> (Arc<dyn EventSystem>, Arc<ClientEventRouter>) {
+pub fn create_event_system_with_router() -> (Arc<EventSystemImpl>, Arc<ClientEventRouter>) {
     let event_system = create_event_system();
     let router = Arc::new(ClientEventRouter::new());
     (event_system, router)

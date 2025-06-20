@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use plugin_system::EventSystemImpl;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -331,6 +332,7 @@ pub struct EventSystemStats {
     pub total_events_handled: u64,
 }
 
+
 // ============================================================================
 // Server Context
 // ============================================================================
@@ -339,7 +341,7 @@ pub struct EventSystemStats {
 #[async_trait]
 pub trait ServerContext: Send + Sync {
     /// Get the event system
-    fn events(&self) -> Arc<dyn EventSystem>;
+    fn events(&self) -> Arc<EventSystemImpl>;
     
     /// Get current region ID
     fn region_id(&self) -> RegionId;
