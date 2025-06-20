@@ -13,5 +13,4 @@ tokio = { version = "1.0", features = ["full"] }
 async-trait = "0.1"
 tracing = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
-
-types = { path = "../types" }
+event_system = { path = "../event_system" }

@@ -3,7 +3,7 @@
 //! Provides dynamic plugin loading, lifecycle management, and the new
 //! clean API for client event handling with comprehensive statistics.
 
-use types::*;
+use event_system::types::*;
 use event_system::{EventSystemImpl, ClientEventRouter, current_timestamp};
 use libloading::{Library, Symbol};
 use std::collections::HashMap;

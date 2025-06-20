@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
-use plugin_system::EventSystemImpl;
+pub use crate::EventSystemImpl;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;

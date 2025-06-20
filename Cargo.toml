@@ -1,6 +1,5 @@
 [workspace]
 members = [
-    "crates/types",
     "crates/horizon",
     "crates/game_server",
     "crates/event_system",

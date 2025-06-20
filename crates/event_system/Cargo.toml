@@ -9,4 +9,5 @@ tracing = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-types = { path = "../types" }
+thiserror = { workspace = true }
+uuid = { workspace = true }

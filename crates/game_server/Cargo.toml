@@ -12,4 +12,3 @@ tracing = { workspace = true }
 tokio-tungstenite = { workspace = true }
 event_system = { path = "../event_system" }
 plugin_system = { path = "../plugin_system" }
-types = { path = "../types" }

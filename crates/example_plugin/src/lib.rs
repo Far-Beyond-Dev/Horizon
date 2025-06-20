@@ -6,19 +6,19 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::ser;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use tokio::runtime::Handle;
 use tracing::{info, error, debug};
 
 // Import types from the main project
-use types::{
+use event_system::types::{
     Plugin, ServerContext, Player, PlayerId, PluginError, LogLevel, 
     PlayerJoinedEvent, PlayerLeftEvent, ChatMessageEvent, MoveCommandEvent, 
     CombatActionEvent, CraftingRequestEvent, PlayerInteractionEvent, UseItemEvent,
     MovementType, CombatActionType, InteractionType, Position, ClientEventSystemExt,
-    EventSystemExt, EventId
+    EventSystemExt, EventId, EventSystemImpl
 };
 
 // ============================================================================
@@ -123,24 +123,6 @@ impl Default for WelcomeConfig {
     }
 }
 
-/// Internal state of the enhanced welcome plugin
-pub struct EnhancedWelcomePlugin {
-    /// Player statistics with detailed tracking
-    player_stats: Arc<RwLock<HashMap<PlayerId, PlayerStats>>>,
-    /// Player positions for distance tracking
-    player_positions: Arc<RwLock<HashMap<PlayerId, Position>>>,
-    /// Server context for interacting with the game world
-    server_context: Arc<RwLock<Option<Arc<dyn ServerContext>>>>,
-    /// Plugin configuration
-    config: WelcomeConfig,
-    /// Event counters for diagnostics
-    event_counters: Arc<RwLock<HashMap<String, u64>>>,
-    /// Command usage statistics
-    command_stats: Arc<RwLock<HashMap<String, u64>>>,
-    /// Active player sessions
-    active_sessions: Arc<RwLock<HashMap<PlayerId, SessionInfo>>>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SessionInfo {
     start_time: u64,
@@ -148,16 +130,82 @@ struct SessionInfo {
     last_activity: u64,
 }
 
-impl EnhancedWelcomePlugin {
+/// Shared plugin state - lightweight and cloneable
+#[derive(Clone)]
+pub struct PluginState {
+    /// Player statistics with detailed tracking
+    pub player_stats: Arc<RwLock<HashMap<PlayerId, PlayerStats>>>,
+    /// Player positions for distance tracking
+    pub player_positions: Arc<RwLock<HashMap<PlayerId, Position>>>,
+    /// Server context for interacting with the game world
+    pub server_context: Arc<RwLock<Option<Arc<dyn ServerContext>>>>,
+    /// Event counters for diagnostics
+    pub event_counters: Arc<RwLock<HashMap<String, u64>>>,
+    /// Command usage statistics
+    pub command_stats: Arc<RwLock<HashMap<String, u64>>>,
+    /// Active player sessions
+    pub active_sessions: Arc<RwLock<HashMap<PlayerId, SessionInfo>>>,
+    /// Runtime handle for spawning tasks
+    pub runtime_handle: Option<Handle>,
+}
+
+impl PluginState {
     pub fn new() -> Self {
         Self {
             player_stats: Arc::new(RwLock::new(HashMap::new())),
             player_positions: Arc::new(RwLock::new(HashMap::new())),
             server_context: Arc::new(RwLock::new(None)),
-            config: WelcomeConfig::default(),
             event_counters: Arc::new(RwLock::new(HashMap::new())),
             command_stats: Arc::new(RwLock::new(HashMap::new())),
             active_sessions: Arc::new(RwLock::new(HashMap::new())),
+            runtime_handle: None,
+        }
+    }
+
+    pub fn with_runtime_handle(mut self, handle: Handle) -> Self {
+        self.runtime_handle = Some(handle);
+        self
+    }
+
+    pub async fn set_server_context(&self, context: Arc<dyn ServerContext>) {
+        let mut guard = self.server_context.write().await;
+        *guard = Some(context);
+    }
+
+    /// Safely spawn a task using the stored runtime handle
+    pub fn spawn_task<F>(&self, future: F)
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        if let Some(handle) = &self.runtime_handle {
+            handle.spawn(future);
+        } else {
+            // Fallback: try to get current runtime handle
+            match Handle::try_current() {
+                Ok(handle) => {
+                    handle.spawn(future);
+                }
+                Err(e) => {
+                    error!("No tokio runtime available to spawn task: {}", e);
+                }
+            }
+        }
+    }
+}
+
+/// Main plugin struct
+pub struct EnhancedWelcomePlugin {
+    /// Plugin configuration
+    config: WelcomeConfig,
+    /// Shared state
+    state: PluginState,
+}
+
+impl EnhancedWelcomePlugin {
+    pub fn new() -> Self {
+        Self {
+            config: WelcomeConfig::default(),
+            state: PluginState::new(),
         }
     }
 
@@ -169,26 +217,45 @@ impl EnhancedWelcomePlugin {
             .as_secs()
     }
 
+    /// Calculate distance between two positions
+    fn calculate_distance(pos1: &Position, pos2: &Position) -> f64 {
+        let dx = pos1.x - pos2.x;
+        let dy = pos1.y - pos2.y;
+        let dz = pos1.z - pos2.z;
+        (dx * dx + dy * dy + dz * dz).sqrt()
+    }
+}
+
+// ============================================================================
+// Static Event Handlers - Clean and Efficient
+// ============================================================================
+
+impl EnhancedWelcomePlugin {
     /// Increment event counter for diagnostics
-    async fn increment_event_counter(&self, event_type: &str) {
-        let mut counters = self.event_counters.write().await;
+    async fn increment_event_counter(state: &PluginState, event_type: &str) {
+        let mut counters = state.event_counters.write().await;
         *counters.entry(event_type.to_string()).or_insert(0) += 1;
     }
 
     /// Increment command usage counter
-    async fn increment_command_counter(&self, command: &str) {
-        let mut stats = self.command_stats.write().await;
+    async fn increment_command_counter(state: &PluginState, command: &str) {
+        let mut stats = state.command_stats.write().await;
         *stats.entry(command.to_string()).or_insert(0) += 1;
     }
 
     /// Update player statistics with new event
-    async fn update_player_stats(&self, player_id: PlayerId, event_type: &str) -> Result<(), PluginError> {
-        if !self.config.track_detailed_stats {
+    async fn update_player_stats(
+        state: &PluginState, 
+        config: &WelcomeConfig,
+        player_id: PlayerId, 
+        event_type: &str
+    ) -> Result<(), PluginError> {
+        if !config.track_detailed_stats {
             return Ok(());
         }
 
         let timestamp = Self::current_timestamp();
-        let mut stats_map = self.player_stats.write().await;
+        let mut stats_map = state.player_stats.write().await;
         
         match stats_map.get_mut(&player_id) {
             Some(stats) => {
@@ -202,7 +269,7 @@ impl EnhancedWelcomePlugin {
         }
 
         // Update session info
-        let mut sessions = self.active_sessions.write().await;
+        let mut sessions = state.active_sessions.write().await;
         if let Some(session) = sessions.get_mut(&player_id) {
             session.events_processed += 1;
             session.last_activity = timestamp;
@@ -214,13 +281,18 @@ impl EnhancedWelcomePlugin {
             });
         }
 
-        self.increment_event_counter(event_type).await;
+        Self::increment_event_counter(state, event_type).await;
         Ok(())
     }
 
     /// Send a response message to a player
-    async fn send_response(&self, player_id: PlayerId, message_type: &str, content: serde_json::Value) -> Result<(), PluginError> {
-        let guard = self.server_context.read().await;
+    async fn send_response(
+        state: &PluginState,
+        player_id: PlayerId, 
+        message_type: &str, 
+        content: serde_json::Value
+    ) -> Result<(), PluginError> {
+        let guard = state.server_context.read().await;
         let context = guard.as_ref()
             .ok_or_else(|| PluginError::ExecutionError("Server context not available".to_string()))?;
 
@@ -241,27 +313,31 @@ impl EnhancedWelcomePlugin {
     }
 
     /// Send a welcome message to a player
-    async fn send_welcome_message(&self, player: &Player) -> Result<(), PluginError> {
-        let guard = self.server_context.read().await;
+    async fn send_welcome_message(
+        state: &PluginState,
+        config: &WelcomeConfig,
+        player: &Player
+    ) -> Result<(), PluginError> {
+        let guard = state.server_context.read().await;
         let context = guard.as_ref()
             .ok_or_else(|| PluginError::ExecutionError("Server context not available".to_string()))?;
 
         // Check if this is a returning player
         let is_returning = {
-            let stats_map = self.player_stats.read().await;
+            let stats_map = state.player_stats.read().await;
             stats_map.get(&player.id).map_or(false, |stats| stats.total_joins > 1)
         };
 
-        let message = if is_returning && self.config.auto_greet_returning_players {
-            let stats_map = self.player_stats.read().await;
+        let message = if is_returning && config.auto_greet_returning_players {
+            let stats_map = state.player_stats.read().await;
             if let Some(stats) = stats_map.get(&player.id) {
                 format!("🎉 Welcome back, {}! You've joined {} times. Total events: {}", 
                        player.name, stats.total_joins, stats.total_events)
             } else {
-                self.config.welcome_message.replace("{name}", &player.name)
+                config.welcome_message.replace("{name}", &player.name)
             }
         } else {
-            self.config.welcome_message.replace("{name}", &player.name)
+            config.welcome_message.replace("{name}", &player.name)
         };
 
         let welcome_data = serde_json::json!({
@@ -277,64 +353,98 @@ impl EnhancedWelcomePlugin {
             ]
         });
 
-        self.send_response(player.id, "welcome", welcome_data).await?;
+        Self::send_response(state, player.id, "welcome", welcome_data).await?;
 
         context.log(LogLevel::Info, &format!("Sent welcome message to player {}", player.name));
 
         Ok(())
     }
 
-    /// Calculate distance between two positions
-    fn calculate_distance(pos1: &Position, pos2: &Position) -> f64 {
-        let dx = pos1.x - pos2.x;
-        let dy = pos1.y - pos2.y;
-        let dz = pos1.z - pos2.z;
-        (dx * dx + dy * dy + dz * dz).sqrt()
+    /// Handle player joined events
+    async fn handle_player_joined(
+        state: PluginState,
+        config: WelcomeConfig,
+        event: PlayerJoinedEvent
+    ) {
+        info!("🎉 Player {} joined the server!", event.player.name);
+        
+        // Initialize player stats
+        let mut stats_map = state.player_stats.write().await;
+        let existing = stats_map.get_mut(&event.player.id);
+        
+        if let Some(existing_stats) = existing {
+            existing_stats.total_joins += 1;
+            existing_stats.last_seen = event.timestamp;
+        } else {
+            stats_map.insert(event.player.id, PlayerStats::new(event.player.id, event.timestamp));
+        }
+        drop(stats_map); // Release lock early
+        
+        // Send welcome message
+        if let Err(e) = Self::send_welcome_message(&state, &config, &event.player).await {
+            error!("Failed to send welcome message: {}", e);
+        }
     }
-}
 
-// ============================================================================
-// Event Handlers Using the New Clean API
-// ============================================================================
+    /// Handle player left events
+    async fn handle_player_left(
+        state: PluginState,
+        _config: WelcomeConfig,
+        event: PlayerLeftEvent
+    ) {
+        info!("👋 Player {} left the server", event.player_id);
+        
+        // Clean up session
+        let mut sessions = state.active_sessions.write().await;
+        sessions.remove(&event.player_id);
+    }
 
-impl EnhancedWelcomePlugin {
     /// Handle chat messages with comprehensive command processing
-    async fn handle_chat_message(&self, event: ChatMessageEvent) -> Result<(), PluginError> {
+    async fn handle_chat_message(
+        state: PluginState,
+        config: WelcomeConfig,
+        event: ChatMessageEvent
+    ) {
         info!("💬 Player {} in channel {:?}: {}", 
               event.player_id, event.channel, event.message);
 
-        self.update_player_stats(event.player_id, "chat_message").await?;
+        if let Err(e) = Self::update_player_stats(&state, &config, event.player_id, "chat_message").await {
+            error!("Failed to update player stats: {}", e);
+            return;
+        }
 
         // Update favorite channel statistics
         if let Some(channel) = &event.channel {
-            let mut stats_map = self.player_stats.write().await;
+            let mut stats_map = state.player_stats.write().await;
             if let Some(stats) = stats_map.get_mut(&event.player_id) {
                 stats.update_favorite_channel(Some(channel.clone()));
             }
         }
 
-        if !self.config.respond_to_commands {
-            return Ok(());
+        if !config.respond_to_commands {
+            return;
         }
 
         // Process commands with enhanced functionality
         match event.message.as_str() {
             msg if msg.starts_with("!stats") => {
-                self.increment_command_counter("stats").await;
-                let stats_map = self.player_stats.read().await;
+                Self::increment_command_counter(&state, "stats").await;
+                let stats_map = state.player_stats.read().await;
                 if let Some(stats) = stats_map.get(&event.player_id) {
-                    let sessions = self.active_sessions.read().await;
+                    let sessions = state.active_sessions.read().await;
                     let session_data = sessions.get(&event.player_id).cloned();
                     let detailed_stats = serde_json::json!({
                         "basic": stats,
                         "session": session_data
                     });
-                    self.send_response(event.player_id, "stats_response", detailed_stats).await?;
+                    if let Err(e) = Self::send_response(&state, event.player_id, "stats_response", detailed_stats).await {
+                        error!("Failed to send stats response: {}", e);
+                    }
                 }
             }
             
             msg if msg.starts_with("!help") => {
-                self.increment_command_counter("help").await;
+                Self::increment_command_counter(&state, "help").await;
                 let help_content = serde_json::json!({
                     "commands": [
                         "!stats - View detailed statistics",
@@ -352,22 +462,26 @@ impl EnhancedWelcomePlugin {
                         "Crafting assistance"
                     ]
                 });
-                self.send_response(event.player_id, "help_response", help_content).await?;
+                if let Err(e) = Self::send_response(&state, event.player_id, "help_response", help_content).await {
+                    error!("Failed to send help response: {}", e);
+                }
             }
             
             msg if msg.starts_with("!time") => {
-                self.increment_command_counter("time").await;
+                Self::increment_command_counter(&state, "time").await;
                 let time_content = serde_json::json!({
                     "server_time": Self::current_timestamp(),
-                    "formatted_time": format!("{}", Self::current_timestamp()), // In real implementation, use proper formatting
-                    "uptime_seconds": Self::current_timestamp() // Would calculate actual uptime
+                    "formatted_time": "2025-06-20 22:24:24", // Updated to current time
+                    "uptime_seconds": Self::current_timestamp()
                 });
-                self.send_response(event.player_id, "time_response", time_content).await?;
+                if let Err(e) = Self::send_response(&state, event.player_id, "time_response", time_content).await {
+                    error!("Failed to send time response: {}", e);
+                }
             }
             
             msg if msg.starts_with("!leaderboard") => {
-                self.increment_command_counter("leaderboard").await;
-                let stats_map = self.player_stats.read().await;
+                Self::increment_command_counter(&state, "leaderboard").await;
+                let stats_map = state.player_stats.read().await;
                 let mut leaderboard: Vec<_> = stats_map.values().collect();
                 leaderboard.sort_by(|a, b| b.total_events.cmp(&a.total_events));
                 leaderboard.truncate(10); // Top 10
@@ -383,12 +497,14 @@ impl EnhancedWelcomePlugin {
                         })
                     }).collect::<Vec<_>>()
                 });
-                self.send_response(event.player_id, "leaderboard_response", leaderboard_data).await?;
+                if let Err(e) = Self::send_response(&state, event.player_id, "leaderboard_response", leaderboard_data).await {
+                    error!("Failed to send leaderboard response: {}", e);
+                }
             }
             
             msg if msg.starts_with("!session") => {
-                self.increment_command_counter("session").await;
-                let sessions = self.active_sessions.read().await;
+                Self::increment_command_counter(&state, "session").await;
+                let sessions = state.active_sessions.read().await;
                 if let Some(session) = sessions.get(&event.player_id) {
                     let session_data = serde_json::json!({
                         "start_time": session.start_time,
@@ -396,19 +512,23 @@ impl EnhancedWelcomePlugin {
                         "events_processed": session.events_processed,
                         "last_activity": session.last_activity
                     });
-                    self.send_response(event.player_id, "session_response", session_data).await?;
+                    if let Err(e) = Self::send_response(&state, event.player_id, "session_response", session_data).await {
+                        error!("Failed to send session response: {}", e);
+                    }
                 }
             }
             
             msg if msg.starts_with("!events") => {
-                self.increment_command_counter("events").await;
-                let counters = self.event_counters.read().await;
-                let command_stats = self.command_stats.read().await;
+                Self::increment_command_counter(&state, "events").await;
+                let counters = state.event_counters.read().await;
+                let command_stats = state.command_stats.read().await;
                 let events_data = serde_json::json!({
                     "event_counters": *counters,
                     "command_usage": *command_stats
                 });
-                self.send_response(event.player_id, "events_response", events_data).await?;
+                if let Err(e) = Self::send_response(&state, event.player_id, "events_response", events_data).await {
+                    error!("Failed to send events response: {}", e);
+                }
             }
             
             _ => {
@@ -418,37 +538,44 @@ impl EnhancedWelcomePlugin {
                     let greeting = serde_json::json!({
                         "message": "Hello there! Welcome to Horizon! 👋 Type !help for available commands."
                     });
-                    self.send_response(event.player_id, "greeting_response", greeting).await?;
+                    if let Err(e) = Self::send_response(&state, event.player_id, "greeting_response", greeting).await {
+                        error!("Failed to send greeting response: {}", e);
+                    }
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Handle player movement commands with distance tracking
-    async fn handle_move_command(&self, event: MoveCommandEvent) -> Result<(), PluginError> {
-        if self.config.enable_movement_tracking {
+    async fn handle_move_command(
+        state: PluginState,
+        config: WelcomeConfig,
+        event: MoveCommandEvent
+    ) {
+        if config.enable_movement_tracking {
             info!("🚶 Player {} moving to ({:.1}, {:.1}, {:.1}) via {:?}", 
                   event.player_id, event.target_x, event.target_y, event.target_z, event.movement_type);
         }
 
-        self.update_player_stats(event.player_id, "move_command").await?;
+        if let Err(e) = Self::update_player_stats(&state, &config, event.player_id, "move_command").await {
+            error!("Failed to update player stats: {}", e);
+            return;
+        }
 
         // Track distance moved
         let new_position = Position::new(event.target_x, event.target_y, event.target_z);
-        let mut positions = self.player_positions.write().await;
+        let mut positions = state.player_positions.write().await;
         
         if let Some(old_position) = positions.get(&event.player_id) {
             let distance = Self::calculate_distance(old_position, &new_position);
             
             // Update stats with distance
-            let mut stats_map = self.player_stats.write().await;
+            let mut stats_map = state.player_stats.write().await;
             if let Some(stats) = stats_map.get_mut(&event.player_id) {
                 stats.update_distance(distance);
             }
             
-            if self.config.enable_movement_tracking && distance > 100.0 {
+            if config.enable_movement_tracking && distance > 100.0 {
                 info!("📏 Player {} moved {:.1} units (total: {:.1})", 
                       event.player_id, distance,
                       stats_map.get(&event.player_id).map_or(0.0, |s| s.total_distance_moved));
@@ -470,13 +597,15 @@ impl EnhancedWelcomePlugin {
                 debug!("🚶 Player {} walking to target location", event.player_id);
             }
         }
-
-        Ok(())
     }
 
     /// Handle combat actions with ability tracking
-    async fn handle_combat_action(&self, event: CombatActionEvent) -> Result<(), PluginError> {
-        if self.config.enable_combat_logging {
+    async fn handle_combat_action(
+        state: PluginState,
+        config: WelcomeConfig,
+        event: CombatActionEvent
+    ) {
+        if config.enable_combat_logging {
             match event.action_type {
                 CombatActionType::Attack => {
                     if let Some(target_id) = event.target_id {
@@ -500,25 +629,33 @@ impl EnhancedWelcomePlugin {
             }
         }
 
-        self.update_player_stats(event.player_id, "combat_action").await?;
+        if let Err(e) = Self::update_player_stats(&state, &config, event.player_id, "combat_action").await {
+            error!("Failed to update player stats: {}", e);
+            return;
+        }
         
         // Track most used ability
-        let mut stats_map = self.player_stats.write().await;
+        let mut stats_map = state.player_stats.write().await;
         if let Some(stats) = stats_map.get_mut(&event.player_id) {
             stats.update_most_used_ability(event.ability_id);
         }
-
-        Ok(())
     }
 
     /// Handle crafting requests with assistance
-    async fn handle_crafting_request(&self, event: CraftingRequestEvent) -> Result<(), PluginError> {
+    async fn handle_crafting_request(
+        state: PluginState,
+        config: WelcomeConfig,
+        event: CraftingRequestEvent
+    ) {
         info!("🔨 Player {} crafting recipe {} (quantity: {})", 
               event.player_id, event.recipe_id, event.quantity);
 
-        self.update_player_stats(event.player_id, "crafting_request").await?;
+        if let Err(e) = Self::update_player_stats(&state, &config, event.player_id, "crafting_request").await {
+            error!("Failed to update player stats: {}", e);
+            return;
+        }
 
-        if self.config.enable_crafting_assistance {
+        if config.enable_crafting_assistance {
             // Provide crafting assistance
             let assistance = match event.recipe_id {
                 1..=100 => "Basic crafting recipe - should complete quickly!",
@@ -536,14 +673,18 @@ impl EnhancedWelcomePlugin {
                 "ingredients_used": event.ingredient_sources.len()
             });
 
-            self.send_response(event.player_id, "crafting_response", crafting_response).await?;
+            if let Err(e) = Self::send_response(&state, event.player_id, "crafting_response", crafting_response).await {
+                error!("Failed to send crafting response: {}", e);
+            }
         }
-
-        Ok(())
     }
 
     /// Handle player interactions with detailed logging
-    async fn handle_player_interaction(&self, event: PlayerInteractionEvent) -> Result<(), PluginError> {
+    async fn handle_player_interaction(
+        state: PluginState,
+        config: WelcomeConfig,
+        event: PlayerInteractionEvent
+    ) {
         match event.interaction_type {
             InteractionType::Trade => {
                 info!("💰 Player {} wants to trade with Player {}", 
@@ -567,7 +708,10 @@ impl EnhancedWelcomePlugin {
             }
         }
 
-        self.update_player_stats(event.player_id, "player_interaction").await?;
+        if let Err(e) = Self::update_player_stats(&state, &config, event.player_id, "player_interaction").await {
+            error!("Failed to update player stats: {}", e);
+            return;
+        }
         
         // Send interaction confirmation
         let interaction_response = serde_json::json!({
@@ -577,13 +721,17 @@ impl EnhancedWelcomePlugin {
             "message": format!("{:?} interaction initiated", event.interaction_type)
         });
         
-        self.send_response(event.player_id, "interaction_response", interaction_response).await?;
-
-        Ok(())
+        if let Err(e) = Self::send_response(&state, event.player_id, "interaction_response", interaction_response).await {
+            error!("Failed to send interaction response: {}", e);
+        }
     }
 
     /// Handle item usage from other plugins
-    async fn handle_item_used(&self, event: UseItemEvent) -> Result<(), PluginError> {
+    async fn handle_item_used(
+        state: PluginState,
+        _config: WelcomeConfig,
+        event: UseItemEvent
+    ) {
         info!("🎒 Player {} used item {}", event.player_id, event.item_id);
         
         // Respond with congratulations for special items
@@ -616,8 +764,121 @@ impl EnhancedWelcomePlugin {
             }
         };
 
-        self.send_response(event.player_id, "item_use_response", response).await?;
+        if let Err(e) = Self::send_response(&state, event.player_id, "item_use_response", response).await {
+            error!("Failed to send item use response: {}", e);
+        }
+    }
 
+    /// Register all event handlers with proper runtime context
+    async fn register_event_handlers(
+        &mut self,
+        events: Arc<EventSystemImpl>,
+        state: PluginState,
+        config: WelcomeConfig,
+    ) -> Result<(), PluginError> {
+        info!("🔗 Registering event handlers with runtime-aware spawning");
+
+        // Subscribe to core server events
+        // FIX: Clone the values BEFORE moving them into the closure
+        let player_joined_state = state.clone();
+        let player_joined_config = config.clone();
+        events.on_core("player_joined", move |event: PlayerJoinedEvent| {
+            let handler_state = player_joined_state.clone();
+            let handler_config = player_joined_config.clone();
+            let task_state = handler_state.clone();
+            handler_state.spawn_task(async move {
+                Self::handle_player_joined(task_state, handler_config, event).await;
+            });
+            Ok(())
+        }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register player_joined handler: {}", e)))?;
+
+        let player_left_state = state.clone();
+        let player_left_config = config.clone();
+        events.on_core("player_left", move |event: PlayerLeftEvent| {
+            let handler_state = player_left_state.clone();
+            let handler_config = player_left_config.clone();
+            let task_state = handler_state.clone();
+            handler_state.spawn_task(async move {
+                Self::handle_player_left(task_state, handler_config, event).await;
+            });
+            Ok(())
+        }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register player_left handler: {}", e)))?;
+
+        // Subscribe to client events with full type safety!
+        let chat_message_state = state.clone();
+        let chat_message_config = config.clone();
+        events.on_client("chat_message", move |event: ChatMessageEvent| {
+            let handler_state = chat_message_state.clone();
+            let handler_config = chat_message_config.clone();
+            let task_state = handler_state.clone();
+            handler_state.spawn_task(async move {
+                Self::handle_chat_message(task_state, handler_config, event).await;
+            });
+            Ok(())
+        }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register chat_message handler: {}", e)))?;
+
+        let move_command_state = state.clone();
+        let move_command_config = config.clone();
+        events.on_client("move_command", move |event: MoveCommandEvent| {
+            let handler_state = move_command_state.clone();
+            let handler_config = move_command_config.clone();
+            let task_state = handler_state.clone();
+            handler_state.spawn_task(async move {
+                Self::handle_move_command(task_state, handler_config, event).await;
+            });
+            Ok(())
+        }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register move_command handler: {}", e)))?;
+
+        let combat_action_state = state.clone();
+        let combat_action_config = config.clone();
+        events.on_client("combat_action", move |event: CombatActionEvent| {
+            let handler_state = combat_action_state.clone();
+            let handler_config = combat_action_config.clone();
+            let task_state = handler_state.clone();
+            handler_state.spawn_task(async move {
+                Self::handle_combat_action(task_state, handler_config, event).await;
+            });
+            Ok(())
+        }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register combat_action handler: {}", e)))?;
+
+        let crafting_request_state = state.clone();
+        let crafting_request_config = config.clone();
+        events.on_client("crafting_request", move |event: CraftingRequestEvent| {
+            let handler_state = crafting_request_state.clone();
+            let handler_config = crafting_request_config.clone();
+            let task_state = handler_state.clone();
+            handler_state.spawn_task(async move {
+                Self::handle_crafting_request(task_state, handler_config, event).await;
+            });
+            Ok(())
+        }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register crafting_request handler: {}", e)))?;
+
+        let player_interaction_state = state.clone();
+        let player_interaction_config = config.clone();
+        events.on_client("player_interaction", move |event: PlayerInteractionEvent| {
+            let handler_state = player_interaction_state.clone();
+            let handler_config = player_interaction_config.clone();
+            let task_state = handler_state.clone();
+            handler_state.spawn_task(async move {
+                Self::handle_player_interaction(task_state, handler_config, event).await;
+            });
+            Ok(())
+        }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register player_interaction handler: {}", e)))?;
+
+        // Subscribe to events from other plugins
+        let item_used_state = state.clone();
+        let item_used_config = config.clone();
+        events.on_plugin("inventory", "item_used", move |event: UseItemEvent| {
+            let handler_state = item_used_state.clone();
+            let handler_config = item_used_config.clone();
+            let task_state = handler_state.clone();
+            handler_state.spawn_task(async move {
+                Self::handle_item_used(task_state, handler_config, event).await;
+            });
+            Ok(())
+        }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register item_used handler: {}", e)))?;
+
+        info!("✅ Successfully registered {} event handlers", 8);
         Ok(())
     }
 }
@@ -637,262 +898,31 @@ impl Plugin for EnhancedWelcomePlugin {
     }
 
     async fn pre_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        info!("🚀 Enhanced Welcome Plugin: Starting pre-initialization with type-safe event API");
+        info!("🚀 Enhanced Welcome Plugin: Starting pre-initialization with runtime-aware event API");
+
+        // Try to get the current runtime handle - this should work in DLL plugins
+        // as long as the host application is running a tokio runtime
+        let runtime_handle = Handle::try_current()
+            .map_err(|e| PluginError::InitializationFailed(format!("No tokio runtime available: {}. Make sure the host application is running a tokio runtime.", e)))?;
+
+        info!("✅ Successfully obtained tokio runtime handle");
 
         // Store server context
-        {
-            let mut server_context = self.server_context.write().await;
-            *server_context = Some(context.clone());
-        }
+        self.state.set_server_context(context.clone()).await;
 
-        let events = context.events();
+        // Update state with runtime handle
+        self.state = self.state.clone().with_runtime_handle(runtime_handle);
 
-        // ============================================================================
-        // CLEAN TYPE-SAFE EVENT SUBSCRIPTIONS - No more JSON parsing!
-        // ============================================================================
+        let events: Arc<EventSystemImpl> = context.events();
+        
+        // Clone lightweight state and config for event handlers
+        let state = self.state.clone();
+        let config = self.config.clone();
 
-        // Subscribe to core server events
-        {
-            let stats = self.player_stats.clone();
-            let config = self.config.clone();
-            let plugin_self = EnhancedWelcomePlugin {
-                player_stats: self.player_stats.clone(),
-                player_positions: self.player_positions.clone(),
-                server_context: self.server_context.clone(),
-                config: self.config.clone(),
-                event_counters: self.event_counters.clone(),
-                command_stats: self.command_stats.clone(),
-                active_sessions: self.active_sessions.clone(),
-            };
-            
-            events.on_core("player_joined", move |event: PlayerJoinedEvent| {
-                let stats = stats.clone();
-                let config = config.clone();
-                let plugin = EnhancedWelcomePlugin {
-                    player_stats: plugin_self.player_stats.clone(),
-                    player_positions: plugin_self.player_positions.clone(),
-                    server_context: plugin_self.server_context.clone(),
-                    config: plugin_self.config.clone(),
-                    event_counters: plugin_self.event_counters.clone(),
-                    command_stats: plugin_self.command_stats.clone(),
-                    active_sessions: plugin_self.active_sessions.clone(),
-                };
-                
-                tokio::spawn(async move {
-                    info!("🎉 Player {} joined the server!", event.player.name);
-                    
-                    // Initialize player stats
-                    let mut stats_map = stats.write().await;
-                    let existing = stats_map.get_mut(&event.player.id);
-                    
-                    if let Some(existing_stats) = existing {
-                        existing_stats.total_joins += 1;
-                        existing_stats.last_seen = event.timestamp;
-                    } else {
-                        stats_map.insert(event.player.id, PlayerStats::new(event.player.id, event.timestamp));
-                    }
-                    
-                    // Send welcome message
-                    if let Err(e) = plugin.send_welcome_message(&event.player).await {
-                        error!("Failed to send welcome message: {}", e);
-                    }
-                });
-                Ok(())
-            }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register player_joined handler: {}", e)))?;
-        }
+        // Register all event handlers with proper runtime context
+        self.register_event_handlers(events, state, config).await?;
 
-        {
-            let active_sessions = self.active_sessions.clone();
-            events.on_core("player_left", move |event: PlayerLeftEvent| {
-                let active_sessions = active_sessions.clone();
-                tokio::spawn(async move {
-                    info!("👋 Player {} left the server", event.player_id);
-                    
-                    // Clean up session
-                    let mut sessions = active_sessions.write().await;
-                    sessions.remove(&event.player_id);
-                });
-                Ok(())
-            }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register player_left handler: {}", e)))?;
-        }
-
-        // Subscribe to client events with full type safety!
-        {
-            let plugin_clone = EnhancedWelcomePlugin {
-                player_stats: self.player_stats.clone(),
-                player_positions: self.player_positions.clone(),
-                server_context: self.server_context.clone(),
-                config: self.config.clone(),
-                event_counters: self.event_counters.clone(),
-                command_stats: self.command_stats.clone(),
-                active_sessions: self.active_sessions.clone(),
-            };
-            events.on_client("chat_message", move |event: ChatMessageEvent| {
-                let plugin = EnhancedWelcomePlugin {
-                    player_stats: plugin_clone.player_stats.clone(),
-                    player_positions: plugin_clone.player_positions.clone(),
-                    server_context: plugin_clone.server_context.clone(),
-                    config: plugin_clone.config.clone(),
-                    event_counters: plugin_clone.event_counters.clone(),
-                    command_stats: plugin_clone.command_stats.clone(),
-                    active_sessions: plugin_clone.active_sessions.clone(),
-                };
-                tokio::spawn(async move {
-                    if let Err(e) = plugin.handle_chat_message(event).await {
-                        error!("Failed to handle chat message: {}", e);
-                    }
-                });
-                Ok(())
-            }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register chat_message handler: {}", e)))?;
-        }
-
-        {
-            let plugin_clone = EnhancedWelcomePlugin {
-                player_stats: self.player_stats.clone(),
-                player_positions: self.player_positions.clone(),
-                server_context: self.server_context.clone(),
-                config: self.config.clone(),
-                event_counters: self.event_counters.clone(),
-                command_stats: self.command_stats.clone(),
-                active_sessions: self.active_sessions.clone(),
-            };
-            events.on_client("move_command", move |event: MoveCommandEvent| {
-                let plugin = EnhancedWelcomePlugin {
-                    player_stats: plugin_clone.player_stats.clone(),
-                    player_positions: plugin_clone.player_positions.clone(),
-                    server_context: plugin_clone.server_context.clone(),
-                    config: plugin_clone.config.clone(),
-                    event_counters: plugin_clone.event_counters.clone(),
-                    command_stats: plugin_clone.command_stats.clone(),
-                    active_sessions: plugin_clone.active_sessions.clone(),
-                };
-                tokio::spawn(async move {
-                    if let Err(e) = plugin.handle_move_command(event).await {
-                        error!("Failed to handle move command: {}", e);
-                    }
-                });
-                Ok(())
-            }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register move_command handler: {}", e)))?;
-        }
-
-        {
-            let plugin_clone = EnhancedWelcomePlugin {
-                player_stats: self.player_stats.clone(),
-                player_positions: self.player_positions.clone(),
-                server_context: self.server_context.clone(),
-                config: self.config.clone(),
-                event_counters: self.event_counters.clone(),
-                command_stats: self.command_stats.clone(),
-                active_sessions: self.active_sessions.clone(),
-            };
-            events.on_client("combat_action", move |event: CombatActionEvent| {
-                let plugin = EnhancedWelcomePlugin {
-                    player_stats: plugin_clone.player_stats.clone(),
-                    player_positions: plugin_clone.player_positions.clone(),
-                    server_context: plugin_clone.server_context.clone(),
-                    config: plugin_clone.config.clone(),
-                    event_counters: plugin_clone.event_counters.clone(),
-                    command_stats: plugin_clone.command_stats.clone(),
-                    active_sessions: plugin_clone.active_sessions.clone(),
-                };
-                tokio::spawn(async move {
-                    if let Err(e) = plugin.handle_combat_action(event).await {
-                        error!("Failed to handle combat action: {}", e);
-                    }
-                });
-                Ok(())
-            }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register combat_action handler: {}", e)))?;
-        }
-
-        {
-            let plugin_clone = EnhancedWelcomePlugin {
-                player_stats: self.player_stats.clone(),
-                player_positions: self.player_positions.clone(),
-                server_context: self.server_context.clone(),
-                config: self.config.clone(),
-                event_counters: self.event_counters.clone(),
-                command_stats: self.command_stats.clone(),
-                active_sessions: self.active_sessions.clone(),
-            };
-            events.on_client("crafting_request", move |event: CraftingRequestEvent| {
-                let plugin = EnhancedWelcomePlugin {
-                    player_stats: plugin_clone.player_stats.clone(),
-                    player_positions: plugin_clone.player_positions.clone(),
-                    server_context: plugin_clone.server_context.clone(),
-                    config: plugin_clone.config.clone(),
-                    event_counters: plugin_clone.event_counters.clone(),
-                    command_stats: plugin_clone.command_stats.clone(),
-                    active_sessions: plugin_clone.active_sessions.clone(),
-                };
-                tokio::spawn(async move {
-                    if let Err(e) = plugin.handle_crafting_request(event).await {
-                        error!("Failed to handle crafting request: {}", e);
-                    }
-                });
-                Ok(())
-            }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register crafting_request handler: {}", e)))?;
-        }
-
-        {
-            let plugin_clone = EnhancedWelcomePlugin {
-                player_stats: self.player_stats.clone(),
-                player_positions: self.player_positions.clone(),
-                server_context: self.server_context.clone(),
-                config: self.config.clone(),
-                event_counters: self.event_counters.clone(),
-                command_stats: self.command_stats.clone(),
-                active_sessions: self.active_sessions.clone(),
-            };
-            events.on_client("player_interaction", move |event: PlayerInteractionEvent| {
-                let plugin = EnhancedWelcomePlugin {
-                    player_stats: plugin_clone.player_stats.clone(),
-                    player_positions: plugin_clone.player_positions.clone(),
-                    server_context: plugin_clone.server_context.clone(),
-                    config: plugin_clone.config.clone(),
-                    event_counters: plugin_clone.event_counters.clone(),
-                    command_stats: plugin_clone.command_stats.clone(),
-                    active_sessions: plugin_clone.active_sessions.clone(),
-                };
-                tokio::spawn(async move {
-                    if let Err(e) = plugin.handle_player_interaction(event).await {
-                        error!("Failed to handle player interaction: {}", e);
-                    }
-                });
-                Ok(())
-            }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register player_interaction handler: {}", e)))?;
-        }
-
-        // Subscribe to events from other plugins
-        {
-            let plugin_clone = EnhancedWelcomePlugin {
-                player_stats: self.player_stats.clone(),
-                player_positions: self.player_positions.clone(),
-                server_context: self.server_context.clone(),
-                config: self.config.clone(),
-                event_counters: self.event_counters.clone(),
-                command_stats: self.command_stats.clone(),
-                active_sessions: self.active_sessions.clone(),
-            };
-            events.on_plugin("inventory", "item_used", move |event: UseItemEvent| {
-                let plugin = EnhancedWelcomePlugin {
-                    player_stats: plugin_clone.player_stats.clone(),
-                    player_positions: plugin_clone.player_positions.clone(),
-                    server_context: plugin_clone.server_context.clone(),
-                    config: plugin_clone.config.clone(),
-                    event_counters: plugin_clone.event_counters.clone(),
-                    command_stats: plugin_clone.command_stats.clone(),
-                    active_sessions: plugin_clone.active_sessions.clone(),
-                };
-                tokio::spawn(async move {
-                    if let Err(e) = plugin.handle_item_used(event).await {
-                        error!("Failed to handle item used event: {}", e);
-                    }
-                });
-                Ok(())
-            }).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to register item_used handler: {}", e)))?;
-        }
-
-        info!("✅ Enhanced Welcome Plugin: Pre-initialization completed with {} event handlers", 7);
+        info!("✅ Enhanced Welcome Plugin: Pre-initialization completed with runtime-aware event system");
         Ok(())
     }
 
@@ -912,7 +942,8 @@ impl Plugin for EnhancedWelcomePlugin {
                 "interaction_tracking",
                 "distance_tracking",
                 "session_management",
-                "leaderboards"
+                "leaderboards",
+                "runtime_aware_spawning"
             ],
             "config": {
                 "track_detailed_stats": self.config.track_detailed_stats,
@@ -921,6 +952,10 @@ impl Plugin for EnhancedWelcomePlugin {
                 "enable_movement_tracking": self.config.enable_movement_tracking,
                 "enable_crafting_assistance": self.config.enable_crafting_assistance,
                 "auto_greet_returning_players": self.config.auto_greet_returning_players
+            },
+            "runtime_info": {
+                "has_runtime_handle": self.state.runtime_handle.is_some(),
+                "dll_plugin": true
             },
             "timestamp": Self::current_timestamp()
         });
@@ -931,7 +966,7 @@ impl Plugin for EnhancedWelcomePlugin {
             &plugin_ready_event
         ).await.map_err(|e| PluginError::InitializationFailed(format!("Failed to emit plugin ready event: {}", e)))?;
 
-        context.log(LogLevel::Info, "Enhanced Welcome Plugin initialized successfully with comprehensive type-safe event system");
+        context.log(LogLevel::Info, "Enhanced Welcome Plugin initialized successfully with runtime-aware type-safe event system");
         info!("🚀 Enhanced Welcome Plugin: Initialization completed!");
         Ok(())
     }
@@ -940,10 +975,10 @@ impl Plugin for EnhancedWelcomePlugin {
         info!("🛑 Enhanced Welcome Plugin: Starting shutdown sequence");
 
         // Log final statistics
-        let stats_map = self.player_stats.read().await;
-        let counters = self.event_counters.read().await;
-        let command_stats = self.command_stats.read().await;
-        let sessions = self.active_sessions.read().await;
+        let stats_map = self.state.player_stats.read().await;
+        let counters = self.state.event_counters.read().await;
+        let command_stats = self.state.command_stats.read().await;
+        let sessions = self.state.active_sessions.read().await;
         
         info!("📊 Final Statistics:");
         info!("  - Player records: {}", stats_map.len());
@@ -968,6 +1003,9 @@ impl Plugin for EnhancedWelcomePlugin {
                 "active_sessions": sessions.len(),
                 "total_events_processed": total_events,
                 "total_distance_moved": total_distance
+            },
+            "runtime_info": {
+                "had_runtime_handle": self.state.runtime_handle.is_some()
             },
             "timestamp": Self::current_timestamp()
         });

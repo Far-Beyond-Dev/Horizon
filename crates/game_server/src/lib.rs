@@ -3,9 +3,9 @@
 //! High-performance game server with plugin system, event-driven architecture,
 //! and WebSocket-based client communication with enhanced type-safe routing.
 
-use event_system::{create_event_system, current_timestamp, ClientEventRouter, create_event_system_with_router};
+use event_system::{create_event_system, create_event_system_with_router, current_timestamp, ClientEventRouter, EventSystemImpl};
 use plugin_system::{PluginManager, ServerContextImpl};
-use types::*;
+use event_system::types::*;
 use futures::{SinkExt, StreamExt};
 use serde_json;
 use std::collections::HashMap;
@@ -397,7 +397,7 @@ impl GameServer {
     
     /// Register enhanced core event handlers
     async fn register_enhanced_core_handlers(&self) -> Result<(), ServerError> {
-        let events = self.server_context.events();
+        let events: Arc<EventSystemImpl> = self.server_context.events();
         
         // Enhanced player event handlers
         let server_context = self.server_context.clone();
@@ -508,6 +508,8 @@ async fn handle_enhanced_connection(
             while let Some(msg) = ws_receiver.next().await {
                 match msg {
                     Ok(Message::Text(text)) => {
+                        println!("📥 Received message from connection {}: {}", connection_id, text);
+
                         // Enhanced message handling with type-safe routing
                         if let Err(e) = handle_enhanced_client_message(
                             &text,
@@ -656,6 +658,8 @@ async fn handle_typed_client_data(
     validator: &ClientEventValidator,
     router: &ClientEventRouter,
 ) -> Result<(), ServerError> {
+
+    info!("🔄 Handling typed client data for event: {}", event_type);
     
     let player_id = connection_manager.get_player_id(connection_id).await
         .ok_or_else(|| ServerError::Player("Player not found for connection".to_string()))?;
@@ -702,6 +706,8 @@ async fn handle_player_join(
     server_context: &ServerContextImpl,
 ) -> Result<(), ServerError> {
     // Create new player
+    println!("🆕 Player joining: {}", name);
+
     let player = Player::new(name.clone(), Position::new(0.0, 0.0, 0.0));
     let player_id = player.id;
     

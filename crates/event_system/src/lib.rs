@@ -3,7 +3,6 @@
 //! Provides type-safe event handling with automatic JSON serialization and
 //! efficient routing for game server use with namespace-based organization.
 
-use types::*;
 use async_trait::async_trait;
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
@@ -11,6 +10,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, trace, warn, info};
+
+pub mod types;
+use types::*;
 
 // ============================================================================
 // Event Registry Implementation
@@ -492,6 +494,8 @@ impl ClientEventRouter {
         player_id: PlayerId,
         event_system: Arc<EventSystemImpl>,
     ) -> Result<(), EventError> {
+        info!("🔄 Routing client message: {} for player {}", message_type, player_id);
+
         let mut stats = self.routing_stats.write().await;
         stats.total_messages_routed += 1;
         
@@ -538,7 +542,7 @@ impl ClientEventRouter {
             }
             Err(ref e) => {
                 stats.failed_routes += 1;
-                error!("❌ Failed to route {} event for player {}: {}", message_type, player_id, e);
+                error!("❌ Failed to route {} event for player {}: {:?}", message_type, player_id, e);
             }
         }
         

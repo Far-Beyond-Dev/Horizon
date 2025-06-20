@@ -10,12 +10,11 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 // Import our modules - note these are direct crate imports since we're in the horizon crate
-use types;
 use event_system;
 use plugin_system;
 
-use game_server::{GameServer, ServerConfig};
-use types::*;
+use game_server::{GameServer, ServerConfig, ClientEventConfig};
+use event_system::types::*;
 
 // ============================================================================
 // Configuration
@@ -139,6 +138,13 @@ impl AppConfig {
             max_connections: self.server.max_connections,
             ping_interval: self.server.ping_interval,
             connection_timeout: self.server.connection_timeout,
+            client_event_config: ClientEventConfig {
+                enable_typed_routing: true,
+                max_message_size: 1024 * 1024, // 1MB
+                rate_limit_per_second: 100,
+                validate_events: true,
+                debug_log_events: false,
+            },
         })
     }
 }
