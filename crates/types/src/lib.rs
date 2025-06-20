@@ -228,11 +228,7 @@ pub trait EventSystem: Send + Sync {
     
     /// Get statistics about registered handlers
     async fn get_stats(&self) -> EventSystemStats;
-}
 
-/// Extension trait for generic event system methods (not object-safe, but provides nice API)
-#[async_trait]
-pub trait EventSystemExt {
     /// Register an event handler with automatic type deserialization
     async fn on<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
     where
@@ -254,54 +250,8 @@ pub trait EventSystemExt {
     async fn emit_namespaced<T>(&self, event_id: EventId, event: &T) -> Result<(), EventError>
     where
         T: Event;
-}
 
-/// Implement the extension trait for any type that implements EventSystem
-#[async_trait]
-impl<S> EventSystemExt for S
-where
-    S: EventSystem + ?Sized,
-{
-    async fn on<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
-    where
-        T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
-    {
-        let event_id = EventId::core(event_name);
-        self.on_namespaced(event_id, handler).await
-    }
     
-    async fn on_namespaced<T, F>(&self, event_id: EventId, handler: F) -> Result<(), EventError>
-    where
-        T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
-    {
-        let handler_name = format!("{}::{}", event_id, T::type_name());
-        let typed_handler = TypedEventHandler::new(handler_name, handler);
-        let handler_arc = Arc::new(typed_handler);
-        self.register_handler(event_id, handler_arc).await
-    }
-    
-    async fn emit<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        let event_id = EventId::core(event_name);
-        self.emit_namespaced(event_id, event).await
-    }
-    
-    async fn emit_namespaced<T>(&self, event_id: EventId, event: &T) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        let data = event.serialize()?;
-        self.emit_raw(event_id, &data).await
-    }
-}
-
-/// Client event system extensions
-#[async_trait]
-pub trait ClientEventSystemExt {
     async fn on_client<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
     where
         T: Event + 'static,
@@ -320,7 +270,51 @@ pub trait ClientEventSystemExt {
     where
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static;
+
 }
+
+// /// Implement the extension trait for any type that implements EventSystem
+// #[async_trait]
+// impl<S> EventSystemExt for S
+// where
+//     S: EventSystem + ?Sized,
+// {
+//     async fn on<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
+//     where
+//         T: Event + 'static,
+//         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
+//     {
+//         let event_id = EventId::core(event_name);
+//         self.on_namespaced(event_id, handler).await
+//     }
+    
+//     async fn on_namespaced<T, F>(&self, event_id: EventId, handler: F) -> Result<(), EventError>
+//     where
+//         T: Event + 'static,
+//         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
+//     {
+//         let handler_name = format!("{}::{}", event_id, T::type_name());
+//         let typed_handler = TypedEventHandler::new(handler_name, handler);
+//         let handler_arc = Arc::new(typed_handler);
+//         self.register_handler(event_id, handler_arc).await
+//     }
+    
+//     async fn emit<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
+//     where
+//         T: Event,
+//     {
+//         let event_id = EventId::core(event_name);
+//         self.emit_namespaced(event_id, event).await
+//     }
+    
+//     async fn emit_namespaced<T>(&self, event_id: EventId, event: &T) -> Result<(), EventError>
+//     where
+//         T: Event,
+//     {
+//         let data = event.serialize()?;
+//         self.emit_raw(event_id, &data).await
+//     }
+// }
 
 /// Statistics about the event system
 #[derive(Debug, Clone)]
