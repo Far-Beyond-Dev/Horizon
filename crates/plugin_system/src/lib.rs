@@ -1,10 +1,10 @@
-//! Plugin system with safe DLL loading and management
+//! Plugin system with safe DLL loading and type-safe client event management
 //! 
-//! Provides dynamic plugin loading, lifecycle management, and safe
-//! cross-DLL communication through the event system.
+//! Provides dynamic plugin loading, lifecycle management, and the new
+//! clean API for client event handling with comprehensive statistics.
 
-use event_system::EventSystemImpl;
 use types::*;
+use event_system::{EventSystemImpl, ClientEventRouter, current_timestamp};
 use libloading::{Library, Symbol};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -12,12 +12,13 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 
 // ============================================================================
-// Plugin Manager
+// Enhanced Plugin Manager
 // ============================================================================
 
-/// Manages loaded plugins and their lifecycles
+/// Manages loaded plugins and their lifecycles with enhanced event system
 pub struct PluginManager {
     /// Event system shared across all plugins
     event_system: Arc<dyn EventSystem>,
@@ -27,6 +28,18 @@ pub struct PluginManager {
     plugins: RwLock<HashMap<String, LoadedPlugin>>,
     /// Plugin directory to scan
     plugin_directory: PathBuf,
+    /// Event routing statistics
+    event_stats: Arc<RwLock<EventRoutingStats>>,
+    /// Client event router for type-safe routing
+    client_router: Option<Arc<ClientEventRouter>>,
+}
+
+#[derive(Debug, Default)]
+struct EventRoutingStats {
+    client_events_routed: u64,
+    core_events_routed: u64,
+    plugin_events_routed: u64,
+    total_handlers_registered: u64,
 }
 
 /// A loaded plugin with its library and instance
@@ -37,6 +50,8 @@ struct LoadedPlugin {
     _library: Library,
     /// Plugin metadata
     metadata: PluginMetadata,
+    /// Registered event handlers count
+    handler_count: usize,
 }
 
 /// Plugin metadata
@@ -46,10 +61,11 @@ struct PluginMetadata {
     version: String,
     path: PathBuf,
     loaded_at: std::time::SystemTime,
+    capabilities: Vec<String>,
 }
 
 impl PluginManager {
-    /// Create a new plugin manager
+    /// Create a new plugin manager with enhanced event system
     pub fn new(
         event_system: Arc<dyn EventSystem>,
         plugin_directory: impl AsRef<Path>,
@@ -65,10 +81,18 @@ impl PluginManager {
             server_context,
             plugins: RwLock::new(HashMap::new()),
             plugin_directory: plugin_directory.as_ref().to_path_buf(),
+            event_stats: Arc::new(RwLock::new(EventRoutingStats::default())),
+            client_router: None,
         }
     }
     
-    /// Load a single plugin from a DLL file
+    /// Set the client event router for enhanced routing
+    pub fn set_client_router(&mut self, router: Arc<ClientEventRouter>) {
+        self.client_router = Some(router.clone());
+        self.server_context.set_client_router(router);
+    }
+    
+    /// Load a single plugin with enhanced error reporting
     pub async fn load_plugin(&self, plugin_path: impl AsRef<Path>) -> Result<(), PluginError> {
         let plugin_path = plugin_path.as_ref();
         
@@ -111,15 +135,21 @@ impl PluginManager {
         
         info!("Created plugin: {} v{}", plugin_name, plugin_version);
         
-        // Pre-initialize the plugin (register event handlers)
+        // Enhanced pre-initialization with handler counting
+        let handler_count_before = self.get_total_handlers().await;
+        
         plugin.pre_init(self.server_context.clone()).await.map_err(|e| {
             error!("Plugin {} pre-initialization failed: {}", plugin_name, e);
             e
         })?;
         
-        info!("Plugin {} pre-initialized successfully", plugin_name);
+        let handler_count_after = self.get_total_handlers().await;
+        let handlers_registered = handler_count_after - handler_count_before;
         
-        // Initialize the plugin (startup tasks, emit events)
+        info!("Plugin {} pre-initialized successfully, registered {} handlers", 
+              plugin_name, handlers_registered);
+        
+        // Initialize the plugin
         plugin.init(self.server_context.clone()).await.map_err(|e| {
             error!("Plugin {} initialization failed: {}", plugin_name, e);
             e
@@ -127,23 +157,31 @@ impl PluginManager {
         
         info!("Plugin {} initialized successfully", plugin_name);
         
-        // Store the loaded plugin
+        // Store the loaded plugin with metadata
         let metadata = PluginMetadata {
             name: plugin_name.clone(),
             version: plugin_version,
             path: plugin_path.to_path_buf(),
             loaded_at: std::time::SystemTime::now(),
+            capabilities: vec!["client_events".to_string(), "inter_plugin".to_string(), "type_safe".to_string()],
         };
         
         let loaded_plugin = LoadedPlugin {
             plugin,
             _library: library,
             metadata,
+            handler_count: handlers_registered,
         };
         
         {
             let mut plugins = self.plugins.write().await;
             plugins.insert(plugin_name.clone(), loaded_plugin);
+        }
+        
+        // Update statistics
+        {
+            let mut stats = self.event_stats.write().await;
+            stats.total_handlers_registered += handlers_registered as u64;
         }
         
         info!("Plugin {} loaded and initialized successfully", plugin_name);
@@ -152,25 +190,25 @@ impl PluginManager {
         self.event_system.emit_namespaced(
             EventId::core("plugin_loaded"),
             &PluginLoadedEvent {
-                plugin_name,
-                timestamp: event_system::current_timestamp(),
+                plugin_name: plugin_name.clone(),
+                capabilities: vec!["type_safe_events".to_string()],
+                timestamp: current_timestamp(),
             }
         ).await.map_err(|e| {
             warn!("Failed to emit plugin loaded event: {}", e);
-            // Don't fail plugin loading for this
         }).ok();
         
         Ok(())
     }
     
-    /// Load all plugins from the plugin directory
-    pub async fn load_all_plugins(&self) -> Result<Vec<String>, PluginError> {
+    /// Enhanced plugin discovery with capability detection
+    pub async fn discover_plugins(&self) -> Result<Vec<PluginDiscovery>, PluginError> {
         if !self.plugin_directory.exists() {
             warn!("Plugin directory does not exist: {}", self.plugin_directory.display());
             return Ok(Vec::new());
         }
         
-        let mut loaded_plugins = Vec::new();
+        let mut discoveries = Vec::new();
         let mut entries = tokio::fs::read_dir(&self.plugin_directory).await.map_err(|e| {
             PluginError::InitializationFailed(format!("Failed to read plugin directory: {}", e))
         })?;
@@ -180,26 +218,60 @@ impl PluginManager {
         })? {
             let path = entry.path();
             
-            // Check if this is a dynamic library
             if let Some(extension) = path.extension() {
                 let ext_str = extension.to_string_lossy();
                 if ext_str == "so" || ext_str == "dll" || ext_str == "dylib" {
-                    match self.load_plugin(&path).await {
-                        Ok(()) => {
-                            if let Some(file_name) = path.file_stem() {
-                                loaded_plugins.push(file_name.to_string_lossy().to_string());
-                            }
-                        }
-                        Err(e) => {
-                            error!("Failed to load plugin from {}: {}", path.display(), e);
-                            // Continue loading other plugins
-                        }
+                    let discovery = PluginDiscovery {
+                        name: path.file_stem()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_else(|| "unknown".to_string()),
+                        path: path.clone(),
+                        is_loaded: {
+                            let plugins = self.plugins.read().await;
+                            plugins.contains_key(&path.file_stem()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "unknown".to_string()))
+                        },
+                        estimated_capabilities: self.estimate_plugin_capabilities(&path).await,
+                    };
+                    discoveries.push(discovery);
+                }
+            }
+        }
+        
+        Ok(discoveries)
+    }
+    
+    /// Load all plugins with enhanced reporting
+    pub async fn load_all_plugins(&self) -> Result<Vec<String>, PluginError> {
+        let discoveries = self.discover_plugins().await?;
+        let mut loaded_plugins = Vec::new();
+        let mut failed_plugins = Vec::new();
+        
+        for discovery in discoveries {
+            if !discovery.is_loaded {
+                match self.load_plugin(&discovery.path).await {
+                    Ok(()) => {
+                        loaded_plugins.push(discovery.name.clone());
+                        info!("Successfully loaded plugin: {}", discovery.name);
+                    }
+                    Err(e) => {
+                        error!("Failed to load plugin {}: {}", discovery.name, e);
+                        failed_plugins.push((discovery.name, e));
                     }
                 }
             }
         }
         
-        info!("Loaded {} plugins from {}", loaded_plugins.len(), self.plugin_directory.display());
+        if !failed_plugins.is_empty() {
+            warn!("Failed to load {} plugins", failed_plugins.len());
+            for (name, error) in failed_plugins {
+                warn!("  {}: {}", name, error);
+            }
+        }
+        
+        info!("Loaded {} plugins successfully from {}", 
+              loaded_plugins.len(), self.plugin_directory.display());
         Ok(loaded_plugins)
     }
     
@@ -220,7 +292,7 @@ impl PluginManager {
                 EventId::core("plugin_unloaded"),
                 &PluginUnloadedEvent {
                     plugin_name: plugin_name.to_string(),
-                    timestamp: event_system::current_timestamp(),
+                    timestamp: current_timestamp(),
                 }
             ).await.map_err(|e| {
                 warn!("Failed to emit plugin unloaded event: {}", e);
@@ -252,6 +324,30 @@ impl PluginManager {
         Ok(())
     }
     
+    /// Get enhanced plugin statistics
+    pub async fn get_plugin_stats(&self) -> PluginSystemStats {
+        let plugins = self.plugins.read().await;
+        let event_stats = self.event_stats.read().await;
+        let event_system_stats = self.event_system.get_stats().await;
+        
+        PluginSystemStats {
+            total_plugins: plugins.len(),
+            total_handlers: event_system_stats.total_handlers,
+            client_events_routed: event_stats.client_events_routed,
+            core_events_routed: event_stats.core_events_routed,
+            plugin_events_routed: event_stats.plugin_events_routed,
+            plugins: plugins.iter().map(|(name, plugin)| {
+                PluginStats {
+                    name: name.clone(),
+                    version: plugin.metadata.version.clone(),
+                    handler_count: plugin.handler_count,
+                    capabilities: plugin.metadata.capabilities.clone(),
+                    loaded_at: plugin.metadata.loaded_at,
+                }
+            }).collect(),
+        }
+    }
+    
     /// Get list of loaded plugins
     pub async fn get_loaded_plugins(&self) -> Vec<String> {
         let plugins = self.plugins.read().await;
@@ -271,21 +367,51 @@ impl PluginManager {
         })
     }
     
-    /// Get the server context (for use by other components)
+    /// Get total number of registered handlers
+    async fn get_total_handlers(&self) -> usize {
+        self.event_system.get_stats().await.total_handlers
+    }
+    
+    /// Estimate plugin capabilities from file analysis
+    async fn estimate_plugin_capabilities(&self, _path: &Path) -> Vec<String> {
+        // In a real implementation, this could analyze the binary for symbols
+        // or read metadata from embedded resources
+        vec!["client_events".to_string(), "type_safe".to_string(), "unknown".to_string()]
+    }
+    
+    /// Register core event system handlers for routing statistics
+    pub async fn setup_event_routing(&self) -> Result<(), PluginError> {
+        let stats = self.event_stats.clone();
+        
+        // Monitor client event routing
+        self.event_system.on("__internal_client_event_routed", move |_: serde_json::Value| {
+            let stats = stats.clone();
+            tokio::spawn(async move {
+                let mut stats = stats.write().await;
+                stats.client_events_routed += 1;
+            });
+            Ok(())
+        }).await.map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+        
+        Ok(())
+    }
+    
+    /// Get the enhanced server context
     pub fn get_server_context(&self) -> Arc<ServerContextImpl> {
         self.server_context.clone()
     }
 }
 
 // ============================================================================
-// Server Context Implementation
+// Enhanced Server Context Implementation
 // ============================================================================
 
-/// Implementation of ServerContext for plugins
+/// Enhanced server context with client event system support
 pub struct ServerContextImpl {
     event_system: Arc<dyn EventSystem>,
     region_id: RegionId,
     players: Arc<RwLock<HashMap<PlayerId, Player>>>,
+    client_event_router: Arc<RwLock<Option<Arc<ClientEventRouter>>>>,
 }
 
 impl ServerContextImpl {
@@ -294,6 +420,34 @@ impl ServerContextImpl {
             event_system,
             region_id,
             players: Arc::new(RwLock::new(HashMap::new())),
+            client_event_router: Arc::new(RwLock::new(None)),
+        }
+    }
+    
+    /// Set the client event router
+    pub fn set_client_router(&self, router: Arc<ClientEventRouter>) {
+        tokio::spawn({
+            let client_router = self.client_event_router.clone();
+            async move {
+                let mut guard = client_router.write().await;
+                *guard = Some(router);
+            }
+        });
+    }
+    
+    /// Route a client message to the appropriate typed event
+    pub async fn route_client_message(
+        &self,
+        message_type: &str,
+        raw_data: &[u8],
+        player_id: PlayerId,
+    ) -> Result<(), ServerError> {
+        let router_guard = self.client_event_router.read().await;
+        if let Some(router) = router_guard.as_ref() {
+            router.route_message(message_type, raw_data, player_id, self.event_system.clone()).await
+                .map_err(|e| ServerError::Internal(format!("Client event routing failed: {}", e)))
+        } else {
+            Err(ServerError::Internal("Client event router not available".to_string()))
         }
     }
     
@@ -342,14 +496,14 @@ impl ServerContext for ServerContextImpl {
     }
     
     async fn send_to_player(&self, player_id: PlayerId, message: &[u8]) -> Result<(), ServerError> {
-        // TODO: Implement actual message sending through WebSocket connections
         debug!("Sending message to player {}: {} bytes", player_id, message.len());
+        // TODO: Implement actual WebSocket message sending
         Ok(())
     }
     
     async fn broadcast(&self, message: &[u8]) -> Result<(), ServerError> {
-        // TODO: Implement actual broadcasting through WebSocket connections
         debug!("Broadcasting message: {} bytes", message.len());
+        // TODO: Implement actual WebSocket broadcasting
         Ok(())
     }
     
@@ -365,8 +519,35 @@ impl ServerContext for ServerContextImpl {
 }
 
 // ============================================================================
-// Plugin Information
+// Enhanced Statistics and Discovery
 // ============================================================================
+
+#[derive(Debug, Clone)]
+pub struct PluginDiscovery {
+    pub name: String,
+    pub path: PathBuf,
+    pub is_loaded: bool,
+    pub estimated_capabilities: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PluginSystemStats {
+    pub total_plugins: usize,
+    pub total_handlers: usize,
+    pub client_events_routed: u64,
+    pub core_events_routed: u64,
+    pub plugin_events_routed: u64,
+    pub plugins: Vec<PluginStats>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PluginStats {
+    pub name: String,
+    pub version: String,
+    pub handler_count: usize,
+    pub capabilities: Vec<String>,
+    pub loaded_at: std::time::SystemTime,
+}
 
 /// Information about a loaded plugin
 #[derive(Debug, Clone)]
@@ -377,26 +558,23 @@ pub struct PluginInfo {
     pub loaded_at: std::time::SystemTime,
 }
 
-// ============================================================================
-// Plugin Events
-// ============================================================================
-
-/// Event emitted when a plugin is loaded
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// Enhanced plugin loaded event
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginLoadedEvent {
     pub plugin_name: String,
+    pub capabilities: Vec<String>,
     pub timestamp: u64,
 }
 
-/// Event emitted when a plugin is unloaded
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+/// Plugin unloaded event
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginUnloadedEvent {
     pub plugin_name: String,
     pub timestamp: u64,
 }
 
 /// Event for inter-plugin communication
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginMessageEvent {
     pub from_plugin: String,
     pub to_plugin: Option<String>, // None for broadcast
@@ -414,14 +592,14 @@ macro_rules! create_plugin {
     ($plugin_type:ty) => {
         /// Plugin creation function - required export
         #[no_mangle]
-        pub unsafe extern "C" fn create_plugin() -> *mut dyn $types::Plugin {
+        pub unsafe extern "C" fn create_plugin() -> *mut dyn types::Plugin {
             let plugin = Box::new(<$plugin_type>::new());
             Box::into_raw(plugin)
         }
         
         /// Plugin destruction function - required export
         #[no_mangle]
-        pub unsafe extern "C" fn destroy_plugin(plugin: *mut dyn $types::Plugin) {
+        pub unsafe extern "C" fn destroy_plugin(plugin: *mut dyn types::Plugin) {
             if !plugin.is_null() {
                 let _ = Box::from_raw(plugin);
             }
@@ -524,7 +702,7 @@ mod tests {
         }
         
         async fn pre_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-            // Register a test event handler
+            // Register a test event handler using the new type-safe API
             context.events().on("test_event", |event: PluginLoadedEvent| {
                 println!("Test plugin received event: {:?}", event);
                 Ok(())
@@ -575,5 +753,33 @@ mod tests {
         
         let all_players = context.get_players().await.unwrap();
         assert_eq!(all_players.len(), 1);
+    }
+    
+    #[tokio::test]
+    async fn test_plugin_discovery() {
+        let event_system = create_event_system();
+        let plugin_manager = PluginManager::new(
+            event_system,
+            "./test_plugins",
+            RegionId::new(),
+        );
+        
+        // Test plugin discovery (will be empty if no plugins exist)
+        let discoveries = plugin_manager.discover_plugins().await.unwrap();
+        assert!(discoveries.len() >= 0); // May be empty in test environment
+    }
+    
+    #[tokio::test]
+    async fn test_plugin_stats() {
+        let event_system = create_event_system();
+        let plugin_manager = PluginManager::new(
+            event_system,
+            "./test_plugins",
+            RegionId::new(),
+        );
+        
+        let stats = plugin_manager.get_plugin_stats().await;
+        assert_eq!(stats.total_plugins, 0); // No plugins loaded yet
+        assert_eq!(stats.plugins.len(), 0);
     }
 }

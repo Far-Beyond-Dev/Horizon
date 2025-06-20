@@ -12,7 +12,6 @@ serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
 async-trait = "0.1"
 tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
 
-# These would normally point to the main project's types
-# For demonstration, assuming they're available as dependencies
-types = { path = "../../crates/types" }
+types = { path = "../types" }

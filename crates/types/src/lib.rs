@@ -1,7 +1,7 @@
-//! Core types and traits for the new game server event system
+//! Core types and traits for the Horizon game server event system
 //! 
 //! This module provides the foundation for a high-performance, type-safe
-//! event system with automatic JSON serialization and socket.io-like API.
+//! event system with automatic JSON serialization and namespace-based routing.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -38,6 +38,12 @@ pub struct RegionId(pub Uuid);
 impl RegionId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
+    }
+}
+
+impl std::fmt::Display for RegionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }
 
@@ -293,6 +299,29 @@ where
     }
 }
 
+/// Client event system extensions
+#[async_trait]
+pub trait ClientEventSystemExt {
+    async fn on_client<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static;
+    
+    async fn emit_client<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
+    where
+        T: Event;
+    
+    async fn on_core<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static;
+    
+    async fn on_plugin<T, F>(&self, plugin_name: &str, event_name: &str, handler: F) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static;
+}
+
 /// Statistics about the event system
 #[derive(Debug, Clone)]
 pub struct EventSystemStats {
@@ -453,6 +482,97 @@ pub struct ClientMessageEvent {
     pub player_id: PlayerId,
     pub message_type: String,
     pub data: serde_json::Value,
+}
+
+// ============================================================================
+// Client Event Types
+// ============================================================================
+
+/// Player chat message from client
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessageEvent {
+    pub player_id: PlayerId,
+    pub message: String,
+    pub channel: Option<String>,
+    pub timestamp: u64,
+}
+
+/// Player movement command from client
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MoveCommandEvent {
+    pub player_id: PlayerId,
+    pub target_x: f64,
+    pub target_y: f64,
+    pub target_z: f64,
+    pub movement_type: MovementType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MovementType {
+    Walk,
+    Run,
+    Teleport,
+}
+
+/// Combat action from client
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CombatActionEvent {
+    pub player_id: PlayerId,
+    pub action_type: CombatActionType,
+    pub target_id: Option<PlayerId>,
+    pub target_position: Option<Position>,
+    pub ability_id: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CombatActionType {
+    Attack,
+    Defend,
+    Cast,
+    Dodge,
+}
+
+/// Crafting request from client
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CraftingRequestEvent {
+    pub player_id: PlayerId,
+    pub recipe_id: u32,
+    pub quantity: u32,
+    pub ingredient_sources: Vec<InventorySlot>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InventorySlot {
+    pub slot_id: u32,
+    pub item_id: u32,
+    pub quantity: u32,
+}
+
+/// Player interaction event from client
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerInteractionEvent {
+    pub player_id: PlayerId,
+    pub target_player_id: PlayerId,
+    pub interaction_type: InteractionType,
+    pub data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InteractionType {
+    Trade,
+    Challenge,
+    Friend,
+    Inspect,
+    Follow,
+}
+
+/// Item usage event (for inter-plugin communication)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UseItemEvent {
+    pub player_id: PlayerId,
+    pub item_id: u32,
+    pub target_player_id: Option<PlayerId>,
+    pub target_position: Option<(f64, f64, f64)>,
 }
 
 // ============================================================================
