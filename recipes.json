@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1001,
+    "name": "Iron Ingot",
+    "ingredients": [
+      { "item_id": 5001, "quantity": 1, "name": "Iron Ore" }
+    ],
+    "main_product": { "item_id": 6001, "quantity": 1, "name": "Iron Ingot" },
+    "byproducts": []
+  },
+  {
+    "id": 1002,
+    "name": "Iron Plate",
+    "ingredients": [
+      { "item_id": 6001, "quantity": 2, "name": "Iron Ingot" }
+    ],
+    "main_product": { "item_id": 6002, "quantity": 1, "name": "Iron Plate" },
+    "byproducts": []
+  }
+]

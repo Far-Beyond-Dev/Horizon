@@ -1,0 +1,23 @@
+[server]
+bind_address = "127.0.0.1:8080"
+max_connections = 1000
+ping_interval = 30
+connection_timeout = 60
+
+[server.region]
+min_x = -1000.0
+max_x = 1000.0
+min_y = -1000.0
+max_y = 1000.0
+min_z = -100.0
+max_z = 100.0
+
+[plugins]
+directory = "plugins"
+auto_load = true
+whitelist = []
+
+[logging]
+level = "info"
+json_format = false
+file_path = "server.log"
