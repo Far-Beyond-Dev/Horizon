@@ -7,7 +7,7 @@
 # Want to help us make this template better? Share your feedback here: https://forms.gle/ybq9Krt8jtBL3iCk7
 
 ARG RUST_VERSION=1.88.0-nightly
-ARG APP_NAME=
+ARG APP_NAME=horizon
 
 ################################################################################
 # Create a stage for building the application.
