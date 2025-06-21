@@ -504,6 +504,8 @@ async fn handle_enhanced_connection(
         let validator = validator.clone();
         let router = router.clone();
         
+        println!("🔄 Starting incoming message handler for connection {}", connection_id);
+
         async move {
             while let Some(msg) = ws_receiver.next().await {
                 match msg {

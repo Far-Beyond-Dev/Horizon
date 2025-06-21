@@ -4,7 +4,9 @@ members = [
     "crates/game_server",
     "crates/event_system",
     "crates/plugin_system",
-    "crates/example_plugin",
+
+    # Plugins
+    "crates/recipe_smith",
 ]
 
 [workspace.dependencies]

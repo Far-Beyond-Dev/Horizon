@@ -12,7 +12,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, trace, warn, info};
 
 pub mod types;
-use types::*;
+pub use types::*;
 
 // ============================================================================
 // Event Registry Implementation
@@ -494,7 +494,7 @@ impl ClientEventRouter {
         player_id: PlayerId,
         event_system: Arc<EventSystemImpl>,
     ) -> Result<(), EventError> {
-        info!("🔄 Routing client message: {} for player {}", message_type, player_id);
+        println!("🔄 Routing client message: {} for player {}", message_type, player_id);
 
         let mut stats = self.routing_stats.write().await;
         stats.total_messages_routed += 1;

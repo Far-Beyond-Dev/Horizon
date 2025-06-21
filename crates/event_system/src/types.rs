@@ -53,7 +53,7 @@ impl std::fmt::Display for RegionId {
 // ============================================================================
 
 /// Event namespace for organizing events
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EventNamespace {
     /// Core server events (connections, game state, etc.)
     Core,
@@ -77,7 +77,7 @@ impl std::fmt::Display for EventNamespace {
 }
 
 /// Complete event identifier
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EventId {
     pub namespace: EventNamespace,
     pub name: String,
@@ -255,6 +255,10 @@ pub trait EventSystemExt {
     async fn emit_namespaced<T>(&self, event_id: EventId, event: &T) -> Result<(), EventError>
     where
         T: Event;
+
+    async fn emit_plugin<T>(&self, plugin_name: &str, event_name: &str, event: &T) -> Result<(), EventError>
+    where
+        T: Event;
 }
 
 /// Implement the extension trait for any type that implements EventSystem
@@ -297,6 +301,14 @@ where
     {
         let data = event.serialize()?;
         self.emit_raw(event_id, &data).await
+    }
+
+    async fn emit_plugin<T>(&self, plugin_name: &str, event_name: &str, event: &T) -> Result<(), EventError>
+    where
+        T: Event,
+    {
+        let event_id = EventId::plugin(plugin_name, event_name);
+        self.emit_namespaced(event_id, event).await
     }
 }
 
