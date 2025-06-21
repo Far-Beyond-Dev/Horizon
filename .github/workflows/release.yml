@@ -15,10 +15,10 @@ jobs:
       - name: Check if Cargo.toml version changed
         id: check
         run: |
-          git diff HEAD^ HEAD -G"^version\s*=" server/Cargo.toml | grep "^+.*version\s*=" || echo "No version change"
-          if git diff HEAD^ HEAD -G"^version\s*=" server/Cargo.toml | grep "^+.*version\s*=" > /dev/null; then
+          git diff HEAD^ HEAD -G"^version\s*=" crates/horizon/Cargo.toml | grep "^+.*version\s*=" || echo "No version change"
+          if git diff HEAD^ HEAD -G"^version\s*=" crates/horizon/Cargo.toml | grep "^+.*version\s*=" > /dev/null; then
             echo "should_release=true" >> $GITHUB_OUTPUT
-            VERSION=$(grep "^version\s*=" server/Cargo.toml | sed 's/version\s*=\s*"\(.*\)"/\1/')
+            VERSION=$(grep "^version\s*=" crates/horizon/Cargo.toml | sed 's/version\s*=\s*"\(.*\)"/\1/')
             echo "version=$VERSION" >> $GITHUB_OUTPUT
           else
             echo "should_release=false" >> $GITHUB_OUTPUT
