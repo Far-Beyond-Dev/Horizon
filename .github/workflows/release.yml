@@ -180,7 +180,7 @@ jobs:
           if [ ! -f "$FULL_BIN_PATH" ]; then
             echo "❌ ERROR: Binary still not found at $FULL_BIN_PATH"
             echo "Searching for any binaries:"
-            find target -type f -executable -o -name "*.exe" -o -name "*.wasm" | sort
+            find target -type f -o -name "*.exe" -o -name "*.wasm" | sort
             exit 1
           fi
           
