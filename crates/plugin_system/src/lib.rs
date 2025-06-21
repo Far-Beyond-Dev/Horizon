@@ -1,10 +1,13 @@
-//! Plugin system with safe DLL loading and type-safe client event management
+//! Plugin system with safe DLL loading compatible with the new clean event system
 //! 
-//! Provides dynamic plugin loading, lifecycle management, and the new
-//! clean API for client event handling with comprehensive statistics.
+//! Provides dynamic plugin loading, lifecycle management, and integration
+//! with the simplified event system API.
 
-use event_system::types::*;
-use event_system::{EventSystemImpl, ClientEventRouter, current_timestamp};
+use event_system::{
+    EventSystem, create_event_system, current_timestamp,
+    SimplePlugin, Plugin, PluginError, ServerContext, ServerError, LogLevel,
+    PlayerId, RegionId, Position, EventError
+};
 use libloading::{Library, Symbol};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -15,13 +18,13 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 // ============================================================================
-// Enhanced Plugin Manager
+// Plugin Manager - Updated for New Event System
 // ============================================================================
 
-/// Manages loaded plugins and their lifecycles with enhanced event system
+/// Manages loaded plugins and their lifecycles with the new clean event system
 pub struct PluginManager {
     /// Event system shared across all plugins
-    event_system: Arc<EventSystemImpl>,
+    event_system: Arc<EventSystem>,
     /// Server context shared with plugins
     server_context: Arc<ServerContextImpl>,
     /// Loaded plugins
@@ -30,8 +33,6 @@ pub struct PluginManager {
     plugin_directory: PathBuf,
     /// Event routing statistics
     event_stats: Arc<RwLock<EventRoutingStats>>,
-    /// Client event router for type-safe routing
-    client_router: Option<Arc<ClientEventRouter>>,
 }
 
 #[derive(Debug, Default)]
@@ -65,9 +66,9 @@ struct PluginMetadata {
 }
 
 impl PluginManager {
-    /// Create a new plugin manager with enhanced event system
+    /// Create a new plugin manager with the new event system
     pub fn new(
-        event_system: Arc<EventSystemImpl>,
+        event_system: Arc<EventSystem>,
         plugin_directory: impl AsRef<Path>,
         region_id: RegionId,
     ) -> Self {
@@ -82,14 +83,7 @@ impl PluginManager {
             plugins: RwLock::new(HashMap::new()),
             plugin_directory: plugin_directory.as_ref().to_path_buf(),
             event_stats: Arc::new(RwLock::new(EventRoutingStats::default())),
-            client_router: None,
         }
-    }
-    
-    /// Set the client event router for enhanced routing
-    pub fn set_client_router(&mut self, router: Arc<ClientEventRouter>) {
-        self.client_router = Some(router.clone());
-        self.server_context.set_client_router(router);
     }
     
     /// Load a single plugin with enhanced error reporting
@@ -129,7 +123,10 @@ impl PluginManager {
         {
             let plugins = self.plugins.read().await;
             if plugins.contains_key(&plugin_name) {
-                return Err(PluginError::AlreadyLoaded(plugin_name));
+                return Err(PluginError::ExecutionError(format!(
+                    "Plugin {} is already loaded",
+                    plugin_name
+                )));
             }
         }
         
@@ -186,15 +183,12 @@ impl PluginManager {
         
         info!("Plugin {} loaded and initialized successfully", plugin_name);
         
-        // Emit plugin loaded event
-        self.event_system.emit_namespaced(
-            EventId::core("plugin_loaded"),
-            &PluginLoadedEvent {
-                plugin_name: plugin_name.clone(),
-                capabilities: vec!["type_safe_events".to_string()],
-                timestamp: current_timestamp(),
-            }
-        ).await.map_err(|e| {
+        // Emit plugin loaded event using new API
+        self.event_system.emit_core("plugin_loaded", &PluginLoadedEvent {
+            plugin_name: plugin_name.clone(),
+            capabilities: vec!["type_safe_events".to_string()],
+            timestamp: current_timestamp(),
+        }).await.map_err(|e| {
             warn!("Failed to emit plugin loaded event: {}", e);
         }).ok();
         
@@ -287,14 +281,11 @@ impl PluginManager {
                 error!("Error shutting down plugin {}: {}", plugin_name, e);
             }
             
-            // Emit plugin unloaded event
-            self.event_system.emit_namespaced(
-                EventId::core("plugin_unloaded"),
-                &PluginUnloadedEvent {
-                    plugin_name: plugin_name.to_string(),
-                    timestamp: current_timestamp(),
-                }
-            ).await.map_err(|e| {
+            // Emit plugin unloaded event using new API
+            self.event_system.emit_core("plugin_unloaded", &PluginUnloadedEvent {
+                plugin_name: plugin_name.to_string(),
+                timestamp: current_timestamp(),
+            }).await.map_err(|e| {
                 warn!("Failed to emit plugin unloaded event: {}", e);
             }).ok();
             
@@ -383,8 +374,8 @@ impl PluginManager {
     pub async fn setup_event_routing(&self) -> Result<(), PluginError> {
         let stats = self.event_stats.clone();
         
-        // Monitor client event routing
-        self.event_system.on("__internal_client_event_routed", move |_: serde_json::Value| {
+        // Monitor client event routing using new API
+        self.event_system.on_core("__internal_client_event_routed", move |_: serde_json::Value| {
             let stats = stats.clone();
             tokio::spawn(async move {
                 let mut stats = stats.write().await;
@@ -403,51 +394,22 @@ impl PluginManager {
 }
 
 // ============================================================================
-// Enhanced Server Context Implementation
+// Server Context Implementation - Updated for New Event System
 // ============================================================================
 
-/// Enhanced server context with client event system support
+/// Server context with the new clean event system
 pub struct ServerContextImpl {
-    event_system: Arc<EventSystemImpl>,
+    event_system: Arc<EventSystem>,
     region_id: RegionId,
     players: Arc<RwLock<HashMap<PlayerId, Player>>>,
-    client_event_router: Arc<RwLock<Option<Arc<ClientEventRouter>>>>,
 }
 
 impl ServerContextImpl {
-    pub fn new(event_system: Arc<EventSystemImpl>, region_id: RegionId) -> Self {
+    pub fn new(event_system: Arc<EventSystem>, region_id: RegionId) -> Self {
         Self {
             event_system,
             region_id,
             players: Arc::new(RwLock::new(HashMap::new())),
-            client_event_router: Arc::new(RwLock::new(None)),
-        }
-    }
-    
-    /// Set the client event router
-    pub fn set_client_router(&self, router: Arc<ClientEventRouter>) {
-        tokio::spawn({
-            let client_router = self.client_event_router.clone();
-            async move {
-                let mut guard = client_router.write().await;
-                *guard = Some(router);
-            }
-        });
-    }
-    
-    /// Route a client message to the appropriate typed event
-    pub async fn route_client_message(
-        &self,
-        message_type: &str,
-        raw_data: &[u8],
-        player_id: PlayerId,
-    ) -> Result<(), ServerError> {
-        let router_guard = self.client_event_router.read().await;
-        if let Some(router) = router_guard.as_ref() {
-            router.route_message(message_type, raw_data, player_id, self.event_system.clone()).await
-                .map_err(|e| ServerError::Internal(format!("Client event routing failed: {}", e)))
-        } else {
-            Err(ServerError::Internal("Client event router not available".to_string()))
         }
     }
     
@@ -470,41 +432,19 @@ impl ServerContextImpl {
             player.position = position;
             Ok(())
         } else {
-            Err(ServerError::Player(format!("Player {} not found", player_id)))
+            Err(ServerError::Internal(format!("Player {} not found", player_id)))
         }
     }
 }
 
 #[async_trait]
 impl ServerContext for ServerContextImpl {
-    fn events(&self) -> Arc<EventSystemImpl> {
+    fn events(&self) -> Arc<EventSystem> {
         self.event_system.clone()
     }
     
     fn region_id(&self) -> RegionId {
         self.region_id
-    }
-    
-    async fn get_players(&self) -> Result<Vec<Player>, ServerError> {
-        let players = self.players.read().await;
-        Ok(players.values().cloned().collect())
-    }
-    
-    async fn get_player(&self, id: PlayerId) -> Result<Option<Player>, ServerError> {
-        let players = self.players.read().await;
-        Ok(players.get(&id).cloned())
-    }
-    
-    async fn send_to_player(&self, player_id: PlayerId, message: &[u8]) -> Result<(), ServerError> {
-        debug!("Sending message to player {}: {} bytes", player_id, message.len());
-        // TODO: Implement actual WebSocket message sending
-        Ok(())
-    }
-    
-    async fn broadcast(&self, message: &[u8]) -> Result<(), ServerError> {
-        debug!("Broadcasting message: {} bytes", message.len());
-        // TODO: Implement actual WebSocket broadcasting
-        Ok(())
     }
     
     fn log(&self, level: LogLevel, message: &str) {
@@ -514,6 +454,42 @@ impl ServerContext for ServerContextImpl {
             LogLevel::Info => info!("{}", message),
             LogLevel::Debug => debug!("{}", message),
             LogLevel::Trace => tracing::trace!("{}", message),
+        }
+    }
+    
+    async fn send_to_player(&self, player_id: PlayerId, data: &[u8]) -> Result<(), ServerError> {
+        debug!("Sending message to player {}: {} bytes", player_id, data.len());
+        // TODO: Implement actual WebSocket message sending
+        Ok(())
+    }
+    
+    async fn broadcast(&self, data: &[u8]) -> Result<(), ServerError> {
+        debug!("Broadcasting message: {} bytes", data.len());
+        // TODO: Implement actual WebSocket broadcasting
+        Ok(())
+    }
+}
+
+// ============================================================================
+// Game Types (Moved from Event System)
+// ============================================================================
+
+/// Player information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Player {
+    pub id: PlayerId,
+    pub name: String,
+    pub position: Position,
+    pub metadata: HashMap<String, String>,
+}
+
+impl Player {
+    pub fn new(name: String, position: Position) -> Self {
+        Self {
+            id: PlayerId::new(),
+            name,
+            position,
+            metadata: HashMap::new(),
         }
     }
 }
@@ -583,92 +559,26 @@ pub struct PluginMessageEvent {
 }
 
 // ============================================================================
-// Plugin Development Utilities
+// Utility Functions
 // ============================================================================
 
-/// Helper macro for creating plugins with reduced boilerplate
-#[macro_export]
-macro_rules! create_plugin {
-    ($plugin_type:ty) => {
-        /// Plugin creation function - required export
-        #[no_mangle]
-        pub unsafe extern "C" fn create_plugin() -> *mut dyn types::Plugin {
-            let plugin = Box::new(<$plugin_type>::new());
-            Box::into_raw(plugin)
-        }
-        
-        /// Plugin destruction function - required export
-        #[no_mangle]
-        pub unsafe extern "C" fn destroy_plugin(plugin: *mut dyn types::Plugin) {
-            if !plugin.is_null() {
-                let _ = Box::from_raw(plugin);
-            }
-        }
-    };
+/// Create a new plugin manager with default event system
+pub fn create_plugin_manager(plugin_directory: impl AsRef<Path>, region_id: RegionId) -> PluginManager {
+    let event_system = create_event_system();
+    PluginManager::new(event_system, plugin_directory, region_id)
 }
 
-/// Helper trait for simplified plugin development
-#[async_trait]
-pub trait SimplePlugin: Send + Sync {
-    fn name() -> &'static str where Self: Sized;
-    fn version() -> &'static str where Self: Sized;
-    
-    async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        // Default implementation does nothing
-        Ok(())
-    }
-    
-    async fn on_shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        // Default implementation does nothing
-        Ok(())
-    }
-    
-    /// Register event handlers - override this method
-    async fn register_handlers(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        // Default implementation does nothing
-        Ok(())
-    }
-}
-
-/// Wrapper type to allow implementing the foreign Plugin trait for SimplePlugin types
-pub struct SimplePluginWrapper<T: SimplePlugin + 'static> {
-    inner: T,
-}
-
-impl<T: SimplePlugin + 'static> SimplePluginWrapper<T> {
-    pub fn new(inner: T) -> Self {
-        Self { inner }
-    }
-}
-
-#[async_trait]
-impl<T> Plugin for SimplePluginWrapper<T>
-where
-    T: SimplePlugin + 'static,
-{
-    fn name(&self) -> &str {
-        T::name()
-    }
-    
-    fn version(&self) -> &str {
-        T::version()
-    }
-    
-    async fn pre_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        self.inner.register_handlers(context).await
-    }
-    
-    async fn init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        self.inner.on_init(context).await
-    }
-    
-    async fn shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        self.inner.on_shutdown(context).await
-    }
+/// Create a plugin manager with a specific event system
+pub fn create_plugin_manager_with_events(
+    event_system: Arc<EventSystem>,
+    plugin_directory: impl AsRef<Path>,
+    region_id: RegionId,
+) -> PluginManager {
+    PluginManager::new(event_system, plugin_directory, region_id)
 }
 
 // ============================================================================
-// Tests
+// Tests - Updated for New API
 // ============================================================================
 
 #[cfg(test)]
@@ -702,8 +612,8 @@ mod tests {
         }
         
         async fn pre_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-            // Register a test event handler using the new type-safe API
-            context.events().on("test_event", |event: PluginLoadedEvent| {
+            // Register a test event handler using the new clean API
+            context.events().on_core("test_event", |event: PluginLoadedEvent| {
                 println!("Test plugin received event: {:?}", event);
                 Ok(())
             }).await.map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
@@ -747,12 +657,12 @@ mod tests {
         
         context.add_player(player.clone()).await;
         
-        let retrieved = context.get_player(player_id).await.unwrap();
-        assert!(retrieved.is_some());
-        assert_eq!(retrieved.unwrap().name, "test_player");
-        
-        let all_players = context.get_players().await.unwrap();
-        assert_eq!(all_players.len(), 1);
+        // Since we don't have get_player in the new ServerContext trait,
+        // we'll test through the internal implementation
+        let players = context.players.read().await;
+        assert!(players.contains_key(&player_id));
+        assert_eq!(players.get(&player_id).unwrap().name, "test_player");
+        assert_eq!(players.len(), 1);
     }
     
     #[tokio::test]
@@ -781,5 +691,32 @@ mod tests {
         let stats = plugin_manager.get_plugin_stats().await;
         assert_eq!(stats.total_plugins, 0); // No plugins loaded yet
         assert_eq!(stats.plugins.len(), 0);
+    }
+    
+    #[tokio::test]
+    async fn test_new_event_api_integration() {
+        let event_system = create_event_system();
+        let context = ServerContextImpl::new(event_system.clone(), RegionId::new());
+        
+        // Test the new clean API
+        context.events().on_core("plugin_test", |event: serde_json::Value| {
+            println!("Plugin manager test event: {:?}", event);
+            Ok(())
+        }).await.unwrap();
+        
+        // Test emission
+        context.events().emit_core("plugin_test", &serde_json::json!({
+            "test": "plugin_system_integration"
+        })).await.unwrap();
+        
+        // Test client event handling for plugins
+        context.events().on_client("test_plugin", "test_action", |event: serde_json::Value| {
+            println!("Plugin handling client event: {:?}", event);
+            Ok(())
+        }).await.unwrap();
+        
+        context.events().emit_client("test_plugin", "test_action", &serde_json::json!({
+            "action": "test_action_data"
+        })).await.unwrap();
     }
 }

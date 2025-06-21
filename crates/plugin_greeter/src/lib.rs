@@ -1,0 +1,151 @@
+use event_system::{
+    EventSystem, SimplePlugin, PluginError, ServerContext, 
+    PlayerId, Position, LogLevel, current_timestamp,
+    create_simple_plugin, register_handlers, on_event
+};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use async_trait::async_trait;
+
+// ============================================================================
+// Sample Plugin 1: Greeter Plugin
+// ============================================================================
+
+/// A simple greeter plugin that welcomes players and announces activities
+pub struct GreeterPlugin {
+    name: String,
+    welcome_count: u32,
+}
+
+impl GreeterPlugin {
+    pub fn new() -> Self {
+        println!("🎉 GreeterPlugin: Creating new instance");
+        Self {
+            name: "greeter".to_string(),
+            welcome_count: 0,
+        }
+    }
+}
+
+// Define some simple events for demonstration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WelcomeEvent {
+    pub player_id: PlayerId,
+    pub welcome_message: String,
+    pub welcome_count: u32,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerChatEvent {
+    pub player_id: PlayerId,
+    pub message: String,
+    pub channel: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerJumpEvent {
+    pub player_id: PlayerId,
+    pub height: f64,
+    pub position: Position,
+}
+
+#[async_trait]
+impl SimplePlugin for GreeterPlugin {
+    fn name(&self) -> &str {
+        &self.name
+    }
+    
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+    
+async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+    println!("👋 GreeterPlugin: Registering event handlers...");
+    
+    // Register core events
+    register_handlers!(events; core {
+        "player_connected" => |event: serde_json::Value| {
+            println!("👋 GreeterPlugin: New player connected! {:?}", event);
+            Ok(())
+        },
+        
+        "player_disconnected" => |event: serde_json::Value| {
+            println!("👋 GreeterPlugin: Player disconnected. Farewell! {:?}", event);
+            Ok(())
+        }
+    })?;
+    
+    // Register client events
+    register_handlers!(events; client {
+        "chat", "message" => |event: PlayerChatEvent| {
+            println!("👋 GreeterPlugin: Player {} said: '{}' in {}", 
+                     event.player_id, event.message, event.channel);
+            
+            // Respond to greetings
+            if event.message.to_lowercase().contains("hello") || 
+               event.message.to_lowercase().contains("hi") {
+                println!("👋 GreeterPlugin: Detected greeting! Preparing response...");
+            }
+            Ok(())
+        },
+        
+        "movement", "jump" => |event: PlayerJumpEvent| {
+            println!("👋 GreeterPlugin: Player {} jumped {:.1}m high! 🦘", 
+                     event.player_id, event.height);
+            
+            if event.height > 5.0 {
+                println!("👋 GreeterPlugin: Wow, that's a high jump!");
+            }
+            Ok(())
+        }
+    })?;
+    
+    // Register plugin events
+    register_handlers!(events; plugin {
+        "logger", "activity_logged" => |event: serde_json::Value| {
+            println!("👋 GreeterPlugin: Logger plugin recorded activity: {:?}", event);
+            Ok(())
+        }
+    })?;
+    
+    println!("👋 GreeterPlugin: ✅ All handlers registered successfully!");
+    Ok(())
+}
+    
+    async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+        context.log(LogLevel::Info, "👋 GreeterPlugin: Starting up! Ready to welcome players!");
+        
+        // Announce our presence to other plugins
+        let events = context.events();
+        events.emit_plugin("greeter", "startup", &serde_json::json!({
+            "plugin": "greeter",
+            "version": self.version(),
+            "message": "Greeter plugin is now online!",
+            "timestamp": current_timestamp()
+        })).await.map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+        
+        println!("👋 GreeterPlugin: ✅ Initialization complete!");
+        Ok(())
+    }
+    
+    async fn on_shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+        context.log(LogLevel::Info, 
+            &format!("👋 GreeterPlugin: Shutting down. Welcomed {} players total!", self.welcome_count));
+        
+        // Say goodbye to other plugins
+        let events = context.events();
+        events.emit_plugin("greeter", "shutdown", &serde_json::json!({
+            "plugin": "greeter",
+            "total_welcomes": self.welcome_count,
+            "message": "Greeter plugin going offline. Goodbye!",
+            "timestamp": current_timestamp()
+        })).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+        
+        println!("👋 GreeterPlugin: ✅ Shutdown complete!");
+        Ok(())
+    }
+}
+
+// Create the plugin using our macro - zero unsafe code!
+create_simple_plugin!(GreeterPlugin);
