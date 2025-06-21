@@ -511,10 +511,7 @@ impl ClientEventRouter {
             "combat_action" => {
                 self.route_combat_action(raw_data, player_id, event_system.clone()).await
             }
-            
-            "crafting_request" => {
-                self.route_crafting_request(raw_data, player_id, event_system.clone()).await
-            }
+
             
             "player_interaction" => {
                 self.route_player_interaction(raw_data, player_id, event_system.clone()).await
@@ -610,21 +607,6 @@ impl ClientEventRouter {
         
         let data = combat_event.serialize()?;
         event_system.emit_raw(EventId::client("combat_action"), &data).await?;
-        Ok(())
-    }
-    
-    /// Route crafting request events
-    async fn route_crafting_request(
-        &self,
-        raw_data: &[u8],
-        player_id: PlayerId,
-        event_system: Arc<EventSystemImpl>,
-    ) -> Result<(), EventError> {
-        let crafting_event: CraftingRequestEvent = serde_json::from_slice(raw_data)
-            .map_err(EventError::Deserialization)?;
-        
-        let data = crafting_event.serialize()?;
-        event_system.emit_raw(EventId::client("crafting_request"), &data).await?;
         Ok(())
     }
     

@@ -222,7 +222,7 @@ where
 #[async_trait]
 pub trait EventSystem: Send + Sync {
     /// Type-erased handler registration (internal use)
-    async fn register_handler(&self, event_id: EventId, handler: Arc<dyn EventHandler>) -> Result<(), EventError>;
+    async fn register_handler(&self, event_id: EventId, handler: Arc<EventSystemImpl>) -> Result<(), EventError>;
     
     /// Emit raw JSON data to an event
     async fn emit_raw(&self, event_id: EventId, data: &[u8]) -> Result<(), EventError>;
@@ -544,22 +544,6 @@ pub enum CombatActionType {
     Defend,
     Cast,
     Dodge,
-}
-
-/// Crafting request from client
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CraftingRequestEvent {
-    pub player_id: PlayerId,
-    pub recipe_id: u32,
-    pub quantity: u32,
-    pub ingredient_sources: Vec<InventorySlot>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InventorySlot {
-    pub slot_id: u32,
-    pub item_id: u32,
-    pub quantity: u32,
 }
 
 /// Player interaction event from client
