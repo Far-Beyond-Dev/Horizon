@@ -63,8 +63,7 @@ impl SimplePlugin for LoggerPlugin {
         println!("📝 LoggerPlugin: Registering comprehensive event logging...");
         
         // Use individual registrations to show different API styles
-        
-        // Core server events
+
         events.on_core("player_connected", |event: serde_json::Value| {
             println!("📝 LoggerPlugin: 🟢 CONNECTION - Player joined server: {:?}", event);
             Ok(())

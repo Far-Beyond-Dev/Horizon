@@ -417,12 +417,13 @@ async fn route_client_message(
     let player_id = connection_manager.get_player_id(connection_id).await
         .ok_or_else(|| ServerError::Internal("Player not found".to_string()))?;
     
-    debug!("📨 Routing message type '{}' from player {}", message.message_type, player_id);
+    debug!("📨 Routing message to namespace '{}' event '{}' from player {}", 
+           message.namespace, message.event, player_id);
     
     // Create raw message event for plugins to handle
     let raw_event = RawClientMessageEvent {
         player_id,
-        message_type: message.message_type.clone(),
+        message_type: format!("{}:{}", message.namespace, message.event),
         data: message.data.to_string().into_bytes(),
         timestamp: current_timestamp(),
     };
@@ -431,33 +432,12 @@ async fn route_client_message(
     event_system.emit_core("raw_client_message", &raw_event).await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
     
-    // Also emit to specific namespace for direct plugin handling
-    match message.message_type.as_str() {
-        msg_type if msg_type.starts_with("move") => {
-            event_system.emit_client("movement", &message.message_type, &message.data).await
-                .map_err(|e| ServerError::Internal(e.to_string()))?;
-        }
-        msg_type if msg_type.starts_with("chat") => {
-            event_system.emit_client("chat", &message.message_type, &message.data).await
-                .map_err(|e| ServerError::Internal(e.to_string()))?;
-        }
-        msg_type if msg_type.starts_with("combat") => {
-            event_system.emit_client("combat", &message.message_type, &message.data).await
-                .map_err(|e| ServerError::Internal(e.to_string()))?;
-        }
-        msg_type if msg_type.starts_with("inventory") => {
-            event_system.emit_client("inventory", &message.message_type, &message.data).await
-                .map_err(|e| ServerError::Internal(e.to_string()))?;
-        }
-        _ => {
-            // Generic routing for unknown message types
-            event_system.emit_client("default", &message.message_type, &message.data).await
-                .map_err(|e| ServerError::Internal(e.to_string()))?;
-        }
-    }
+    // Generic routing using client-specified namespace and event
+    event_system.emit_client(&message.namespace, &message.event, &message.data).await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
     
-    info!("✅ Routed '{}' message from player {} to plugins", 
-          message.message_type, player_id);
+    info!("✅ Routed '{}:{}' message from player {} to plugins", 
+          message.namespace, message.event, player_id);
     Ok(())
 }
 
@@ -467,7 +447,8 @@ async fn route_client_message(
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct ClientMessage {
-    message_type: String,
+    namespace: String,
+    event: String,
     data: serde_json::Value,
 }
 
@@ -545,6 +526,44 @@ mod tests {
         })).await.unwrap();
     }
     
+    #[tokio::test]
+    async fn test_generic_client_message_routing() {
+        let server = create_server();
+        let events = server.get_event_system();
+        
+        // Register handlers for different namespaces/events
+        events.on_client("movement", "jump", |event: serde_json::Value| {
+            println!("Movement plugin handles jump: {:?}", event);
+            Ok(())
+        }).await.unwrap();
+        
+        events.on_client("inventory", "use_item", |event: serde_json::Value| {
+            println!("Inventory plugin handles use_item: {:?}", event);
+            Ok(())
+        }).await.unwrap();
+        
+        events.on_client("custom_plugin", "custom_event", |event: serde_json::Value| {
+            println!("Custom plugin handles custom_event: {:?}", event);
+            Ok(())
+        }).await.unwrap();
+        
+        // Test the new generic routing
+        events.emit_client("movement", "jump", &serde_json::json!({
+            "height": 5.0
+        })).await.unwrap();
+        
+        events.emit_client("inventory", "use_item", &serde_json::json!({
+            "item_id": "potion_health",
+            "quantity": 1
+        })).await.unwrap();
+        
+        events.emit_client("custom_plugin", "custom_event", &serde_json::json!({
+            "custom_data": "anything"
+        })).await.unwrap();
+        
+        println!("✅ All messages routed generically without hardcoded logic!");
+    }
+    
     /// Example of how clean the new server is - just infrastructure!
     #[tokio::test]
     async fn demonstrate_clean_separation() {
@@ -553,7 +572,7 @@ mod tests {
         
         println!("🧹 This server only handles:");
         println!("  - WebSocket connections");
-        println!("  - Raw message routing"); 
+        println!("  - Generic message routing"); 
         println!("  - Plugin communication");
         println!("  - Core infrastructure events");
         println!("");
@@ -574,6 +593,6 @@ mod tests {
             Ok(())
         }).await.unwrap();
         
-        println!("✨ Clean separation achieved!");
+        println!("✨ Clean separation achieved with generic routing!");
     }
 }
