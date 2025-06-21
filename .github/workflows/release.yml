@@ -22,7 +22,7 @@ jobs:
       - name: Get package name from Cargo.toml
         id: get-name
         run: |
-          PACKAGE_NAME=$(grep -m1 '^name' Cargo.toml | sed 's/name\s*=\s*"\(.*\)"/\1/')
+          PACKAGE_NAME=$(grep -m1 '^name' crates/horizon/Cargo.toml | sed 's/name\s*=\s*"\(.*\)"/\1/')
           echo "package_name=$PACKAGE_NAME" >> $GITHUB_OUTPUT
           echo "Package name: $PACKAGE_NAME"
       
