@@ -347,10 +347,8 @@ cargo clippy
 
 ## Roadmap
 
-- [ ] Web-based admin panel
 - [ ] Clustering and horizontal scaling
-- [ ] Built-in database integration
-- [ ] More example plugins (combat, inventory, economy)
+- [ ] More official plugins (combat, inventory, economy)
 - [ ] Performance monitoring dashboard
 - [ ] WebAssembly plugin support
 
