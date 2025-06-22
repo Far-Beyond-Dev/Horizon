@@ -1,5 +1,5 @@
 //! Main application entry point for the game server
-//! 
+//!
 //! Provides CLI interface, configuration loading, and server startup with
 //! the new clean event system and plugin architecture.
 
@@ -7,12 +7,12 @@ use clap::{Arg, Command};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::signal;
+use toml;
 use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use toml;
 
+use event_system::RegionBounds;
 use game_server::{GameServer, ServerConfig};
-use event_system::{RegionBounds};
 
 // ============================================================================
 // Configuration
@@ -117,7 +117,7 @@ impl AppConfig {
             Ok(default_config)
         }
     }
-    
+
     /// Convert to ServerConfig (updated for new system)
     pub fn to_server_config(&self) -> Result<ServerConfig, Box<dyn std::error::Error>> {
         Ok(ServerConfig {
@@ -164,37 +164,37 @@ impl CliArgs {
                     .long("config")
                     .value_name("FILE")
                     .help("Configuration file path")
-                    .default_value("config.toml")
+                    .default_value("config.toml"),
             )
             .arg(
                 Arg::new("plugins")
                     .short('p')
                     .long("plugins")
                     .value_name("DIR")
-                    .help("Plugin directory path")
+                    .help("Plugin directory path"),
             )
             .arg(
                 Arg::new("bind")
                     .short('b')
                     .long("bind")
                     .value_name("ADDRESS")
-                    .help("Bind address (e.g., 127.0.0.1:8080)")
+                    .help("Bind address (e.g., 127.0.0.1:8080)"),
             )
             .arg(
                 Arg::new("log-level")
                     .short('l')
                     .long("log-level")
                     .value_name("LEVEL")
-                    .help("Log level (trace, debug, info, warn, error)")
+                    .help("Log level (trace, debug, info, warn, error)"),
             )
             .arg(
                 Arg::new("json-logs")
                     .long("json-logs")
                     .help("Output logs in JSON format")
-                    .action(clap::ArgAction::SetTrue)
+                    .action(clap::ArgAction::SetTrue),
             )
             .get_matches();
-        
+
         Self {
             config_path: PathBuf::from(matches.get_one::<String>("config").unwrap()),
             plugin_dir: matches.get_one::<String>("plugins").map(PathBuf::from),
@@ -210,13 +210,15 @@ impl CliArgs {
 // ============================================================================
 
 /// Initialize logging system
-fn setup_logging(config: &LoggingSettings, json_format: bool) -> Result<(), Box<dyn std::error::Error>> {
+fn setup_logging(
+    config: &LoggingSettings,
+    json_format: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let log_level = config.level.as_str();
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(log_level));
-    
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+
     let registry = tracing_subscriber::registry().with(filter);
-    
+
     if json_format || config.json_format {
         // JSON formatting
         registry.with(fmt::layer().json()).init();
@@ -224,7 +226,7 @@ fn setup_logging(config: &LoggingSettings, json_format: bool) -> Result<(), Box<
         // Human-readable formatting with colors
         registry.with(fmt::layer().pretty().with_ansi(true)).init();
     }
-    
+
     info!("🔧 Logging initialized with level: {}", log_level);
     Ok(())
 }
@@ -238,10 +240,10 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(unix)]
     {
         use signal::unix::{signal, SignalKind};
-        
+
         let mut sigint = signal(SignalKind::interrupt())?;
         let mut sigterm = signal(SignalKind::terminate())?;
-        
+
         tokio::select! {
             _ = sigint.recv() => {
                 info!("📡 Received SIGINT");
@@ -251,13 +253,13 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
     }
-    
+
     #[cfg(windows)]
     {
         signal::ctrl_c().await?;
         info!("📡 Received Ctrl+C");
     }
-    
+
     Ok(())
 }
 
@@ -276,76 +278,88 @@ impl Application {
     pub async fn new(args: CliArgs) -> Result<Self, Box<dyn std::error::Error>> {
         // Load configuration first (before logging setup)
         let mut config = AppConfig::load_from_file(&args.config_path).await?;
-        
+
         // Apply CLI overrides
         if let Some(plugin_dir) = args.plugin_dir {
             config.plugins.directory = plugin_dir.to_string_lossy().to_string();
         }
-        
+
         if let Some(bind_address) = args.bind_address {
             config.server.bind_address = bind_address;
         }
-        
+
         if let Some(log_level) = args.log_level {
             config.logging.level = log_level;
         }
-        
+
         if args.json_logs {
             config.logging.json_format = true;
         }
-        
+
         // Validate configuration
         if let Err(e) = config.validate() {
             return Err(format!("Configuration validation failed: {}", e).into());
         }
-        
+
         // Setup logging
         setup_logging(&config.logging, args.json_logs)?;
-        
+
         // Display banner after logging is setup
         display_banner();
-        
+
         // Create server with new architecture
         let server_config = config.to_server_config()?;
         let server = GameServer::new(server_config);
-        
+
         // Log startup information
         info!("🚀 Horizon Game Server v1.0.0 - Community Edition");
         info!("🏗️ Architecture: Core Infrastructure + Plugin System");
         info!("🎯 Features: Type-safe events, Clean separation, Zero unsafe plugins");
-        info!("📂 Config: {} | Plugins: {}", args.config_path.display(), config.plugins.directory);
-        
+        info!(
+            "📂 Config: {} | Plugins: {}",
+            args.config_path.display(),
+            config.plugins.directory
+        );
+
         Ok(Self { config, server })
     }
-    
+
     /// Run the application with enhanced monitoring
     pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         info!("🌟 Starting Horizon Game Server Application");
         info!("📋 Configuration Summary:");
         info!("  🌐 Bind address: {}", self.config.server.bind_address);
         info!("  🔌 Plugin directory: {}", self.config.plugins.directory);
-        info!("  🌍 Region: {:.0}x{:.0}x{:.0} units", 
-              self.config.server.region.max_x - self.config.server.region.min_x,
-              self.config.server.region.max_y - self.config.server.region.min_y,
-              self.config.server.region.max_z - self.config.server.region.min_z);
-        info!("  👥 Max connections: {}", self.config.server.max_connections);
-        info!("  ⏱️ Connection timeout: {}s", self.config.server.connection_timeout);
-        
+        info!(
+            "  🌍 Region: {:.0}x{:.0}x{:.0} units",
+            self.config.server.region.max_x - self.config.server.region.min_x,
+            self.config.server.region.max_y - self.config.server.region.min_y,
+            self.config.server.region.max_z - self.config.server.region.min_z
+        );
+        info!(
+            "  👥 Max connections: {}",
+            self.config.server.max_connections
+        );
+        info!(
+            "  ⏱️ Connection timeout: {}s",
+            self.config.server.connection_timeout
+        );
+
         // Get references for monitoring
         let event_system = self.server.get_event_system();
-//        let plugin_manager = self.server.();
-        
+        //        let plugin_manager = self.server.();
+
         // Display initial statistics
         let initial_stats = event_system.get_stats().await;
         info!("📊 Initial Event System State:");
         info!("  - Handlers registered: {}", initial_stats.total_handlers);
         info!("  - Events emitted: {}", initial_stats.events_emitted);
-        
-//        let plugin_stats = plugin_manager.get_plugin_stats().await;
-//        info!("📊 Initial Plugin System State:");
-//        info!("  - Plugins loaded: {}", plugin_stats.total_plugins);
-//        info!("  - Plugin handlers: {}", plugin_stats.total_handlers);
-        
+
+        //        let plugin_stats = plugin_manager.get_plugin_stats().await;
+        //        info!("📊 Initial Plugin System State:");
+        //        info!("  - Plugins loaded: {}", plugin_stats.total_plugins);
+        //        info!("  - Plugin handlers: {}", plugin_stats.total_handlers);
+
         // Start server in background with enhanced error handling
         let server_handle = {
             let server = self.server;
@@ -361,65 +375,73 @@ impl Application {
                 }
             })
         };
-        
+
         // Start monitoring task for real-time statistics
         let monitoring_handle = {
             let event_system = event_system.clone();
-//            let plugin_manager = plugin_manager.clone();
-            
+            //            let plugin_manager = plugin_manager.clone();
+
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
                 let mut last_events_emitted = 0u64;
-                
+
                 loop {
                     interval.tick().await;
-                    
+
                     // Display periodic statistics
                     let stats = event_system.get_stats().await;
-//                    let plugin_stats = plugin_manager.get_plugin_stats().await;
+                    //                    let plugin_stats = plugin_manager.get_plugin_stats().await;
                     let events_this_period = stats.events_emitted - last_events_emitted;
                     last_events_emitted = stats.events_emitted;
-                    
-                    info!("📊 System Health - {} events/min | {} handlers | {} plugins active", 
-                          events_this_period, stats.total_handlers, "");
-                    
+
+                    info!(
+                        "📊 System Health - {} events/min | {} handlers | {} plugins active",
+                        events_this_period, stats.total_handlers, ""
+                    );
+
                     if events_this_period > 1000 {
-                        info!("🔥 High activity detected - {} events processed this minute", events_this_period);
+                        info!(
+                            "🔥 High activity detected - {} events processed this minute",
+                            events_this_period
+                        );
                     }
                 }
             })
         };
-        
+
         // Wait for shutdown signal
         info!("✅ Horizon Server is now running!");
-        info!("🎮 Ready to accept connections on {}", self.config.server.bind_address);
+        info!(
+            "🎮 Ready to accept connections on {}",
+            self.config.server.bind_address
+        );
         info!("🔍 Health monitoring active - stats every 60 seconds");
         info!("🛑 Press Ctrl+C to gracefully shutdown");
-        
+
         setup_signal_handlers().await?;
-        
+
         info!("🛑 Shutdown signal received, initiating graceful shutdown...");
-        
+
         // Cancel monitoring first
         monitoring_handle.abort();
-        
+
         // The server's Drop implementation will handle plugin shutdown
         server_handle.abort();
-        
+
         // Give time for graceful cleanup
         info!("⏳ Waiting for connections to close...");
         tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-        
+
         info!("✅ Horizon Game Server shutdown complete");
         info!("📊 Final Statistics:");
-        
+
         // Display final statistics if possible
         let final_stats = event_system.get_stats().await;
         info!("  - Total events processed: {}", final_stats.events_emitted);
         info!("  - Peak handlers: {}", final_stats.total_handlers);
-        
+
         info!("👋 Thank you for using Horizon Game Server!");
-        
+
         Ok(())
     }
 }
@@ -432,7 +454,7 @@ impl Application {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse CLI arguments
     let args = CliArgs::parse();
-    
+
     // Create and run application
     match Application::new(args).await {
         Ok(app) => {
@@ -446,7 +468,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             std::process::exit(1);
         }
     }
-    
+
     Ok(())
 }
 
@@ -476,10 +498,18 @@ fn display_banner() {
 impl AppConfig {
     pub fn validate(&self) -> Result<(), String> {
         // Validate bind address
-        if self.server.bind_address.parse::<std::net::SocketAddr>().is_err() {
-            return Err(format!("Invalid bind address: {}", self.server.bind_address));
+        if self
+            .server
+            .bind_address
+            .parse::<std::net::SocketAddr>()
+            .is_err()
+        {
+            return Err(format!(
+                "Invalid bind address: {}",
+                self.server.bind_address
+            ));
         }
-        
+
         // Validate region bounds
         if self.server.region.min_x >= self.server.region.max_x {
             return Err("Region min_x must be less than max_x".to_string());
@@ -490,19 +520,21 @@ impl AppConfig {
         if self.server.region.min_z >= self.server.region.max_z {
             return Err("Region min_z must be less than max_z".to_string());
         }
-        
+
         // Validate plugin directory
         if self.plugins.directory.is_empty() {
             return Err("Plugin directory cannot be empty".to_string());
         }
-        
+
         // Validate log level
         let valid_levels = ["trace", "debug", "info", "warn", "error"];
         if !valid_levels.contains(&self.logging.level.as_str()) {
-            return Err(format!("Invalid log level: {}. Must be one of: {:?}", 
-                      self.logging.level, valid_levels));
+            return Err(format!(
+                "Invalid log level: {}. Must be one of: {:?}",
+                self.logging.level, valid_levels
+            ));
         }
-        
+
         Ok(())
     }
 }
@@ -514,38 +546,38 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_default_config() {
         let config = AppConfig::default();
         assert!(config.validate().is_ok());
-        
+
         // Test conversion to ServerConfig
         let server_config = config.to_server_config().unwrap();
         assert_eq!(server_config.max_connections, 1000);
         assert_eq!(server_config.connection_timeout, 60);
     }
-    
+
     #[tokio::test]
     async fn test_config_validation() {
         let mut config = AppConfig::default();
-        
+
         // Test invalid bind address
         config.server.bind_address = "invalid".to_string();
         assert!(config.validate().is_err());
-        
+
         // Test invalid region bounds
         config.server.bind_address = "127.0.0.1:8080".to_string();
         config.server.region.min_x = 100.0;
         config.server.region.max_x = 50.0; // Invalid: min > max
         assert!(config.validate().is_err());
-        
+
         // Test invalid log level
         config.server.region.max_x = 200.0; // Fix region
         config.logging.level = "invalid".to_string();
         assert!(config.validate().is_err());
     }
-    
+
     #[test]
     fn test_cli_parsing() {
         // This would require more setup to test properly with clap
@@ -557,14 +589,14 @@ mod tests {
             log_level: Some("debug".to_string()),
             json_logs: true,
         };
-        
+
         assert_eq!(args.config_path, PathBuf::from("test.toml"));
         assert_eq!(args.plugin_dir, Some(PathBuf::from("test_plugins")));
         assert_eq!(args.bind_address, Some("127.0.0.1:9000".to_string()));
         assert_eq!(args.log_level, Some("debug".to_string()));
         assert_eq!(args.json_logs, true);
     }
-    
+
     #[tokio::test]
     async fn test_application_creation() {
         let args = CliArgs {
@@ -574,16 +606,18 @@ mod tests {
             log_level: Some("debug".to_string()),
             json_logs: false,
         };
-        
+
         // Create a test config file
         let test_config = AppConfig::default();
         let toml_content = toml::to_string_pretty(&test_config).unwrap();
-        tokio::fs::write(&args.config_path, toml_content).await.unwrap();
-        
+        tokio::fs::write(&args.config_path, toml_content)
+            .await
+            .unwrap();
+
         // This would create the application but we can't easily test the full flow
         // without setting up the entire system
         assert!(args.config_path.exists());
-        
+
         // Cleanup
         tokio::fs::remove_file(&args.config_path).await.ok();
     }

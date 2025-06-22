@@ -1,10 +1,10 @@
 //! Core event system focused only on essential server events
-//! 
+//!
 //! This system handles only core server lifecycle and infrastructure events.
 //! Game-specific events (movement, combat, chat, etc.) are handled by plugins.
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -34,7 +34,6 @@ impl std::fmt::Display for PlayerId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RegionId(pub Uuid);
 
-
 impl RegionId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
@@ -59,9 +58,13 @@ impl Position {
 // ============================================================================
 
 pub trait Event: Send + Sync + Any + std::fmt::Debug {
-    fn type_name() -> &'static str where Self: Sized;
+    fn type_name() -> &'static str
+    where
+        Self: Sized;
     fn serialize(&self) -> Result<Vec<u8>, EventError>;
-    fn deserialize(data: &[u8]) -> Result<Self, EventError> where Self: Sized;
+    fn deserialize(data: &[u8]) -> Result<Self, EventError>
+    where
+        Self: Sized;
     fn as_any(&self) -> &dyn Any;
 }
 
@@ -72,15 +75,15 @@ where
     fn type_name() -> &'static str {
         std::any::type_name::<T>()
     }
-    
+
     fn serialize(&self) -> Result<Vec<u8>, EventError> {
         serde_json::to_vec(self).map_err(EventError::Serialization)
     }
-    
+
     fn deserialize(data: &[u8]) -> Result<Self, EventError> {
         serde_json::from_slice(data).map_err(EventError::Deserialization)
     }
-    
+
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -127,11 +130,11 @@ where
         let event = T::deserialize(data)?;
         (self.handler)(event)
     }
-    
+
     fn expected_type_id(&self) -> TypeId {
         TypeId::of::<T>()
     }
-    
+
     fn handler_name(&self) -> &str {
         &self.name
     }
@@ -153,7 +156,7 @@ impl EventSystem {
             stats: RwLock::new(EventSystemStats::default()),
         }
     }
-    
+
     /// Improved API: Register a core server event handler
     pub async fn on_core<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
     where
@@ -161,35 +164,48 @@ impl EventSystem {
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
     {
         let event_key = format!("core:{}", event_name);
-        self.register_typed_handler(event_key, event_name, handler).await
+        self.register_typed_handler(event_key, event_name, handler)
+            .await
     }
-    
+
     /// Improved API: Register a client event handler with namespace
-    pub async fn on_client<T, F>(&self, namespace: &str, event_name: &str, handler: F) -> Result<(), EventError>
+    pub async fn on_client<T, F>(
+        &self,
+        namespace: &str,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
     where
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
     {
         let event_key = format!("client:{}:{}", namespace, event_name);
-        self.register_typed_handler(event_key, event_name, handler).await
+        self.register_typed_handler(event_key, event_name, handler)
+            .await
     }
-    
+
     /// Improved API: Register a plugin event handler
-    pub async fn on_plugin<T, F>(&self, plugin_name: &str, event_name: &str, handler: F) -> Result<(), EventError>
+    pub async fn on_plugin<T, F>(
+        &self,
+        plugin_name: &str,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
     where
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
     {
         let event_key = format!("plugin:{}:{}", plugin_name, event_name);
-        self.register_typed_handler(event_key, event_name, handler).await
+        self.register_typed_handler(event_key, event_name, handler)
+            .await
     }
-    
+
     /// Internal helper for registering typed handlers
     async fn register_typed_handler<T, F>(
-        &self, 
-        event_key: String, 
-        _event_name: &str, 
-        handler: F
+        &self,
+        event_key: String,
+        _event_name: &str,
+        handler: F,
     ) -> Result<(), EventError>
     where
         T: Event + 'static,
@@ -198,20 +214,20 @@ impl EventSystem {
         let handler_name = format!("{}::{}", event_key, T::type_name());
         let typed_handler = TypedEventHandler::new(handler_name, handler);
         let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
-        
+
         let mut handlers = self.handlers.write().await;
         handlers
             .entry(event_key.clone())
             .or_insert_with(Vec::new)
             .push(handler_arc);
-        
+
         let mut stats = self.stats.write().await;
         stats.total_handlers += 1;
-        
+
         info!("📝 Registered handler for {}", event_key);
         Ok(())
     }
-    
+
     /// Emit a core event
     pub async fn emit_core<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
     where
@@ -220,25 +236,35 @@ impl EventSystem {
         let event_key = format!("core:{}", event_name);
         self.emit_event(&event_key, event).await
     }
-    
+
     /// Emit a client event
-    pub async fn emit_client<T>(&self, namespace: &str, event_name: &str, event: &T) -> Result<(), EventError>
+    pub async fn emit_client<T>(
+        &self,
+        namespace: &str,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
     where
         T: Event,
     {
         let event_key = format!("client:{}:{}", namespace, event_name);
         self.emit_event(&event_key, event).await
     }
-    
+
     /// Emit a plugin event
-    pub async fn emit_plugin<T>(&self, plugin_name: &str, event_name: &str, event: &T) -> Result<(), EventError>
+    pub async fn emit_plugin<T>(
+        &self,
+        plugin_name: &str,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
     where
         T: Event,
     {
         let event_key = format!("plugin:{}:{}", plugin_name, event_name);
         self.emit_event(&event_key, event).await
     }
-    
+
     /// Internal emit implementation
     async fn emit_event<T>(&self, event_key: &str, event: &T) -> Result<(), EventError>
     where
@@ -246,25 +272,29 @@ impl EventSystem {
     {
         let data = event.serialize()?;
         let handlers = self.handlers.read().await;
-        
+
         if let Some(event_handlers) = handlers.get(event_key) {
-            debug!("📤 Emitting {} to {} handlers", event_key, event_handlers.len());
-            
+            debug!(
+                "📤 Emitting {} to {} handlers",
+                event_key,
+                event_handlers.len()
+            );
+
             for handler in event_handlers {
                 if let Err(e) = handler.handle(&data).await {
                     error!("❌ Handler {} failed: {}", handler.handler_name(), e);
                 }
             }
-            
+
             let mut stats = self.stats.write().await;
             stats.events_emitted += 1;
         } else {
             warn!("⚠️ No handlers for event: {}", event_key);
         }
-        
+
         Ok(())
     }
-    
+
     pub async fn get_stats(&self) -> EventSystemStats {
         let stats = self.stats.read().await;
         stats.clone()
@@ -382,21 +412,21 @@ pub enum EventError {
 pub trait SimplePlugin: Send + Sync + 'static {
     /// Plugin name
     fn name(&self) -> &str;
-    
-    /// Plugin version 
+
+    /// Plugin version
     fn version(&self) -> &str;
-    
+
     /// Register event handlers during pre-initialization
     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError>;
-    
+
     /// Initialize the plugin
     async fn on_init(&mut self, _context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
         Ok(()) // Default implementation
     }
-    
+
     /// Shutdown the plugin
     async fn on_shutdown(&mut self, _context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        Ok(()) // Default implementation  
+        Ok(()) // Default implementation
     }
 }
 
@@ -404,36 +434,42 @@ pub trait SimplePlugin: Send + Sync + 'static {
 #[macro_export]
 macro_rules! create_simple_plugin {
     ($plugin_type:ty) => {
-        use $crate::{Plugin};
-        
+        use $crate::Plugin;
+
         /// Wrapper to bridge SimplePlugin and Plugin traits
         struct PluginWrapper {
             inner: $plugin_type,
         }
-        
+
         #[async_trait]
         impl Plugin for PluginWrapper {
             fn name(&self) -> &str {
                 self.inner.name()
             }
-            
+
             fn version(&self) -> &str {
                 self.inner.version()
             }
-            
-            async fn pre_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+
+            async fn pre_init(
+                &mut self,
+                context: Arc<dyn ServerContext>,
+            ) -> Result<(), PluginError> {
                 self.inner.register_handlers(context.events()).await
             }
-            
+
             async fn init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
                 self.inner.on_init(context).await
             }
-            
-            async fn shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+
+            async fn shutdown(
+                &mut self,
+                context: Arc<dyn ServerContext>,
+            ) -> Result<(), PluginError> {
                 self.inner.on_shutdown(context).await
             }
         }
-        
+
         /// Plugin creation function - required export
         #[no_mangle]
         pub unsafe extern "C" fn create_plugin() -> *mut dyn Plugin {
@@ -442,7 +478,7 @@ macro_rules! create_simple_plugin {
             });
             Box::into_raw(plugin)
         }
-        
+
         /// Plugin destruction function - required export
         #[no_mangle]
         pub unsafe extern "C" fn destroy_plugin(plugin: *mut dyn Plugin) {
@@ -463,15 +499,15 @@ macro_rules! register_handlers {
         )*
         Ok(())
     }};
-    
-    // Handle plugin events section  
+
+    // Handle plugin events section
     ($events:expr; plugin { $($target_plugin:expr, $event_name:expr => $handler:expr),* $(,)? }) => {{
         $(
             $events.on_plugin($target_plugin, $event_name, $handler).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
         )*
         Ok(())
     }};
-    
+
     // Handle core events section
     ($events:expr; core { $($event_name:expr => $handler:expr),* $(,)? }) => {{
         $(
@@ -479,9 +515,9 @@ macro_rules! register_handlers {
         )*
         Ok(())
     }};
-    
+
     // Handle mixed events with semicolon separators
-    ($events:expr; 
+    ($events:expr;
      $(client { $($c_namespace:expr, $c_event_name:expr => $c_handler:expr),* $(,)? })?
      $(plugin { $($p_target_plugin:expr, $p_event_name:expr => $p_handler:expr),* $(,)? })?
      $(core { $($core_event_name:expr => $core_handler:expr),* $(,)? })?
@@ -505,7 +541,9 @@ macro_rules! on_event {
         $events.on_client($namespace, $event_name, $handler).await?;
     };
     ($events:expr, plugin $target_plugin:expr, $event_name:expr => $handler:expr) => {
-        $events.on_plugin($target_plugin, $event_name, $handler).await?;
+        $events
+            .on_plugin($target_plugin, $event_name, $handler)
+            .await?;
     };
     ($events:expr, core $event_name:expr => $handler:expr) => {
         $events.on_core($event_name, $handler).await?;
@@ -521,10 +559,10 @@ pub trait ServerContext: Send + Sync {
     fn events(&self) -> Arc<EventSystem>;
     fn region_id(&self) -> RegionId;
     fn log(&self, level: LogLevel, message: &str);
-    
+
     /// Send raw data to a specific player
     async fn send_to_player(&self, player_id: PlayerId, data: &[u8]) -> Result<(), ServerError>;
-    
+
     /// Broadcast raw data to all players
     async fn broadcast(&self, data: &[u8]) -> Result<(), ServerError>;
 }
@@ -533,7 +571,7 @@ pub trait ServerContext: Send + Sync {
 pub trait Plugin: Send + Sync {
     fn name(&self) -> &str;
     fn version(&self) -> &str;
-    
+
     async fn pre_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError>;
     async fn init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError>;
     async fn shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError>;
@@ -584,50 +622,79 @@ pub fn create_event_system() -> Arc<EventSystem> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[derive(Debug, Serialize, Deserialize)]
     struct TestEvent {
         message: String,
     }
-    
+
     #[tokio::test]
     async fn test_refined_event_api() {
         let events = create_event_system();
-        
+
         // Test the new cleaner API - individual registration
-        events.on_core("server_started", |event: TestEvent| {
-            println!("Core event: {}", event.message);
-            Ok(())
-        }).await.unwrap();
-        
-        events.on_client("movement", "player_moved", |event: TestEvent| {
-            println!("Client movement event: {}", event.message);
-            Ok(())
-        }).await.unwrap();
-        
-        events.on_plugin("combat", "attack", |event: TestEvent| {
-            println!("Combat plugin event: {}", event.message);
-            Ok(())
-        }).await.unwrap();
-        
+        events
+            .on_core("server_started", |event: TestEvent| {
+                println!("Core event: {}", event.message);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        events
+            .on_client("movement", "player_moved", |event: TestEvent| {
+                println!("Client movement event: {}", event.message);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        events
+            .on_plugin("combat", "attack", |event: TestEvent| {
+                println!("Combat plugin event: {}", event.message);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
         // Test emission
-        events.emit_core("server_started", &TestEvent {
-            message: "Server is running".to_string(),
-        }).await.unwrap();
-        
-        events.emit_client("movement", "player_moved", &TestEvent {
-            message: "Player moved to new position".to_string(),
-        }).await.unwrap();
-        
-        events.emit_plugin("combat", "attack", &TestEvent {
-            message: "Player attacked".to_string(),
-        }).await.unwrap();
+        events
+            .emit_core(
+                "server_started",
+                &TestEvent {
+                    message: "Server is running".to_string(),
+                },
+            )
+            .await
+            .unwrap();
+
+        events
+            .emit_client(
+                "movement",
+                "player_moved",
+                &TestEvent {
+                    message: "Player moved to new position".to_string(),
+                },
+            )
+            .await
+            .unwrap();
+
+        events
+            .emit_plugin(
+                "combat",
+                "attack",
+                &TestEvent {
+                    message: "Player attacked".to_string(),
+                },
+            )
+            .await
+            .unwrap();
     }
-    
+
     #[tokio::test]
     async fn test_bulk_registration_macro() -> Result<(), Box<dyn std::error::Error>> {
         let events = create_event_system();
-        
+
         // Test the bulk registration macro
         register_handlers!(events;
             client {
@@ -653,15 +720,29 @@ mod tests {
                 }
             }
         );
-        
+
         // Test they all work
-        events.emit_client("movement", "jump", &TestEvent {
-            message: "Player jumped!".to_string(),
-        }).await.unwrap();
-        
-        events.emit_plugin("combat", "damage", &TestEvent {
-            message: "Damage dealt!".to_string(),
-        }).await.unwrap();
+        events
+            .emit_client(
+                "movement",
+                "jump",
+                &TestEvent {
+                    message: "Player jumped!".to_string(),
+                },
+            )
+            .await
+            .unwrap();
+
+        events
+            .emit_plugin(
+                "combat",
+                "damage",
+                &TestEvent {
+                    message: "Damage dealt!".to_string(),
+                },
+            )
+            .await
+            .unwrap();
 
         Ok(()) as Result<(), Box<dyn std::error::Error>>
     }
@@ -669,22 +750,29 @@ mod tests {
     #[tokio::test]
     async fn test_simple_on_event_macro() -> Result<(), Box<dyn std::error::Error>> {
         let events = create_event_system();
-        
+
         // Test the simple on_event! macro for single registrations
         on_event!(events, client "test", "event" => |event: TestEvent| {
             println!("Simple macro test: {}", event.message);
             Ok(())
         });
-        
+
         on_event!(events, core "test_core" => |event: TestEvent| {
             println!("Core macro test: {}", event.message);
             Ok(())
         });
-        
+
         // Test emission
-        events.emit_client("test", "event", &TestEvent {
-            message: "Simple macro works!".to_string(),
-        }).await.unwrap();
+        events
+            .emit_client(
+                "test",
+                "event",
+                &TestEvent {
+                    message: "Simple macro works!".to_string(),
+                },
+            )
+            .await
+            .unwrap();
 
         Ok(())
     }

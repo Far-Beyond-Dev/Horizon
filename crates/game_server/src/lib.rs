@@ -1,16 +1,15 @@
 //! Refactored game server focused on core infrastructure only
-//! 
+//!
 //! This server handles only essential infrastructure: connections, plugin management,
 //! and message routing. All game logic is delegated to plugins.
 
 use event_system::{
-    EventSystem, create_event_system, 
-    PlayerConnectedEvent, PlayerDisconnectedEvent, RawClientMessageEvent,
-    RegionStartedEvent, DisconnectReason, RegionBounds, 
-    PlayerId, RegionId, current_timestamp
+    create_event_system, current_timestamp, DisconnectReason, EventSystem, PlayerConnectedEvent,
+    PlayerDisconnectedEvent, PlayerId, RawClientMessageEvent, RegionBounds, RegionId,
+    RegionStartedEvent,
 };
-use plugin_system::{PluginManager, create_plugin_manager_with_events};
 use futures::{SinkExt, StreamExt};
+use plugin_system::{create_plugin_manager_with_events, PluginManager};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -85,7 +84,7 @@ struct ConnectionManager {
 impl ConnectionManager {
     fn new() -> Self {
         let (sender, _) = broadcast::channel(1000);
-        
+
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
             next_id: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
@@ -94,12 +93,14 @@ impl ConnectionManager {
     }
 
     async fn add_connection(&self, remote_addr: SocketAddr) -> ConnectionId {
-        let connection_id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let connection_id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let connection = ClientConnection::new(remote_addr);
-        
+
         let mut connections = self.connections.write().await;
         connections.insert(connection_id, connection);
-        
+
         info!("🔗 Connection {} from {}", connection_id, remote_addr);
         connection_id
     }
@@ -107,8 +108,10 @@ impl ConnectionManager {
     async fn remove_connection(&self, connection_id: ConnectionId) {
         let mut connections = self.connections.write().await;
         if let Some(connection) = connections.remove(&connection_id) {
-            info!("❌ Connection {} from {} disconnected", 
-                  connection_id, connection.remote_addr);
+            info!(
+                "❌ Connection {} from {} disconnected",
+                connection_id, connection.remote_addr
+            );
         }
     }
 
@@ -118,16 +121,16 @@ impl ConnectionManager {
             connection.player_id = Some(player_id);
         }
     }
-    
+
     async fn get_player_id(&self, connection_id: ConnectionId) -> Option<PlayerId> {
         let connections = self.connections.read().await;
         connections.get(&connection_id).and_then(|c| c.player_id)
     }
-    
+
     async fn send_to_connection(&self, connection_id: ConnectionId, message: Vec<u8>) {
         let _ = self.sender.send((connection_id, message));
     }
-    
+
     fn subscribe(&self) -> broadcast::Receiver<(ConnectionId, Vec<u8>)> {
         self.sender.subscribe()
     }
@@ -152,8 +155,8 @@ impl GameServer {
         let event_system = create_event_system();
         let connection_manager = Arc::new(ConnectionManager::new());
         let (shutdown_sender, _) = broadcast::channel(1);
-        
-                // Create plugin manager with the event system
+
+        // Create plugin manager with the event system
         let plugin_manager = Arc::new(create_plugin_manager_with_events(
             event_system.clone(),
             &config.plugin_directory,
@@ -169,21 +172,31 @@ impl GameServer {
             region_id,
         }
     }
-    
+
     pub async fn start(&self) -> Result<(), ServerError> {
         info!("🚀 Starting game server on {}", self.config.bind_address);
         info!("🌍 Region ID: {}", self.region_id.0);
-        
+
         // Register minimal core event handlers
         self.register_core_handlers().await?;
-        
-                info!("🔌 Loading plugins from: {}", self.config.plugin_directory.display());
+
+        info!(
+            "🔌 Loading plugins from: {}",
+            self.config.plugin_directory.display()
+        );
         match self.plugin_manager.load_all_plugins().await {
             Ok(loaded_plugins) => {
-                info!("✅ Successfully loaded {} plugins: {:?}", loaded_plugins.len(), loaded_plugins);
+                info!(
+                    "✅ Successfully loaded {} plugins: {:?}",
+                    loaded_plugins.len(),
+                    loaded_plugins
+                );
             }
             Err(e) => {
-                warn!("⚠️ Plugin loading failed: {}. Server will continue without plugins.", e);
+                warn!(
+                    "⚠️ Plugin loading failed: {}. Server will continue without plugins.",
+                    e
+                );
             }
         }
 
@@ -192,30 +205,46 @@ impl GameServer {
         info!("📊 Plugin System Status:");
         info!("  - Plugins loaded: {}", plugin_stats.total_plugins);
         info!("  - Total handlers: {}", plugin_stats.total_handlers);
-        info!("  - Client events routed: {}", plugin_stats.client_events_routed);
+        info!(
+            "  - Client events routed: {}",
+            plugin_stats.client_events_routed
+        );
 
-        self.event_system.emit_core("region_started", &RegionStartedEvent {
-            region_id: self.region_id,
-            bounds: self.config.region_bounds.clone(),
-            timestamp: current_timestamp(),
-        }).await.map_err(|e| ServerError::Internal(e.to_string()))?;
+        self.event_system
+            .emit_core(
+                "region_started",
+                &RegionStartedEvent {
+                    region_id: self.region_id,
+                    bounds: self.config.region_bounds.clone(),
+                    timestamp: current_timestamp(),
+                },
+            )
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
 
         // Emit region started event (for plugins)
-        self.event_system.emit_core("region_started", &RegionStartedEvent {
-            region_id: self.region_id,
-            bounds: self.config.region_bounds.clone(),
-            timestamp: current_timestamp(),
-        }).await.map_err(|e| ServerError::Internal(e.to_string()))?;
-        
+        self.event_system
+            .emit_core(
+                "region_started",
+                &RegionStartedEvent {
+                    region_id: self.region_id,
+                    bounds: self.config.region_bounds.clone(),
+                    timestamp: current_timestamp(),
+                },
+            )
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
         // Start TCP listener
-        let listener = TcpListener::bind(self.config.bind_address).await
+        let listener = TcpListener::bind(self.config.bind_address)
+            .await
             .map_err(|e| ServerError::Network(format!("Failed to bind: {}", e)))?;
-        
+
         info!("🌐 Server listening on {}", self.config.bind_address);
-        
+
         // Main server loop (infrastructure only)
         let mut shutdown_receiver = self.shutdown_sender.subscribe();
-        
+
         loop {
             tokio::select! {
                 result = listener.accept() => {
@@ -223,12 +252,12 @@ impl GameServer {
                         Ok((stream, addr)) => {
                             let connection_manager = self.connection_manager.clone();
                             let event_system = self.event_system.clone();
-                            
+
                             tokio::spawn(async move {
                                 if let Err(e) = handle_connection(
-                                    stream, 
-                                    addr, 
-                                    connection_manager, 
+                                    stream,
+                                    addr,
+                                    connection_manager,
                                     event_system,
                                 ).await {
                                     error!("Connection error: {:?}", e);
@@ -240,7 +269,7 @@ impl GameServer {
                         }
                     }
                 }
-                
+
                 _ = shutdown_receiver.recv() => {
                     info!("Shutdown signal received");
                     break;
@@ -255,42 +284,57 @@ impl GameServer {
         } else {
             info!("✅ All plugins shut down successfully");
         }
-        
+
         info!("Server stopped");
         Ok(())
     }
-    
+
     /// Register only essential core infrastructure event handlers
     async fn register_core_handlers(&self) -> Result<(), ServerError> {
         // Core infrastructure events only - no game logic!
-        
-        self.event_system.on_core("player_connected", |event: PlayerConnectedEvent| {
-            info!("👋 Player {} connected from {}", 
-                  event.player_id, event.remote_addr);
-            Ok(())
-        }).await.map_err(|e| ServerError::Internal(e.to_string()))?;
-        
-        self.event_system.on_core("player_disconnected", |event: PlayerDisconnectedEvent| {
-            info!("👋 Player {} disconnected: {:?}", 
-                  event.player_id, event.reason);
-            Ok(())
-        }).await.map_err(|e| ServerError::Internal(e.to_string()))?;
-        
-        self.event_system.on_core("region_started", |event: RegionStartedEvent| {
-            info!("🌍 Region {:?} started with bounds: {:?}", 
-                  event.region_id, event.bounds);
-            Ok(())
-        }).await.map_err(|e| ServerError::Internal(e.to_string()))?;
-        
+
+        self.event_system
+            .on_core("player_connected", |event: PlayerConnectedEvent| {
+                info!(
+                    "👋 Player {} connected from {}",
+                    event.player_id, event.remote_addr
+                );
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        self.event_system
+            .on_core("player_disconnected", |event: PlayerDisconnectedEvent| {
+                info!(
+                    "👋 Player {} disconnected: {:?}",
+                    event.player_id, event.reason
+                );
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        self.event_system
+            .on_core("region_started", |event: RegionStartedEvent| {
+                info!(
+                    "🌍 Region {:?} started with bounds: {:?}",
+                    event.region_id, event.bounds
+                );
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
         Ok(())
     }
-    
+
     pub async fn shutdown(&self) -> Result<(), ServerError> {
         info!("🛑 Shutting down server...");
         let _ = self.shutdown_sender.send(());
         Ok(())
     }
-    
+
     pub fn get_event_system(&self) -> Arc<EventSystem> {
         self.event_system.clone()
     }
@@ -306,24 +350,33 @@ async fn handle_connection(
     connection_manager: Arc<ConnectionManager>,
     event_system: Arc<EventSystem>,
 ) -> Result<(), ServerError> {
-    let ws_stream = accept_async(stream).await
+    let ws_stream = accept_async(stream)
+        .await
         .map_err(|e| ServerError::Network(format!("WebSocket handshake failed: {}", e)))?;
-    
+
     let (ws_sender, mut ws_receiver) = ws_stream.split();
     let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
     let connection_id = connection_manager.add_connection(addr).await;
 
     // Generate player ID and emit connection event
     let player_id = PlayerId::new();
-    connection_manager.set_player_id(connection_id, player_id).await;
-    
+    connection_manager
+        .set_player_id(connection_id, player_id)
+        .await;
+
     // Emit core infrastructure event
-    event_system.emit_core("player_connected", &PlayerConnectedEvent {
-        player_id,
-        connection_id: connection_id.to_string(),
-        remote_addr: addr.to_string(),
-        timestamp: current_timestamp(),
-    }).await.map_err(|e| ServerError::Internal(e.to_string()))?;
+    event_system
+        .emit_core(
+            "player_connected",
+            &PlayerConnectedEvent {
+                player_id,
+                connection_id: connection_id.to_string(),
+                remote_addr: addr.to_string(),
+                timestamp: current_timestamp(),
+            },
+        )
+        .await
+        .map_err(|e| ServerError::Internal(e.to_string()))?;
 
     let mut message_receiver = connection_manager.subscribe();
     let ws_sender_incoming = ws_sender.clone();
@@ -333,7 +386,7 @@ async fn handle_connection(
     let incoming_task = {
         let connection_manager = connection_manager.clone();
         let event_system = event_system.clone();
-        
+
         async move {
             while let Some(msg) = ws_receiver.next().await {
                 match msg {
@@ -344,7 +397,9 @@ async fn handle_connection(
                             connection_id,
                             &connection_manager,
                             &event_system,
-                        ).await {
+                        )
+                        .await
+                        {
                             error!("❌ Message routing error: {}", e);
                         }
                     }
@@ -374,7 +429,10 @@ async fn handle_connection(
                 if target_connection_id == connection_id {
                     let message_text = String::from_utf8_lossy(&message);
                     let mut ws_sender = ws_sender.lock().await;
-                    if let Err(e) = ws_sender.send(Message::Text(message_text.to_string().into())).await {
+                    if let Err(e) = ws_sender
+                        .send(Message::Text(message_text.to_string().into()))
+                        .await
+                    {
                         error!("Failed to send message: {}", e);
                         break;
                     }
@@ -390,12 +448,18 @@ async fn handle_connection(
 
     // Emit disconnection event
     if let Some(player_id) = connection_manager.get_player_id(connection_id).await {
-        event_system.emit_core("player_disconnected", &PlayerDisconnectedEvent {
-            player_id,
-            connection_id: connection_id.to_string(),
-            reason: DisconnectReason::ClientDisconnect,
-            timestamp: current_timestamp(),
-        }).await.map_err(|e| ServerError::Internal(e.to_string()))?;
+        event_system
+            .emit_core(
+                "player_disconnected",
+                &PlayerDisconnectedEvent {
+                    player_id,
+                    connection_id: connection_id.to_string(),
+                    reason: DisconnectReason::ClientDisconnect,
+                    timestamp: current_timestamp(),
+                },
+            )
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
     }
 
     connection_manager.remove_connection(connection_id).await;
@@ -409,17 +473,20 @@ async fn route_client_message(
     connection_manager: &ConnectionManager,
     event_system: &EventSystem,
 ) -> Result<(), ServerError> {
-    
     // Parse as generic message structure
     let message: ClientMessage = serde_json::from_str(text)
         .map_err(|e| ServerError::Network(format!("Invalid JSON: {}", e)))?;
-    
-    let player_id = connection_manager.get_player_id(connection_id).await
+
+    let player_id = connection_manager
+        .get_player_id(connection_id)
+        .await
         .ok_or_else(|| ServerError::Internal("Player not found".to_string()))?;
-    
-    debug!("📨 Routing message to namespace '{}' event '{}' from player {}", 
-           message.namespace, message.event, player_id);
-    
+
+    debug!(
+        "📨 Routing message to namespace '{}' event '{}' from player {}",
+        message.namespace, message.event, player_id
+    );
+
     // Create raw message event for plugins to handle
     let raw_event = RawClientMessageEvent {
         player_id,
@@ -427,17 +494,23 @@ async fn route_client_message(
         data: message.data.to_string().into_bytes(),
         timestamp: current_timestamp(),
     };
-    
+
     // Emit to core for routing (plugins will listen to this)
-    event_system.emit_core("raw_client_message", &raw_event).await
+    event_system
+        .emit_core("raw_client_message", &raw_event)
+        .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
-    
+
     // Generic routing using client-specified namespace and event
-    event_system.emit_client(&message.namespace, &message.event, &message.data).await
+    event_system
+        .emit_client(&message.namespace, &message.event, &message.data)
+        .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
-    
-    info!("✅ Routed '{}:{}' message from player {} to plugins", 
-          message.namespace, message.event, player_id);
+
+    info!(
+        "✅ Routed '{}:{}' message from player {} to plugins",
+        message.namespace, message.event, player_id
+    );
     Ok(())
 }
 
@@ -479,100 +552,163 @@ pub fn create_server_with_config(config: ServerConfig) -> GameServer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_core_server_creation() {
         let server = create_server();
         let events = server.get_event_system();
-        
+
         // Verify we can register core handlers
-        events.on_core("test_event", |event: serde_json::Value| {
-            println!("Test core event: {:?}", event);
-            Ok(())
-        }).await.unwrap();
-        
+        events
+            .on_core("test_event", |event: serde_json::Value| {
+                println!("Test core event: {:?}", event);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
         // Emit a test event
-        events.emit_core("test_event", &serde_json::json!({
-            "test": "data"
-        })).await.unwrap();
+        events
+            .emit_core(
+                "test_event",
+                &serde_json::json!({
+                    "test": "data"
+                }),
+            )
+            .await
+            .unwrap();
     }
-    
+
     #[tokio::test]
     async fn test_plugin_message_routing() {
         let server = create_server();
         let events = server.get_event_system();
-        
+
         // Register handlers that plugins would register
-        events.on_client("movement", "move_request", |event: serde_json::Value| {
-            println!("Movement plugin would handle: {:?}", event);
-            Ok(())
-        }).await.unwrap();
-        
-        events.on_client("chat", "send_message", |event: serde_json::Value| {
-            println!("Chat plugin would handle: {:?}", event);
-            Ok(())
-        }).await.unwrap();
-        
+        events
+            .on_client("movement", "move_request", |event: serde_json::Value| {
+                println!("Movement plugin would handle: {:?}", event);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        events
+            .on_client("chat", "send_message", |event: serde_json::Value| {
+                println!("Chat plugin would handle: {:?}", event);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
         // Test routing
-        events.emit_client("movement", "move_request", &serde_json::json!({
-            "target_x": 100.0,
-            "target_y": 200.0,
-            "target_z": 0.0
-        })).await.unwrap();
-        
-        events.emit_client("chat", "send_message", &serde_json::json!({
-            "message": "Hello world!",
-            "channel": "general"
-        })).await.unwrap();
+        events
+            .emit_client(
+                "movement",
+                "move_request",
+                &serde_json::json!({
+                    "target_x": 100.0,
+                    "target_y": 200.0,
+                    "target_z": 0.0
+                }),
+            )
+            .await
+            .unwrap();
+
+        events
+            .emit_client(
+                "chat",
+                "send_message",
+                &serde_json::json!({
+                    "message": "Hello world!",
+                    "channel": "general"
+                }),
+            )
+            .await
+            .unwrap();
     }
-    
+
     #[tokio::test]
     async fn test_generic_client_message_routing() {
         let server = create_server();
         let events = server.get_event_system();
-        
+
         // Register handlers for different namespaces/events
-        events.on_client("movement", "jump", |event: serde_json::Value| {
-            println!("Movement plugin handles jump: {:?}", event);
-            Ok(())
-        }).await.unwrap();
-        
-        events.on_client("inventory", "use_item", |event: serde_json::Value| {
-            println!("Inventory plugin handles use_item: {:?}", event);
-            Ok(())
-        }).await.unwrap();
-        
-        events.on_client("custom_plugin", "custom_event", |event: serde_json::Value| {
-            println!("Custom plugin handles custom_event: {:?}", event);
-            Ok(())
-        }).await.unwrap();
-        
+        events
+            .on_client("movement", "jump", |event: serde_json::Value| {
+                println!("Movement plugin handles jump: {:?}", event);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        events
+            .on_client("inventory", "use_item", |event: serde_json::Value| {
+                println!("Inventory plugin handles use_item: {:?}", event);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
+        events
+            .on_client(
+                "custom_plugin",
+                "custom_event",
+                |event: serde_json::Value| {
+                    println!("Custom plugin handles custom_event: {:?}", event);
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
+
         // Test the new generic routing
-        events.emit_client("movement", "jump", &serde_json::json!({
-            "height": 5.0
-        })).await.unwrap();
-        
-        events.emit_client("inventory", "use_item", &serde_json::json!({
-            "item_id": "potion_health",
-            "quantity": 1
-        })).await.unwrap();
-        
-        events.emit_client("custom_plugin", "custom_event", &serde_json::json!({
-            "custom_data": "anything"
-        })).await.unwrap();
-        
+        events
+            .emit_client(
+                "movement",
+                "jump",
+                &serde_json::json!({
+                    "height": 5.0
+                }),
+            )
+            .await
+            .unwrap();
+
+        events
+            .emit_client(
+                "inventory",
+                "use_item",
+                &serde_json::json!({
+                    "item_id": "potion_health",
+                    "quantity": 1
+                }),
+            )
+            .await
+            .unwrap();
+
+        events
+            .emit_client(
+                "custom_plugin",
+                "custom_event",
+                &serde_json::json!({
+                    "custom_data": "anything"
+                }),
+            )
+            .await
+            .unwrap();
+
         println!("✅ All messages routed generically without hardcoded logic!");
     }
-    
+
     /// Example of how clean the new server is - just infrastructure!
     #[tokio::test]
     async fn demonstrate_clean_separation() {
         let server = create_server();
         let events = server.get_event_system();
-        
+
         println!("🧹 This server only handles:");
         println!("  - WebSocket connections");
-        println!("  - Generic message routing"); 
+        println!("  - Generic message routing");
         println!("  - Plugin communication");
         println!("  - Core infrastructure events");
         println!("");
@@ -580,19 +716,25 @@ mod tests {
         println!("  - Movement, combat, chat, inventory");
         println!("  - All game-specific events");
         println!("  - Business logic and rules");
-        
+
         // Show the clean API in action
-        events.on_core("player_connected", |event: PlayerConnectedEvent| {
-            println!("✅ Core: Player {} connected", event.player_id);
-            Ok(())
-        }).await.unwrap();
-        
+        events
+            .on_core("player_connected", |event: PlayerConnectedEvent| {
+                println!("✅ Core: Player {} connected", event.player_id);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
         // This would be handled by movement plugin, not core
-        events.on_client("movement", "jump", |event: serde_json::Value| {
-            println!("🦘 Movement Plugin: Jump event {:?}", event);
-            Ok(())
-        }).await.unwrap();
-        
+        events
+            .on_client("movement", "jump", |event: serde_json::Value| {
+                println!("🦘 Movement Plugin: Jump event {:?}", event);
+                Ok(())
+            })
+            .await
+            .unwrap();
+
         println!("✨ Clean separation achieved with generic routing!");
     }
 }
