@@ -21,6 +21,7 @@ server/Cargo.lock
 # By Horizon Community #
 ########################
 
+plugins/
 data
 raw_points.txt
 voronoi_edges.txt
