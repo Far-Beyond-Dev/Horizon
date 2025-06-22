@@ -62,7 +62,7 @@ impl InventorySystem {
         true
     }
 
-    fn SetupInventory(slot_count: Option<u32>, inventory_count: Option<u8>) -> bool {
+    fn setup_inventory(slot_count: Option<u32>, inventory_count: Option<u8>) -> bool {
         let inventory_settings = InventorySettingRequest {
             slot_count,
             inventory_count,
@@ -178,10 +178,11 @@ impl SimplePlugin for InventorySystem {
                 "InventorySystem",
                 "SetupInventory",
                 |json_event: serde_json::Value| {
+                    println!("Debug 1");
                     let event: InventorySettingRequest = serde_json::from_value(json_event.clone())
                         .expect("Invalid json for SetupInventory");
 
-                    let success = Self::SetupInventory(event.slot_count, event.inventory_count);
+                    let success = Self::setup_inventory(event.slot_count, event.inventory_count);
 
                     if success {
                         println!(

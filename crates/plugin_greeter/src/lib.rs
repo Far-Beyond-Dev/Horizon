@@ -153,11 +153,11 @@ impl SimplePlugin for GreeterPlugin {
 
         events
             .emit_plugin(
-                "InventorySystem,",
+                "InventorySystem",
                 "SetupInventory",
                 &serde_json::json!({
                     "slot_count": 8,
-                    "inventory_count": 1
+                    "inventory_count": 2 
                 }),
             )
             .await
