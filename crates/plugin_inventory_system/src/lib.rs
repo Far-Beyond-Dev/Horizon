@@ -1,37 +1,5 @@
-use async_trait::async_trait;
-use event_system::{
-    create_simple_plugin, current_timestamp, EventSystem, LogLevel, PlayerId, PluginError,
-    ServerContext, SimplePlugin,
-};
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    vec::Vec,
-};
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-struct InventorySlot {
-    item: u64,
-    stack: u32,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-struct PickupItemRequest {
-    id: PlayerId,
-    item_count: u32,
-    item_id: u32,
-}
-
-struct Player {
-    id: PlayerId,
-    item_count: u32,
-    inventory: HashMap<u64, InventorySlot>,
-}
-
-struct InventorySystem {
-    players: Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
-    player_count: Arc<Mutex<Option<u32>>>,
-}
+mod types;
+use types::*;
 
 impl InventorySystem {
     fn new() -> Self {
@@ -93,6 +61,24 @@ impl InventorySystem {
         player.item_count += amount;
         true
     }
+
+    fn SetupInventory(slot_count: Option<u32>, inventory_count: Option<u8>) -> bool {
+        let inventory_settings = InventorySettingRequest {
+            slot_count,
+            inventory_count,
+        };
+
+        match serde_json::to_string(&inventory_settings) {
+            Ok(json_string) => {
+                println!("Inventory settings: {}", json_string);
+                true
+            }
+            Err(e) => {
+                println!("Failed to serialize inventory settings: {}", e);
+                false
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -145,7 +131,8 @@ impl SimplePlugin for InventorySystem {
                 "InventorySystem",
                 "PickupItem",
                 move |json_event: serde_json::Value| {
-                    let event: PickupItemRequest = serde_json::from_value(json_event.clone()).expect("Invalid json for PickupItem");
+                    let event: PickupItemRequest = serde_json::from_value(json_event.clone())
+                        .expect("Invalid json for PickupItem");
                     // Process the pickup request
                     let success = Self::add_item_to_player(
                         &players,
@@ -176,6 +163,33 @@ impl SimplePlugin for InventorySystem {
                             "❌ Failed to add item {} to player {:?}",
                             event.item_id, event.id
                         );
+                    }
+
+                    println!("InventorySystem: Message received: {:?}", event);
+
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
+
+        events
+            .on_plugin(
+                "InventorySystem",
+                "SetupInventory",
+                |json_event: serde_json::Value| {
+                    let event: InventorySettingRequest = serde_json::from_value(json_event.clone())
+                        .expect("Invalid json for SetupInventory");
+
+                    let success = Self::SetupInventory(event.slot_count, event.inventory_count);
+
+                    if success {
+                        println!(
+                            "🎒 Inventory setup complete: {:?} slots, {:?} inventories",
+                            event.slot_count, event.inventory_count
+                        );
+                    } else {
+                        println!("❌ Failed to setup inventory");
                     }
 
                     println!("InventorySystem: Message received: {:?}", event);

@@ -149,6 +149,20 @@ impl SimplePlugin for GreeterPlugin {
             .await
             .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
+        println!("Setting up inventory!");
+
+        events
+            .emit_plugin(
+                "InventorySystem,",
+                "SetupInventory",
+                &serde_json::json!({
+                    "slot_count": 8,
+                    "inventory_count": 1
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
         println!("👋 GreeterPlugin: ✅ Initialization complete!");
         Ok(())
     }
