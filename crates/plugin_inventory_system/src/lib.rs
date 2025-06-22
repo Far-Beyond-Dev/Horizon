@@ -1,208 +1,151 @@
 mod types;
+mod handlers;
+
 use types::*;
+use handlers::*;
 
 impl InventorySystem {
-    fn new() -> Self {
+    pub fn new() -> Self {
+        println!("📝 InventoryPlugin: Initializing inventory management system...");
         Self {
-            players: Arc::new(Mutex::new(None)),
-            player_count: Arc::new(Mutex::new(None)),
-        }
-    }
-
-    fn ensure_players_initialized(
-        players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
-        player_count: &Arc<Mutex<Option<u32>>>,
-    ) {
-        let mut players_guard = players.lock().unwrap();
-        if players_guard.is_none() {
-            *players_guard = Some(HashMap::new());
-            *player_count.lock().unwrap() = Some(0);
-        }
-    }
-
-    fn add_item_to_player(
-        players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
-        player_count: &Arc<Mutex<Option<u32>>>,
-        player_id: PlayerId,
-        item_id: u64,
-        amount: u32,
-    ) -> bool {
-        Self::ensure_players_initialized(players, player_count);
-
-        let mut players_guard = players.lock().unwrap();
-        let players_map = players_guard.as_mut().unwrap();
-
-        // Get or create player
-        let player = players_map.entry(player_id).or_insert_with(|| {
-            let mut count_guard = player_count.lock().unwrap();
-            *count_guard = Some(count_guard.unwrap_or(0) + 1);
-            Player {
-                id: player_id,
-                item_count: 0,
-                inventory: HashMap::new(),
-            }
-        });
-
-        // Check if player already has this item
-        if let Some(existing_slot) = player.inventory.get_mut(&item_id) {
-            // Stack with existing item
-            existing_slot.stack += amount;
-        } else {
-            // Create new inventory slot
-            player.inventory.insert(
-                item_id,
-                InventorySlot {
-                    item: item_id,
-                    stack: amount,
-                },
-            );
-        }
-
-        player.item_count += amount;
-        true
-    }
-
-    fn setup_inventory(slot_count: Option<u32>, inventory_count: Option<u8>) -> bool {
-        let inventory_settings = InventorySettingRequest {
-            slot_count,
-            inventory_count,
-        };
-
-        match serde_json::to_string(&inventory_settings) {
-            Ok(json_string) => {
-                println!("Inventory settings: {}", json_string);
-                true
-            }
-            Err(e) => {
-                println!("Failed to serialize inventory settings: {}", e);
-                false
-            }
+            players: Default::default(),
+            player_count: Default::default(),
         }
     }
 }
 
 #[async_trait]
 impl SimplePlugin for InventorySystem {
-    #[doc = " Plugin name"]
     fn name(&self) -> &str {
         "InventoryPlugin"
     }
 
-    #[doc = " Plugin version"]
     fn version(&self) -> &str {
-        "0.0.1"
+        "0.1.0"
     }
 
     async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        context.log(
-            LogLevel::Info,
-            "📝 InventoryPlugin: Comprehensive event logging activated!",
-        );
+        context.log(LogLevel::Info, "📝 InventoryPlugin: Comprehensive inventory management activated!");
 
-        // Announce our logging service to other plugins
         let events = context.events();
         events
             .emit_plugin(
                 "InventorySystem",
                 "service_started",
                 &serde_json::json!({
-                    "service": "event_logging",
+                    "service": "inventory_management",
                     "version": self.version(),
                     "start_time": current_timestamp(),
-                    "message": "InventoryPlugin is Feining RN"
+                    "features": ["item_pickup", "item_removal", "inventory_query", "item_transfer", "inventory_clear", "item_consumption"],
+                    "message": "InventoryPlugin is now managing all inventory operations"
                 }),
             )
             .await
             .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
-        println!("📝 InventoryPlugin: ✅ Monitoring Inventory");
+        println!("📝 InventoryPlugin: ✅ Advanced Inventory Management Active");
         Ok(())
     }
 
     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
-        println!("📝 InventorySystem: Registering comprehensive event logging...");
+        println!("📝 InventorySystem: Registering comprehensive inventory event handlers...");
 
-        // Clone the Arc references to move into the closure
         let players = self.players.clone();
         let player_count = self.player_count.clone();
 
-        events
-            .on_plugin(
-                "InventorySystem",
-                "PickupItem",
-                move |json_event: serde_json::Value| {
-                    let event: PickupItemRequest = serde_json::from_value(json_event.clone())
-                        .expect("Invalid json for PickupItem");
-                    // Process the pickup request
-                    let success = Self::add_item_to_player(
-                        &players,
-                        &player_count,
-                        event.id,
-                        event.item_id as u64,
-                        event.item_count,
-                    );
+        // PickupItem handler
+        {
+            let players = players.clone();
+            let player_count = player_count.clone();
+            let events_for_emit = events.clone();
+            
+            events.on_plugin("InventorySystem", "PickupItem", move |json_event: serde_json::Value| {
+                let event: PickupItemRequest = serde_json::from_value(json_event)?;
+                pickup_item_handler(&players, &player_count, &events_for_emit, event);
+                Ok(())
+            }).await.unwrap();
+        }
 
-                    if success {
-                        println!(
-                            "📦 Player {:?} picked up {} of item {}",
-                            event.id, event.item_count, event.item_id
-                        );
+        // DropItem handler
+        {
+            let players = players.clone();
+            let events_for_emit = events.clone();
+            
+            events.on_plugin("InventorySystem", "DropItem", move |json_event: serde_json::Value| {
+                let event: DropItemRequest = serde_json::from_value(json_event)?;
+                drop_item_handler(&players, &events_for_emit, event);
+                Ok(())
+            }).await.unwrap();
+        }
 
-                        // Get player info for logging
-                        let players_guard = players.lock().unwrap();
-                        if let Some(ref players_map) = *players_guard {
-                            if let Some(player) = players_map.get(&event.id) {
-                                println!(
-                                    "📊 Player {:?} now has {} total items in inventory",
-                                    event.id, player.item_count
-                                );
-                            }
-                        }
-                    } else {
-                        println!(
-                            "❌ Failed to add item {} to player {:?}",
-                            event.item_id, event.id
-                        );
-                    }
+        // GetInventory handler
+        {
+            let players = players.clone();
+            let events_for_emit = events.clone();
+            
+            events.on_plugin("InventorySystem", "GetInventory", move |json_event: serde_json::Value| {
+                let event: GetInventoryRequest = serde_json::from_value(json_event)?;
+                get_inventory_handler(&players, &events_for_emit, event);
+                Ok(())
+            }).await.unwrap();
+        }
 
-                    println!("InventorySystem: Message received: {:?}", event);
+        // CheckItem handler
+        {
+            let players = players.clone();
+            let events_for_emit = events.clone();
+            
+            events.on_plugin("InventorySystem", "CheckItem", move |json_event: serde_json::Value| {
+                let event: CheckItemRequest = serde_json::from_value(json_event)?;
+                check_item_handler(&players, &events_for_emit, event);
+                Ok(())
+            }).await.unwrap();
+        }
 
-                    Ok(())
-                },
-            )
-            .await
-            .unwrap();
+        // TransferItem handler
+        {
+            let players = players.clone();
+            let events_for_emit = events.clone();
+            
+            events.on_plugin("InventorySystem", "TransferItem", move |json_event: serde_json::Value| {
+                let event: TransferItemRequest = serde_json::from_value(json_event)?;
+                transfer_item_handler(&players, &events_for_emit, event);
+                Ok(())
+            }).await.unwrap();
+        }
 
-        events
-            .on_plugin(
-                "InventorySystem",
-                "SetupInventory",
-                |json_event: serde_json::Value| {
-                    println!("Debug 1");
-                    let event: InventorySettingRequest = serde_json::from_value(json_event.clone())
-                        .expect("Invalid json for SetupInventory");
+        // ConsumeItem handler
+        {
+            let players = players.clone();
+            let events_for_emit = events.clone();
+            
+            events.on_plugin("InventorySystem", "ConsumeItem", move |json_event: serde_json::Value| {
+                let event: ConsumeItemRequest = serde_json::from_value(json_event)?;
+                consume_item_handler(&players, &events_for_emit, event);
+                Ok(())
+            }).await.unwrap();
+        }
 
-                    let success = Self::setup_inventory(event.slot_count, event.inventory_count);
+        // ClearInventory handler
+        {
+            let players = players.clone();
+            let events_for_emit = events.clone();
+            
+            events.on_plugin("InventorySystem", "ClearInventory", move |json_event: serde_json::Value| {
+                let event: ClearInventoryRequest = serde_json::from_value(json_event)?;
+                clear_inventory_handler(&players, &events_for_emit, event);
+                Ok(())
+            }).await.unwrap();
+        }
 
-                    if success {
-                        println!(
-                            "🎒 Inventory setup complete: {:?} slots, {:?} inventories",
-                            event.slot_count, event.inventory_count
-                        );
-                    } else {
-                        println!("❌ Failed to setup inventory");
-                    }
+        // SetupInventory handler
+        events.on_plugin("InventorySystem", "SetupInventory", |json_event: serde_json::Value| {
+            let event: InventorySettingRequest = serde_json::from_value(json_event)?;
+            setup_inventory_handler(event);
+            Ok(())
+        }).await.unwrap();
 
-                    println!("InventorySystem: Message received: {:?}", event);
-
-                    Ok(())
-                },
-            )
-            .await
-            .unwrap();
-
-        println!("InventorySystem: All events registered!");
-
+        println!("InventorySystem: All inventory event handlers registered! 🎮");
         Ok(())
     }
 }

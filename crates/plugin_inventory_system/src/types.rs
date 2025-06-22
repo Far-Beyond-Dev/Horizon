@@ -9,7 +9,7 @@ pub use std::{
     vec::Vec,
 };
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct InventorySlot {
     pub item: u64,
     pub stack: u32,
@@ -20,6 +20,45 @@ pub struct PickupItemRequest {
     pub id: PlayerId,
     pub item_count: u32,
     pub item_id: u32,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct DropItemRequest {
+    pub id: PlayerId,
+    pub item_count: u32,
+    pub item_id: u32,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct GetInventoryRequest {
+    pub id: PlayerId,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct CheckItemRequest {
+    pub id: PlayerId,
+    pub item_id: u32,
+    pub required_amount: u32,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct TransferItemRequest {
+    pub from_player: PlayerId,
+    pub to_player: PlayerId,
+    pub item_id: u32,
+    pub amount: u32,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct ConsumeItemRequest {
+    pub id: PlayerId,
+    pub item_id: u32,
+    pub amount: u32,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct ClearInventoryRequest {
+    pub id: PlayerId,
 }
 
 pub struct Player {
