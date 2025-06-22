@@ -118,7 +118,7 @@ impl SimplePlugin for LoggerPlugin {
 
         // Inter-plugin communication
         events
-            .on_plugin("greeter", "startup", |event: serde_json::Value| {
+            .on_plugin("mygreeter", "startup", |event: serde_json::Value| {
                 println!(
                     "📝 LoggerPlugin: 🤝 PLUGIN EVENT - Greeter started: {:?}",
                     event
@@ -147,6 +147,18 @@ impl SimplePlugin for LoggerPlugin {
             })
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events
+            .on_plugin(
+                "InventorySystem",
+                "service_started",
+                |event: serde_json::Value| {
+                    println!("Plugin event received: {:?}", event);
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
 
         println!("📝 LoggerPlugin: ✅ Event logging system activated!");
         Ok(())
@@ -382,6 +394,18 @@ mod tests {
                 println!("✅ Plugin event received: {:?}", event);
                 Ok(())
             })
+            .await
+            .unwrap();
+
+        events
+            .on_plugin(
+                "InventorySystem",
+                "service_started",
+                |event: serde_json::Value| {
+                    println!("Plugin event received: {:?}", event);
+                    Ok(())
+                },
+            )
             .await
             .unwrap();
 

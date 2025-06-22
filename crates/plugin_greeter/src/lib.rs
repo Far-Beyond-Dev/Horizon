@@ -122,13 +122,28 @@ impl SimplePlugin for GreeterPlugin {
         let events = context.events();
         events
             .emit_plugin(
-                "greeter",
+                "mygreeter",
                 "startup",
                 &serde_json::json!({
                     "plugin": "greeter",
                     "version": self.version(),
                     "message": "Greeter plugin is now online!",
                     "timestamp": current_timestamp()
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
+        println!("Sending inventory a message!");
+
+        events
+            .emit_plugin(
+                "InventorySystem",
+                "PickupItem",
+                &serde_json::json!({
+                    "id": "701d617f-3e4f-41b4-b4c6-c1b53709fc63",
+                    "item_count": 5,
+                    "item_id": 42
                 }),
             )
             .await

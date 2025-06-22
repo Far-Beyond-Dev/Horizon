@@ -8,6 +8,7 @@ members = [
     # Plugins
     "crates/plugin_greeter",
     "crates/plugin_logger",
+    "crates/plugin_inventory_system",
 ]
 
 [workspace.dependencies]

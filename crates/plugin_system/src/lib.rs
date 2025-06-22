@@ -95,7 +95,10 @@ impl PluginManager {
     }
 
     /// Load a plugin instance from disk but don't initialize it
-    async fn load_plugin_instance(&self, plugin_path: impl AsRef<Path>) -> Result<PartiallyLoadedPlugin, PluginError> {
+    async fn load_plugin_instance(
+        &self,
+        plugin_path: impl AsRef<Path>,
+    ) -> Result<PartiallyLoadedPlugin, PluginError> {
         let plugin_path = plugin_path.as_ref();
 
         debug!("Loading plugin instance from: {}", plugin_path.display());
@@ -141,7 +144,10 @@ impl PluginManager {
             }
         }
 
-        debug!("Created plugin instance: {} v{}", plugin_name, plugin_version);
+        debug!(
+            "Created plugin instance: {} v{}",
+            plugin_name, plugin_version
+        );
 
         // Create metadata
         let metadata = PluginMetadata {
@@ -165,7 +171,7 @@ impl PluginManager {
     }
 
     /// Load a single plugin with immediate initialization
-    /// 
+    ///
     /// WARNING: When loading multiple plugins, use load_all_plugins() instead
     /// to ensure proper two-phase initialization where all plugins register
     /// their handlers before any plugin's init() method is called.
@@ -189,12 +195,16 @@ impl PluginManager {
             }
         }
 
-        info!("Created plugin: {} v{}", partial.name, partial.metadata.version);
+        info!(
+            "Created plugin: {} v{}",
+            partial.name, partial.metadata.version
+        );
 
         // Pre-initialization with handler counting
         let handler_count_before = self.get_total_handlers().await;
 
-        partial.plugin
+        partial
+            .plugin
             .pre_init(self.server_context.clone())
             .await
             .map_err(|e| {
@@ -211,7 +221,8 @@ impl PluginManager {
         );
 
         // Initialize the plugin
-        partial.plugin
+        partial
+            .plugin
             .init(self.server_context.clone())
             .await
             .map_err(|e| {
@@ -240,7 +251,10 @@ impl PluginManager {
             stats.total_handlers_registered += handlers_registered as u64;
         }
 
-        info!("Plugin {} loaded and initialized successfully", partial.name);
+        info!(
+            "Plugin {} loaded and initialized successfully",
+            partial.name
+        );
 
         // Emit plugin loaded event
         self.event_system
@@ -317,7 +331,10 @@ impl PluginManager {
         let mut partially_loaded = Vec::new();
         let mut failed_plugins = Vec::new();
 
-        info!("Starting two-phase plugin loading for {} discovered plugins", discoveries.len());
+        info!(
+            "Starting two-phase plugin loading for {} discovered plugins",
+            discoveries.len()
+        );
 
         // Phase 1: Load libraries and create plugin instances
         info!("Phase 1: Loading plugin libraries and creating instances");
@@ -336,7 +353,10 @@ impl PluginManager {
             }
         }
 
-        info!("Phase 1 complete: {} plugin instances loaded", partially_loaded.len());
+        info!(
+            "Phase 1 complete: {} plugin instances loaded",
+            partially_loaded.len()
+        );
 
         // Phase 2: Call pre_init on all plugins (register all handlers)
         info!("Phase 2: Registering event handlers for all plugins");
@@ -345,13 +365,13 @@ impl PluginManager {
 
         for partial in &mut partially_loaded {
             let handler_count_before = self.get_total_handlers().await;
-            
+
             match partial.plugin.pre_init(self.server_context.clone()).await {
                 Ok(()) => {
                     let handler_count_after = self.get_total_handlers().await;
                     let handlers_registered = handler_count_after - handler_count_before;
                     handler_counts.push(handlers_registered);
-                    
+
                     info!(
                         "Plugin {} pre-initialized successfully, registered {} handlers",
                         partial.name, handlers_registered
@@ -369,18 +389,23 @@ impl PluginManager {
         partially_loaded.retain(|p| !pre_init_failed.iter().any(|(name, _)| name == &p.name));
         failed_plugins.extend(pre_init_failed);
 
-        info!("Phase 2 complete: {} plugins pre-initialized", partially_loaded.len());
+        info!(
+            "Phase 2 complete: {} plugins pre-initialized",
+            partially_loaded.len()
+        );
 
         // Phase 3: Call init on all successfully pre-initialized plugins
         info!("Phase 3: Initializing all plugins");
         let mut loaded_plugins = Vec::new();
         let mut init_failed = Vec::new();
 
-        for (mut partial, handler_count) in partially_loaded.into_iter().zip(handler_counts.into_iter()) {
+        for (mut partial, handler_count) in
+            partially_loaded.into_iter().zip(handler_counts.into_iter())
+        {
             match partial.plugin.init(self.server_context.clone()).await {
                 Ok(()) => {
                     info!("Plugin {} initialized successfully", partial.name);
-                    
+
                     // Store the fully loaded plugin
                     let loaded_plugin = LoadedPlugin {
                         plugin: partial.plugin,
@@ -439,7 +464,7 @@ impl PluginManager {
             loaded_plugins.len(),
             self.plugin_directory.display()
         );
-        
+
         Ok(loaded_plugins)
     }
 
@@ -954,10 +979,10 @@ mod tests {
 
         // Test the two-phase loading process
         let loaded_plugins = plugin_manager.load_all_plugins().await.unwrap();
-        
+
         // Should return empty list since no actual plugin files exist in test environment
         assert!(loaded_plugins.len() >= 0);
-        
+
         let stats = plugin_manager.get_plugin_stats().await;
         assert_eq!(stats.total_plugins, loaded_plugins.len());
     }
