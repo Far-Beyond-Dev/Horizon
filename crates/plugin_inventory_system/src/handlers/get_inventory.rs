@@ -8,7 +8,11 @@ pub fn get_inventory_handler(
     let inventory = get_player_inventory(players, event.id);
 
     if let Some(inv) = inventory {
-        println!("📋 Retrieved inventory for player {:?}: {} unique items", event.id, inv.len());
+        println!(
+            "📋 Retrieved inventory for player {:?}: {} unique items",
+            event.id,
+            inv.len()
+        );
 
         // Emit inventory data
         let _ = events.emit_plugin(

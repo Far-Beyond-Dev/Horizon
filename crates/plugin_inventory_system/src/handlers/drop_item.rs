@@ -5,12 +5,8 @@ pub fn drop_item_handler(
     events: &Arc<EventSystem>,
     event: DropItemRequest,
 ) {
-    let success = remove_item_from_player(
-        players,
-        event.id,
-        event.item_id as u64,
-        event.item_count,
-    );
+    let success =
+        remove_item_from_player(players, event.id, event.item_id as u64, event.item_count);
 
     if success {
         println!(
@@ -50,7 +46,7 @@ fn remove_item_from_player(
                 if slot.stack >= amount {
                     slot.stack -= amount;
                     player.item_count -= amount;
-                    
+
                     // Remove slot if empty
                     if slot.stack == 0 {
                         player.inventory.remove(&item_id);

@@ -1,8 +1,8 @@
-mod types;
 mod handlers;
+mod types;
 
-use types::*;
 use handlers::*;
+use types::*;
 
 impl InventorySystem {
     pub fn new() -> Self {
@@ -25,7 +25,10 @@ impl SimplePlugin for InventorySystem {
     }
 
     async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        context.log(LogLevel::Info, "📝 InventoryPlugin: Comprehensive inventory management activated!");
+        context.log(
+            LogLevel::Info,
+            "📝 InventoryPlugin: Comprehensive inventory management activated!",
+        );
 
         let events = context.events();
         events
@@ -58,92 +61,164 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let player_count = player_count.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "PickupItem", move |json_event: serde_json::Value| {
-                let event: PickupItemRequest = serde_json::from_value(json_event)?;
-                pickup_item_handler(&players, &player_count, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "PickupItem",
+                    move |json_event: serde_json::Value| {
+                        let event: PickupItemRequest = serde_json::from_value(json_event)?;
+                        pickup_item_handler(&players, &player_count, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // DropItem handler
         {
             let players = players.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "DropItem", move |json_event: serde_json::Value| {
-                let event: DropItemRequest = serde_json::from_value(json_event)?;
-                drop_item_handler(&players, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "DropItem",
+                    move |json_event: serde_json::Value| {
+                        let event: DropItemRequest = serde_json::from_value(json_event)?;
+                        drop_item_handler(&players, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // GetInventory handler
         {
             let players = players.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "GetInventory", move |json_event: serde_json::Value| {
-                let event: GetInventoryRequest = serde_json::from_value(json_event)?;
-                get_inventory_handler(&players, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "GetInventory",
+                    move |json_event: serde_json::Value| {
+                        let event: GetInventoryRequest = serde_json::from_value(json_event)?;
+                        get_inventory_handler(&players, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // CheckItem handler
         {
             let players = players.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "CheckItem", move |json_event: serde_json::Value| {
-                let event: CheckItemRequest = serde_json::from_value(json_event)?;
-                check_item_handler(&players, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "CheckItem",
+                    move |json_event: serde_json::Value| {
+                        let event: CheckItemRequest = serde_json::from_value(json_event)?;
+                        check_item_handler(&players, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // TransferItem handler
         {
             let players = players.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "TransferItem", move |json_event: serde_json::Value| {
-                let event: TransferItemRequest = serde_json::from_value(json_event)?;
-                transfer_item_handler(&players, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "TransferItem",
+                    move |json_event: serde_json::Value| {
+                        let event: TransferItemRequest = serde_json::from_value(json_event)?;
+                        transfer_item_handler(&players, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // ConsumeItem handler
         {
             let players = players.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "ConsumeItem", move |json_event: serde_json::Value| {
-                let event: ConsumeItemRequest = serde_json::from_value(json_event)?;
-                consume_item_handler(&players, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "ConsumeItem",
+                    move |json_event: serde_json::Value| {
+                        let event: ConsumeItemRequest = serde_json::from_value(json_event)?;
+                        consume_item_handler(&players, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // ClearInventory handler
         {
             let players = players.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "ClearInventory", move |json_event: serde_json::Value| {
-                let event: ClearInventoryRequest = serde_json::from_value(json_event)?;
-                clear_inventory_handler(&players, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "ClearInventory",
+                    move |json_event: serde_json::Value| {
+                        let event: ClearInventoryRequest = serde_json::from_value(json_event)?;
+                        clear_inventory_handler(&players, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // SetupInventory handler
-        events.on_plugin("InventorySystem", "SetupInventory", |json_event: serde_json::Value| {
-            let event: InventorySettingRequest = serde_json::from_value(json_event)?;
-            setup_inventory_handler(event);
-            Ok(())
-        }).await.unwrap();
+        events
+            .on_plugin(
+                "InventorySystem",
+                "SetupInventory",
+                |json_event: serde_json::Value| {
+                    let event: InventorySettingRequest = serde_json::from_value(json_event)?;
+                    setup_inventory_handler(event);
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
+
+        let players = players.clone();
+        let events_for_emit = events.clone();
+
+        events
+            .on_plugin(
+                "InventorySystem",
+                "MoveItem",
+                move |json_event: serde_json::Value| {
+                    let event: MoveItemRequest = serde_json::from_value(json_event)?;
+                    move_item_handler(&players, &events_for_emit, event);
+                    Ok(())
+                },
+            )
+            .await
+            .unwrap();
 
         println!("InventorySystem: All inventory event handlers registered! 🎮");
         Ok(())

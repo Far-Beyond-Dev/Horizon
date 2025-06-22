@@ -69,7 +69,7 @@ fn remove_item_from_player(
                 if slot.stack >= amount {
                     slot.stack -= amount;
                     player.item_count -= amount;
-                    
+
                     // Remove slot if empty
                     if slot.stack == 0 {
                         player.inventory.remove(&item_id);

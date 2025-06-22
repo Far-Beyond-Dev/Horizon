@@ -57,6 +57,13 @@ pub struct ConsumeItemRequest {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+pub struct MoveItemRequest {
+    pub player_id: PlayerId,
+    pub original_slot: u8,
+    pub new_slot: u8,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct ClearInventoryRequest {
     pub id: PlayerId,
 }

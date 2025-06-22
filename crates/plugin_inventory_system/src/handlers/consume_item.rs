@@ -5,12 +5,7 @@ pub fn consume_item_handler(
     events: &Arc<EventSystem>,
     event: ConsumeItemRequest,
 ) {
-    let success = remove_item_from_player(
-        players,
-        event.id,
-        event.item_id as u64,
-        event.amount,
-    );
+    let success = remove_item_from_player(players, event.id, event.item_id as u64, event.amount);
 
     if success {
         println!(
@@ -50,7 +45,7 @@ fn remove_item_from_player(
                 if slot.stack >= amount {
                     slot.stack -= amount;
                     player.item_count -= amount;
-                    
+
                     // Remove slot if empty
                     if slot.stack == 0 {
                         player.inventory.remove(&item_id);

@@ -157,7 +157,7 @@ impl SimplePlugin for GreeterPlugin {
                 "SetupInventory",
                 &serde_json::json!({
                     "slot_count": 8,
-                    "inventory_count": 2 
+                    "inventory_count": 2
                 }),
             )
             .await

@@ -487,9 +487,9 @@ fn display_banner() {
     info!("║                                          ║");
     info!("║  🎯 Type-Safe Events                     ║");
     info!("║  🔌 Zero-Unsafe Plugins                  ║");
-    info!("║  🛡️  Memory Safe Architecture           ║");
-    info!("║  ⚡ High Performance Core               ║");
-    info!("║  🌐 WebSocket + TCP Support             ║");
+    info!("║  🛡️  Memory Safe Architecture            ║");
+    info!("║  ⚡ High Performance Core                ║");
+    info!("║  🌐 WebSocket + TCP Support              ║");
     info!("║                                          ║");
     info!("╚══════════════════════════════════════════╝");
 }
