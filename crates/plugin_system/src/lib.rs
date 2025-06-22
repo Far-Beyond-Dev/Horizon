@@ -150,18 +150,7 @@ impl PluginManager {
             plugin_name, handlers_registered
         );
 
-        // Initialize the plugin
-        plugin
-            .init(self.server_context.clone())
-            .await
-            .map_err(|e| {
-                error!("Plugin {} initialization failed: {}", plugin_name, e);
-                e
-            })?;
-
-        info!("Plugin {} initialized successfully", plugin_name);
-
-        // Store the loaded plugin with metadata
+        // Store the loaded plugin with metadata but not initialized yet
         let metadata = PluginMetadata {
             name: plugin_name.clone(),
             version: plugin_version,
@@ -192,23 +181,7 @@ impl PluginManager {
             stats.total_handlers_registered += handlers_registered as u64;
         }
 
-        info!("Plugin {} loaded and initialized successfully", plugin_name);
-
-        // Emit plugin loaded event using new API
-        self.event_system
-            .emit_core(
-                "plugin_loaded",
-                &PluginLoadedEvent {
-                    plugin_name: plugin_name.clone(),
-                    capabilities: vec!["type_safe_events".to_string()],
-                    timestamp: current_timestamp(),
-                },
-            )
-            .await
-            .map_err(|e| {
-                warn!("Failed to emit plugin loaded event: {}", e);
-            })
-            .ok();
+        info!("Plugin {} pre-initialization complete", plugin_name);
 
         Ok(())
     }
@@ -263,22 +236,69 @@ impl PluginManager {
         Ok(discoveries)
     }
 
-    /// Load all plugins with enhanced reporting
+    /// Load all plugins: phase 1 pre-init (register handlers), phase 2 init (call init for all plugins)
     pub async fn load_all_plugins(&self) -> Result<Vec<String>, PluginError> {
         let discoveries = self.discover_plugins().await?;
         let mut loaded_plugins = Vec::new();
         let mut failed_plugins = Vec::new();
 
-        for discovery in discoveries {
+        // ---- Phase 1: load and pre_init (register handlers only) ----
+        for discovery in &discoveries {
             if !discovery.is_loaded {
                 match self.load_plugin(&discovery.path).await {
                     Ok(()) => {
                         loaded_plugins.push(discovery.name.clone());
-                        info!("Successfully loaded plugin: {}", discovery.name);
+                        info!("Successfully pre-initialized plugin: {}", discovery.name);
                     }
                     Err(e) => {
-                        error!("Failed to load plugin {}: {}", discovery.name, e);
-                        failed_plugins.push((discovery.name, e));
+                        error!("Failed to pre-initialize plugin {}: {}", discovery.name, e);
+                        failed_plugins.push((discovery.name.clone(), e));
+                    }
+                }
+            }
+        }
+
+        // ---- Phase 2: call init for all loaded plugins ----
+        let mut plugins_for_init = Vec::new();
+        {
+            let plugins = self.plugins.read().await;
+            for (name, loaded_plugin) in plugins.iter() {
+                if loaded_plugins.contains(name) {
+                    plugins_for_init.push(name.clone());
+                }
+            }
+        }
+        for name in plugins_for_init {
+            let mut plugin_opt = {
+                let mut plugins = self.plugins.write().await;
+                plugins.get_mut(&name).map(|p| &mut p.plugin as *mut Box<dyn Plugin>)
+            };
+            if let Some(plugin_ptr) = plugin_opt {
+                // SAFETY: We ensure the lock is held for the duration of this block,
+                // and we do not move or drop the plugin while using the pointer.
+                let plugin = unsafe { &mut **plugin_ptr };
+                match plugin.init(self.server_context.clone()).await {
+                    Ok(()) => {
+                        info!("Plugin {} initialized successfully", name);
+                        // Emit plugin loaded event using new API
+                        let _ = self
+                            .event_system
+                            .emit_core(
+                                "plugin_loaded",
+                                &PluginLoadedEvent {
+                                    plugin_name: name.clone(),
+                                    capabilities: vec!["type_safe_events".to_string()],
+                                    timestamp: current_timestamp(),
+                                },
+                            )
+                            .await
+                            .map_err(|e| {
+                                warn!("Failed to emit plugin loaded event: {}", e);
+                            });
+                    }
+                    Err(e) => {
+                        error!("Failed to initialize plugin {}: {}", name, e);
+                        failed_plugins.push((name.clone(), e));
                     }
                 }
             }
