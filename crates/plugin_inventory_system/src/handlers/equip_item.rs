@@ -11,6 +11,7 @@ pub fn equip_item_handler(
         players,
         item_definitions,
         event.id,
+        &event.item_instance_id,
         &event.equipment_slot,
         event.from_inventory,
     );
