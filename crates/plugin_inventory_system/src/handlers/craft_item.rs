@@ -1,6 +1,6 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
 use crate::handlers::item_management::*;
+use crate::types::*;
 
 pub fn craft_item_handler(
     players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
@@ -115,7 +115,9 @@ fn execute_crafting(
     // Get recipe
     let recipe = {
         let recipes_guard = crafting_recipes.lock().unwrap();
-        recipes_guard.get(recipe_id).cloned()
+        recipes_guard
+            .get(recipe_id)
+            .cloned()
             .ok_or_else(|| InventoryError::RecipeNotFound(recipe_id.to_string()))?
     };
 
@@ -164,23 +166,29 @@ fn validate_crafting_requirements(
     use_inventory: Option<String>,
 ) -> Result<(), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = use_inventory.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     // Check required items
     for required_item in &recipe.required_items {
         if required_item.consumed {
             let needed_amount = required_item.quantity * quantity;
             let available_amount = count_item_in_inventory(inventory, required_item.item_id);
-            
+
             if available_amount < needed_amount {
                 return Err(InventoryError::InsufficientItems {
                     needed: needed_amount,
@@ -201,15 +209,20 @@ fn validate_crafting_requirements(
         });
 
         if !has_tool {
-            return Err(InventoryError::Custom(format!("Required tool {} not found", tool_id)));
+            return Err(InventoryError::Custom(format!(
+                "Required tool {} not found",
+                tool_id
+            )));
         }
     }
 
     // Check if there's space for output items
-    let empty_slots = inventory.slots.values()
+    let empty_slots = inventory
+        .slots
+        .values()
         .filter(|slot| slot.item.is_none() && !slot.locked)
         .count();
-    
+
     let needed_slots = recipe.output_items.len() * quantity as usize;
     if empty_slots < needed_slots {
         return Err(InventoryError::InventoryFull);
@@ -230,7 +243,7 @@ fn validate_skill_requirements(
             skill_name, required_level
         );
     }
-    
+
     Ok(())
 }
 
@@ -247,7 +260,7 @@ fn consume_crafting_materials(
     for required_item in &recipe.required_items {
         if required_item.consumed {
             let amount_to_consume = required_item.quantity * quantity;
-            
+
             let removed_items = remove_item_by_id_from_player(
                 players,
                 item_definitions,
@@ -256,7 +269,7 @@ fn consume_crafting_materials(
                 amount_to_consume,
                 use_inventory.clone(),
             )?;
-            
+
             consumed_items.extend(removed_items);
         }
     }
@@ -279,7 +292,7 @@ fn create_crafted_items(
 
     for output_item in &recipe.output_items {
         let total_amount = output_item.quantity * quantity;
-        
+
         // Create item instances
         let item_instance = create_item_instance(
             item_definitions,
@@ -304,7 +317,9 @@ fn create_crafted_items(
 }
 
 fn count_item_in_inventory(inventory: &Inventory, item_id: u64) -> u32 {
-    inventory.slots.values()
+    inventory
+        .slots
+        .values()
         .filter_map(|slot| {
             if let Some(ref item) = slot.item {
                 if item.definition_id == item_id {
@@ -328,20 +343,28 @@ fn remove_item_by_id_from_player(
     use_inventory: Option<String>,
 ) -> Result<Vec<ItemInstance>, InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = use_inventory.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     let item_def = {
         let defs_guard = item_definitions.lock().unwrap();
-        defs_guard.get(&item_id).cloned()
+        defs_guard
+            .get(&item_id)
+            .cloned()
             .ok_or(InventoryError::ItemNotFound(item_id))?
     };
 
@@ -349,7 +372,9 @@ fn remove_item_by_id_from_player(
     let mut remaining_to_remove = amount;
 
     // Find slots with this item
-    let mut slots_to_process: Vec<_> = inventory.slots.iter()
+    let mut slots_to_process: Vec<_> = inventory
+        .slots
+        .iter()
         .filter_map(|(slot_id, slot)| {
             if let Some(ref item) = slot.item {
                 if item.definition_id == item_id {
@@ -371,12 +396,14 @@ fn remove_item_by_id_from_player(
     });
 
     for slot_id in slots_to_process {
-        if remaining_to_remove == 0 { break; }
+        if remaining_to_remove == 0 {
+            break;
+        }
 
         if let Some(slot) = inventory.slots.get_mut(&slot_id) {
             if let Some(ref mut item_instance) = slot.item {
                 let remove_amount = std::cmp::min(remaining_to_remove, item_instance.stack);
-                
+
                 if remove_amount == item_instance.stack {
                     // Remove entire stack
                     let removed_item = slot.item.take().unwrap();
@@ -386,7 +413,7 @@ fn remove_item_by_id_from_player(
                     // Partial removal
                     item_instance.stack -= remove_amount;
                     inventory.current_weight -= item_def.weight * remove_amount as f32;
-                    
+
                     let mut partial_item = item_instance.clone();
                     partial_item.stack = remove_amount;
                     partial_item.instance_id = uuid::Uuid::new_v4().to_string();
@@ -418,16 +445,22 @@ fn apply_tool_durability_loss(
     use_inventory: Option<String>,
 ) -> Result<(), InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = use_inventory.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     // Apply durability loss to tools
     for tool_id in &recipe.required_tools {
@@ -437,7 +470,7 @@ fn apply_tool_durability_loss(
                     if let Some(ref mut durability) = item.durability {
                         let durability_loss = quantity; // 1 durability per craft
                         *durability = durability.saturating_sub(durability_loss);
-                        
+
                         if *durability == 0 {
                             println!("🔧 Tool {} broke during crafting", tool_id);
                             slot.item = None; // Tool breaks
@@ -459,7 +492,8 @@ fn create_item_instance(
     bound_to_player: Option<PlayerId>,
 ) -> Result<ItemInstance, InventoryError> {
     let defs_guard = item_definitions.lock().unwrap();
-    let item_def = defs_guard.get(&item_id)
+    let item_def = defs_guard
+        .get(&item_id)
         .ok_or(InventoryError::ItemNotFound(item_id))?;
 
     Ok(ItemInstance {
@@ -482,19 +516,27 @@ fn add_item_instance_to_player_inventory(
     use_inventory: Option<String>,
 ) -> Result<(), InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = use_inventory.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     // Find empty slot
-    let empty_slot = inventory.slots.iter()
+    let empty_slot = inventory
+        .slots
+        .iter()
         .find(|(_, slot)| slot.item.is_none() && !slot.locked)
         .map(|(slot_id, _)| *slot_id)
         .ok_or(InventoryError::InventoryFull)?;

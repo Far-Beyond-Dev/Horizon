@@ -98,17 +98,23 @@ fn equip_item_for_player(
     from_inventory: Option<String>,
 ) -> Result<(ItemInstance, Option<ItemInstance>), InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     // Find and remove item from inventory
     let from_inventory = from_inventory.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&from_inventory)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", from_inventory)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", from_inventory))
+        })?;
 
     let mut item_to_equip = None;
     let mut source_slot = None;
@@ -124,13 +130,16 @@ fn equip_item_for_player(
         }
     }
 
-    let item_to_equip = item_to_equip
-        .ok_or_else(|| InventoryError::Custom(format!("Item {} not found in inventory", item_instance_id)))?;
+    let item_to_equip = item_to_equip.ok_or_else(|| {
+        InventoryError::Custom(format!("Item {} not found in inventory", item_instance_id))
+    })?;
 
     // Validate item can be equipped in this slot
     let item_def = {
         let defs_guard = item_definitions.lock().unwrap();
-        defs_guard.get(&item_to_equip.definition_id).cloned()
+        defs_guard
+            .get(&item_to_equip.definition_id)
+            .cloned()
             .ok_or(InventoryError::ItemNotFound(item_to_equip.definition_id))?
     };
 
@@ -144,7 +153,8 @@ fn equip_item_for_player(
     }
 
     // Get currently equipped item (if any)
-    let currently_equipped = get_equipped_item_mut(&mut player.inventories.equipped_items, equipment_slot)?;
+    let currently_equipped =
+        get_equipped_item_mut(&mut player.inventories.equipped_items, equipment_slot)?;
     let unequipped_item = currently_equipped.take();
 
     // If we unequipped something, try to put it in inventory
@@ -170,7 +180,10 @@ fn equip_item_for_player(
     Ok((item_to_equip, unequipped_item))
 }
 
-fn validate_equipment_slot(item_def: &ItemDefinition, equipment_slot: &str) -> Result<(), InventoryError> {
+fn validate_equipment_slot(
+    item_def: &ItemDefinition,
+    equipment_slot: &str,
+) -> Result<(), InventoryError> {
     let valid = match &item_def.category {
         ItemCategory::Armor(armor_type) => match equipment_slot {
             "helmet" => matches!(armor_type, ArmorType::Helmet),
@@ -197,7 +210,10 @@ fn validate_equipment_slot(item_def: &ItemDefinition, equipment_slot: &str) -> R
     }
 }
 
-pub fn get_equipped_item_mut<'a>(equipment: &'a mut EquipmentSlots, slot: &str) -> Result<&'a mut Option<ItemInstance>, InventoryError> {
+pub fn get_equipped_item_mut<'a>(
+    equipment: &'a mut EquipmentSlots,
+    slot: &str,
+) -> Result<&'a mut Option<ItemInstance>, InventoryError> {
     match slot {
         "helmet" => Ok(&mut equipment.helmet),
         "chest" => Ok(&mut equipment.chest),
@@ -213,16 +229,23 @@ pub fn get_equipped_item_mut<'a>(equipment: &'a mut EquipmentSlots, slot: &str) 
             if custom_slot.starts_with("custom_") {
                 // For custom slots, we need to handle the HashMap<String, ItemInstance> differently
                 // Since custom_slots stores ItemInstance directly, not Option<ItemInstance>
-                return Err(InventoryError::Custom(format!("Custom equipment slots not fully implemented yet: {}", slot)));
+                return Err(InventoryError::Custom(format!(
+                    "Custom equipment slots not fully implemented yet: {}",
+                    slot
+                )));
             } else {
-                Err(InventoryError::Custom(format!("Invalid equipment slot: {}", slot)))
+                Err(InventoryError::Custom(format!(
+                    "Invalid equipment slot: {}",
+                    slot
+                )))
             }
         }
     }
 }
 
 fn find_empty_slot(slots: &mut HashMap<u32, InventorySlot>) -> Option<u32> {
-    slots.iter()
+    slots
+        .iter()
         .find(|(_, slot)| slot.item.is_none() && !slot.locked)
         .map(|(slot_id, _)| *slot_id)
 }

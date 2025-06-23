@@ -1,6 +1,6 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
 use crate::handlers::item_management::*;
+use crate::types::*;
 
 pub fn drop_item_handler(
     players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
@@ -22,10 +22,13 @@ pub fn drop_item_handler(
         Ok(removed_items) => {
             println!(
                 "📤 Player {:?} dropped {} of item {} from inventory '{}'",
-                event.id, 
-                event.item_count, 
+                event.id,
+                event.item_count,
                 event.item_id,
-                event.inventory_name.as_ref().unwrap_or(&"general".to_string())
+                event
+                    .inventory_name
+                    .as_ref()
+                    .unwrap_or(&"general".to_string())
             );
 
             let position = event.position.clone();
@@ -109,20 +112,28 @@ fn remove_item_from_player(
     slot_id: Option<u32>,
 ) -> Result<Vec<ItemInstance>, InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = inventory_name.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     let item_def = {
         let defs_guard = item_definitions.lock().unwrap();
-        defs_guard.get(&item_id).cloned()
+        defs_guard
+            .get(&item_id)
+            .cloned()
             .ok_or(InventoryError::ItemNotFound(item_id))?
     };
 
@@ -135,7 +146,7 @@ fn remove_item_from_player(
             if let Some(ref mut item_instance) = slot.item {
                 if item_instance.definition_id == item_id {
                     let remove_amount = std::cmp::min(remaining_to_remove, item_instance.stack);
-                    
+
                     if remove_amount == item_instance.stack {
                         // Remove entire stack
                         let removed_item = slot.item.take().unwrap();
@@ -145,7 +156,7 @@ fn remove_item_from_player(
                         // Partial removal
                         item_instance.stack -= remove_amount;
                         inventory.current_weight -= item_def.weight * remove_amount as f32;
-                        
+
                         let mut partial_item = item_instance.clone();
                         partial_item.stack = remove_amount;
                         partial_item.instance_id = uuid::Uuid::new_v4().to_string();
@@ -163,7 +174,9 @@ fn remove_item_from_player(
         }
     } else {
         // Remove from any slots with this item
-        let mut slots_to_process: Vec<_> = inventory.slots.iter()
+        let mut slots_to_process: Vec<_> = inventory
+            .slots
+            .iter()
             .filter_map(|(slot_id, slot)| {
                 if let Some(ref item) = slot.item {
                     if item.definition_id == item_id {
@@ -185,12 +198,14 @@ fn remove_item_from_player(
         });
 
         for slot_id in slots_to_process {
-            if remaining_to_remove == 0 { break; }
+            if remaining_to_remove == 0 {
+                break;
+            }
 
             if let Some(slot) = inventory.slots.get_mut(&slot_id) {
                 if let Some(ref mut item_instance) = slot.item {
                     let remove_amount = std::cmp::min(remaining_to_remove, item_instance.stack);
-                    
+
                     if remove_amount == item_instance.stack {
                         // Remove entire stack
                         let removed_item = slot.item.take().unwrap();
@@ -200,7 +215,7 @@ fn remove_item_from_player(
                         // Partial removal
                         item_instance.stack -= remove_amount;
                         inventory.current_weight -= item_def.weight * remove_amount as f32;
-                        
+
                         let mut partial_item = item_instance.clone();
                         partial_item.stack = remove_amount;
                         partial_item.instance_id = uuid::Uuid::new_v4().to_string();

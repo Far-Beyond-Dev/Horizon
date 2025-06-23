@@ -1,5 +1,5 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
+use crate::types::*;
 
 pub fn clear_inventory_handler(
     players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
@@ -33,14 +33,20 @@ pub fn clear_inventory_handler(
         Ok(clear_result) => {
             println!(
                 "🗑️ Cleared inventory '{}' for player {:?}: {} items removed, {:.2}kg freed",
-                event.inventory_name.as_ref().unwrap_or(&"general".to_string()),
+                event
+                    .inventory_name
+                    .as_ref()
+                    .unwrap_or(&"general".to_string()),
                 event.id,
                 clear_result.items_removed,
                 clear_result.weight_freed
             );
 
             // Emit inventory cleared event
-            let inventory_name = event.inventory_name.clone().unwrap_or("general".to_string());
+            let inventory_name = event
+                .inventory_name
+                .clone()
+                .unwrap_or("general".to_string());
             let _ = events.emit_plugin(
                 "InventorySystem",
                 "inventory_cleared",
@@ -151,19 +157,26 @@ fn clear_player_inventory(
     validate_inventory_exists(players, player_id, &inventory_name)?;
 
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
-        .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
-    let inventory = player.inventories.inventories
+    let player = players_map
+        .get_mut(&player_id)
+        .ok_or(InventoryError::PlayerNotFound(player_id))?;
+
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     // Create backup before clearing
-    let backup_result = create_inventory_backup(player_id, &inventory_name, inventory, item_definitions);
-    
+    let backup_result =
+        create_inventory_backup(player_id, &inventory_name, inventory, item_definitions);
+
     // Collect information about items being removed
     let mut removed_items = Vec::new();
     let mut total_weight_freed = 0.0;
@@ -181,7 +194,7 @@ fn clear_player_inventory(
             if let Some(item_def) = item_defs_guard.get(&item_instance.definition_id) {
                 let item_weight = item_def.weight * item_instance.stack as f32;
                 let item_value = item_def.value * item_instance.stack;
-                
+
                 total_weight_freed += item_weight;
                 total_value_lost += item_value;
 
@@ -259,7 +272,10 @@ fn create_inventory_backup(
     // For now, we'll just log it
     println!(
         "💾 Created backup '{}' for player {:?} inventory '{}' with {} items",
-        backup_id, player_id, inventory_name, backup.backed_up_items.len()
+        backup_id,
+        player_id,
+        inventory_name,
+        backup.backed_up_items.len()
     );
 
     Ok(backup_id)
@@ -271,7 +287,7 @@ fn apply_clearing_effects(
     items_removed: u32,
 ) -> Result<(), InventoryError> {
     // Apply any game-specific effects from clearing inventory
-    
+
     // Example: Add a temporary effect for mass item loss
     if items_removed > 50 {
         let grief_effect = ItemEffect {
@@ -282,9 +298,9 @@ fn apply_clearing_effects(
             duration: Some(current_timestamp() + 300), // 5 minutes
             applied_at: current_timestamp(),
         };
-        
+
         player.inventories.active_effects.push(grief_effect);
-        
+
         println!(
             "😢 Player {:?} is experiencing inventory grief after losing {} items",
             player.id, items_removed
@@ -315,15 +331,21 @@ pub fn restore_inventory_from_backup(
     }
 
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
-        .ok_or(InventoryError::PlayerNotFound(backup.player_id))?;
-    
-    let player = players_map.get_mut(&backup.player_id)
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(backup.player_id))?;
 
-    let inventory = player.inventories.inventories
+    let player = players_map
+        .get_mut(&backup.player_id)
+        .ok_or(InventoryError::PlayerNotFound(backup.player_id))?;
+
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&backup.inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", backup.inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", backup.inventory_name))
+        })?;
 
     // Clear current inventory
     for slot in inventory.slots.values_mut() {
@@ -340,7 +362,9 @@ pub fn restore_inventory_from_backup(
     }
 
     // Recalculate weight
-    inventory.current_weight = inventory.slots.values()
+    inventory.current_weight = inventory
+        .slots
+        .values()
         .filter_map(|slot| slot.item.as_ref())
         .map(|item| {
             // This would normally lookup the item definition for weight
@@ -369,17 +393,23 @@ pub fn clear_inventory_by_category(
     category: ItemCategory,
 ) -> Result<ClearResult, InventoryError> {
     let inventory_name = inventory_name.unwrap_or_else(|| "general".to_string());
-    
+
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
-        .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
-    let inventory = player.inventories.inventories
+    let player = players_map
+        .get_mut(&player_id)
+        .ok_or(InventoryError::PlayerNotFound(player_id))?;
+
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     let item_defs_guard = item_definitions.lock().unwrap();
     let mut removed_items = Vec::new();

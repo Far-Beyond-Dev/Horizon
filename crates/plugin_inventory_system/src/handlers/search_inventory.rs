@@ -1,5 +1,5 @@
-use crate::types::*;
 use crate::handlers::get_inventory::ItemInstanceWithDefinition;
+use crate::types::*;
 
 pub fn search_inventory_handler(
     players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
@@ -7,11 +7,7 @@ pub fn search_inventory_handler(
     events: &Arc<EventSystem>,
     event: SearchInventoryRequest,
 ) {
-    let result = execute_inventory_search(
-        players,
-        item_definitions,
-        &event.query,
-    );
+    let result = execute_inventory_search(players, item_definitions, &event.query);
 
     match result {
         Ok(search_result) => {
@@ -61,14 +57,16 @@ fn execute_inventory_search(
     query: &InventoryQuery,
 ) -> Result<InventorySearchResult, InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(query.player_id))?;
-    
-    let player = players_map.get(&query.player_id)
+
+    let player = players_map
+        .get(&query.player_id)
         .ok_or(InventoryError::PlayerNotFound(query.player_id))?;
 
     let item_defs_guard = item_definitions.lock().unwrap();
-    
+
     // Collect all items from specified inventories
     let mut all_items = Vec::new();
 
@@ -86,7 +84,12 @@ fn execute_inventory_search(
                 if let Some(ref item_instance) = slot.item {
                     if let Some(item_def) = item_defs_guard.get(&item_instance.definition_id) {
                         if matches_search_criteria(item_instance, item_def, query) {
-                            all_items.push(create_search_item(item_instance, item_def, inventory_name, Some(slot.slot_id)));
+                            all_items.push(create_search_item(
+                                item_instance,
+                                item_def,
+                                inventory_name,
+                                Some(slot.slot_id),
+                            ));
                         }
                     }
                 }
@@ -102,7 +105,10 @@ fn execute_inventory_search(
             ("legs", &player.inventories.equipped_items.legs),
             ("boots", &player.inventories.equipped_items.boots),
             ("gloves", &player.inventories.equipped_items.gloves),
-            ("weapon_main", &player.inventories.equipped_items.weapon_main),
+            (
+                "weapon_main",
+                &player.inventories.equipped_items.weapon_main,
+            ),
             ("weapon_off", &player.inventories.equipped_items.weapon_off),
             ("ring_1", &player.inventories.equipped_items.ring_1),
             ("ring_2", &player.inventories.equipped_items.ring_2),
@@ -113,7 +119,12 @@ fn execute_inventory_search(
             if let Some(ref item_instance) = equipped_item {
                 if let Some(item_def) = item_defs_guard.get(&item_instance.definition_id) {
                     if matches_search_criteria(item_instance, item_def, query) {
-                        all_items.push(create_search_item(item_instance, item_def, &format!("equipment_{}", slot_name), None));
+                        all_items.push(create_search_item(
+                            item_instance,
+                            item_def,
+                            &format!("equipment_{}", slot_name),
+                            None,
+                        ));
                     }
                 }
             }
@@ -123,7 +134,12 @@ fn execute_inventory_search(
         for (slot_name, item_instance) in &player.inventories.equipped_items.custom_slots {
             if let Some(item_def) = item_defs_guard.get(&item_instance.definition_id) {
                 if matches_search_criteria(item_instance, item_def, query) {
-                    all_items.push(create_search_item(item_instance, item_def, &format!("equipment_{}", slot_name), None));
+                    all_items.push(create_search_item(
+                        item_instance,
+                        item_def,
+                        &format!("equipment_{}", slot_name),
+                        None,
+                    ));
                 }
             }
         }
@@ -140,7 +156,10 @@ fn execute_inventory_search(
     let end_idx = std::cmp::min(start_idx + per_page as usize, all_items.len());
 
     let items = if start_idx < all_items.len() {
-        all_items[start_idx..end_idx].iter().map(|item| item.instance.clone()).collect()
+        all_items[start_idx..end_idx]
+            .iter()
+            .map(|item| item.instance.clone())
+            .collect()
     } else {
         Vec::new()
     };
@@ -186,8 +205,9 @@ fn matches_search_criteria(
     // Name search (case-insensitive)
     if let Some(ref name_search) = query.name_search {
         let search_lower = name_search.to_lowercase();
-        if !item_def.name.to_lowercase().contains(&search_lower) &&
-           !item_def.description.to_lowercase().contains(&search_lower) {
+        if !item_def.name.to_lowercase().contains(&search_lower)
+            && !item_def.description.to_lowercase().contains(&search_lower)
+        {
             return false;
         }
     }
@@ -219,31 +239,45 @@ fn sort_search_results(
     items.sort_by(|a, b| {
         let comparison = match sort_criteria {
             SortCriteria::Name => a.definition.name.cmp(&b.definition.name),
-            SortCriteria::Category => format!("{:?}", a.definition.category).cmp(&format!("{:?}", b.definition.category)),
+            SortCriteria::Category => {
+                format!("{:?}", a.definition.category).cmp(&format!("{:?}", b.definition.category))
+            }
             SortCriteria::Rarity => {
                 let rarity_order_a = get_rarity_order(&a.definition.rarity);
                 let rarity_order_b = get_rarity_order(&b.definition.rarity);
                 rarity_order_a.cmp(&rarity_order_b)
-            },
+            }
             SortCriteria::Quantity => a.instance.stack.cmp(&b.instance.stack),
             SortCriteria::Value => a.total_value.cmp(&b.total_value),
-            SortCriteria::DateAcquired => a.instance.acquired_timestamp.cmp(&b.instance.acquired_timestamp),
-            SortCriteria::Weight => a.weight.partial_cmp(&b.weight).unwrap_or(std::cmp::Ordering::Equal),
+            SortCriteria::DateAcquired => a
+                .instance
+                .acquired_timestamp
+                .cmp(&b.instance.acquired_timestamp),
+            SortCriteria::Weight => a
+                .weight
+                .partial_cmp(&b.weight)
+                .unwrap_or(std::cmp::Ordering::Equal),
             SortCriteria::Durability => {
                 let durability_a = a.instance.durability.unwrap_or(u32::MAX);
                 let durability_b = b.instance.durability.unwrap_or(u32::MAX);
                 durability_a.cmp(&durability_b)
-            },
+            }
             SortCriteria::Custom(field) => {
                 // Handle custom sorting based on custom properties
-                let value_a = a.instance.custom_data.get(field)
+                let value_a = a
+                    .instance
+                    .custom_data
+                    .get(field)
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let value_b = b.instance.custom_data.get(field)
+                let value_b = b
+                    .instance
+                    .custom_data
+                    .get(field)
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
                 value_a.cmp(value_b)
-            },
+            }
         };
 
         match sort_order {
@@ -273,15 +307,17 @@ pub fn get_search_suggestions(
     partial_name: &str,
 ) -> Result<Vec<String>, InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let item_defs_guard = item_definitions.lock().unwrap();
     let partial_lower = partial_name.to_lowercase();
-    
+
     let mut suggestions = std::collections::HashSet::new();
 
     // Collect item names from player's inventories

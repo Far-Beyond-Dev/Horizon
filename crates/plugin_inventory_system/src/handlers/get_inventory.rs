@@ -16,14 +16,13 @@ pub fn get_inventory_handler(
 
     match result {
         Ok(inventory_data) => {
-            let inventory_name = event.inventory_name.unwrap_or_else(|| "general".to_string());
-            
+            let inventory_name = event
+                .inventory_name
+                .unwrap_or_else(|| "general".to_string());
+
             println!(
                 "📋 Retrieved inventory '{}' for player {:?}: {} items, {:.2}kg total weight",
-                inventory_name,
-                event.id,
-                inventory_data.total_items,
-                inventory_data.total_weight
+                inventory_name, event.id, inventory_data.total_items, inventory_data.total_weight
             );
 
             // Emit comprehensive inventory data
@@ -40,7 +39,10 @@ pub fn get_inventory_handler(
             );
         }
         Err(e) => {
-            println!("❌ Failed to retrieve inventory for player {:?}: {}", event.id, e);
+            println!(
+                "❌ Failed to retrieve inventory for player {:?}: {}",
+                event.id, e
+            );
 
             // Emit failure event
             let _ = events.emit_plugin(
@@ -106,19 +108,25 @@ fn get_player_inventory(
     include_equipment: bool,
 ) -> Result<InventoryData, InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = inventory_name.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     let item_defs_guard = item_definitions.lock().unwrap();
-    
+
     let mut slot_data = HashMap::new();
     let mut total_items = 0;
     let mut unique_items = 0;
@@ -149,11 +157,14 @@ fn get_player_inventory(
             None
         };
 
-        slot_data.insert(*slot_id, InventorySlotData {
-            slot_id: *slot_id,
-            item: slot_info,
-            locked: slot.locked,
-        });
+        slot_data.insert(
+            *slot_id,
+            InventorySlotData {
+                slot_id: *slot_id,
+                item: slot_info,
+                locked: slot.locked,
+            },
+        );
     }
 
     let equipment = if include_equipment {
@@ -177,10 +188,15 @@ fn get_player_inventory(
     })
 }
 
-fn calculate_item_condition(item_instance: &ItemInstance, item_def: &ItemDefinition) -> ItemCondition {
-    if let (Some(current_durability), Some(max_durability)) = (item_instance.durability, item_def.durability_max) {
+fn calculate_item_condition(
+    item_instance: &ItemInstance,
+    item_def: &ItemDefinition,
+) -> ItemCondition {
+    if let (Some(current_durability), Some(max_durability)) =
+        (item_instance.durability, item_def.durability_max)
+    {
         let condition_ratio = current_durability as f32 / max_durability as f32;
-        
+
         match condition_ratio {
             ratio if ratio >= 0.9 => ItemCondition::Perfect,
             ratio if ratio >= 0.75 => ItemCondition::Excellent,

@@ -1,6 +1,6 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
 use crate::handlers::item_management::*;
+use crate::types::*;
 
 pub fn enchant_item_handler(
     players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
@@ -116,9 +116,10 @@ fn enchant_player_item(
 ) -> Result<EnchantmentResult, InventoryError> {
     // Validate player and find item
     validate_player_access(players, player_id)?;
-    
-    let (item_location, item_was_equipped) = find_item_location(players, player_id, item_instance_id)?;
-    
+
+    let (item_location, item_was_equipped) =
+        find_item_location(players, player_id, item_instance_id)?;
+
     // Validate enchantment requirements
     validate_enchantment_requirements(
         players,
@@ -131,14 +132,21 @@ fn enchant_player_item(
 
     // Calculate success chance
     let success_chance = calculate_enchantment_success_chance(&enchantment, &enchantment_materials);
-    
+
     // Determine if enchantment succeeds (for demo, always succeed)
     let enchantment_succeeds = true; // In real implementation: rand::random::<f32>() < success_chance
 
     if !enchantment_succeeds {
         // Consume materials but don't apply enchantment
-        consume_enchantment_materials(players, item_definitions, player_id, &enchantment_materials)?;
-        return Err(InventoryError::Custom("Enchantment failed due to chance".to_string()));
+        consume_enchantment_materials(
+            players,
+            item_definitions,
+            player_id,
+            &enchantment_materials,
+        )?;
+        return Err(InventoryError::Custom(
+            "Enchantment failed due to chance".to_string(),
+        ));
     }
 
     // Consume enchantment materials
@@ -171,8 +179,13 @@ fn enchant_player_item(
 
 #[derive(Debug, Clone)]
 enum ItemLocation {
-    Inventory { inventory_name: String, slot_id: u32 },
-    Equipment { slot_name: String },
+    Inventory {
+        inventory_name: String,
+        slot_id: u32,
+    },
+    Equipment {
+        slot_name: String,
+    },
 }
 
 fn find_item_location(
@@ -181,10 +194,12 @@ fn find_item_location(
     item_instance_id: &str,
 ) -> Result<(ItemLocation, bool), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     // Search in inventories
@@ -192,10 +207,13 @@ fn find_item_location(
         for (slot_id, slot) in &inventory.slots {
             if let Some(ref item) = slot.item {
                 if item.instance_id == item_instance_id {
-                    return Ok((ItemLocation::Inventory {
-                        inventory_name: inv_name.clone(),
-                        slot_id: *slot_id,
-                    }, false));
+                    return Ok((
+                        ItemLocation::Inventory {
+                            inventory_name: inv_name.clone(),
+                            slot_id: *slot_id,
+                        },
+                        false,
+                    ));
                 }
             }
         }
@@ -208,7 +226,10 @@ fn find_item_location(
         ("legs", &player.inventories.equipped_items.legs),
         ("boots", &player.inventories.equipped_items.boots),
         ("gloves", &player.inventories.equipped_items.gloves),
-        ("weapon_main", &player.inventories.equipped_items.weapon_main),
+        (
+            "weapon_main",
+            &player.inventories.equipped_items.weapon_main,
+        ),
         ("weapon_off", &player.inventories.equipped_items.weapon_off),
         ("ring_1", &player.inventories.equipped_items.ring_1),
         ("ring_2", &player.inventories.equipped_items.ring_2),
@@ -218,9 +239,12 @@ fn find_item_location(
     for (slot_name, equipped_item) in equipment_checks {
         if let Some(ref item) = equipped_item {
             if item.instance_id == item_instance_id {
-                return Ok((ItemLocation::Equipment {
-                    slot_name: slot_name.to_string(),
-                }, true));
+                return Ok((
+                    ItemLocation::Equipment {
+                        slot_name: slot_name.to_string(),
+                    },
+                    true,
+                ));
             }
         }
     }
@@ -228,13 +252,19 @@ fn find_item_location(
     // Check custom equipment slots
     for (slot_name, item) in &player.inventories.equipped_items.custom_slots {
         if item.instance_id == item_instance_id {
-            return Ok((ItemLocation::Equipment {
-                slot_name: slot_name.clone(),
-            }, true));
+            return Ok((
+                ItemLocation::Equipment {
+                    slot_name: slot_name.clone(),
+                },
+                true,
+            ));
         }
     }
 
-    Err(InventoryError::Custom(format!("Item {} not found", item_instance_id)))
+    Err(InventoryError::Custom(format!(
+        "Item {} not found",
+        item_instance_id
+    )))
 }
 
 fn validate_enchantment_requirements(
@@ -247,19 +277,23 @@ fn validate_enchantment_requirements(
 ) -> Result<(), InventoryError> {
     // Find the item to be enchanted
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     // Find the item
     let item_instance = find_item_instance_in_player(&player, item_instance_id)?;
-    
+
     // Get item definition
     let item_def = {
         let defs_guard = item_definitions.lock().unwrap();
-        defs_guard.get(&item_instance.definition_id).cloned()
+        defs_guard
+            .get(&item_instance.definition_id)
+            .cloned()
             .ok_or(InventoryError::ItemNotFound(item_instance.definition_id))?
     };
 
@@ -268,7 +302,8 @@ fn validate_enchantment_requirements(
 
     // Validate player has required materials
     for material in enchantment_materials {
-        let available = count_item_in_player_inventories(&player, material.item_instance.definition_id);
+        let available =
+            count_item_in_player_inventories(&player, material.item_instance.definition_id);
         if available < material.quantity {
             return Err(InventoryError::InsufficientItems {
                 needed: material.quantity,
@@ -327,7 +362,10 @@ fn find_item_instance_in_player<'a>(
         }
     }
 
-    Err(InventoryError::Custom(format!("Item {} not found", item_instance_id)))
+    Err(InventoryError::Custom(format!(
+        "Item {} not found",
+        item_instance_id
+    )))
 }
 
 fn validate_item_enchantable(
@@ -339,17 +377,23 @@ fn validate_item_enchantable(
     match &enchantment.enchantment_id.as_str() {
         &"sharpness" | &"fire_aspect" | &"smite" => {
             if !matches!(item_def.category, ItemCategory::Weapon(_)) {
-                return Err(InventoryError::Custom("This enchantment can only be applied to weapons".to_string()));
+                return Err(InventoryError::Custom(
+                    "This enchantment can only be applied to weapons".to_string(),
+                ));
             }
         }
         &"protection" | &"fire_protection" | &"blast_protection" => {
             if !matches!(item_def.category, ItemCategory::Armor(_)) {
-                return Err(InventoryError::Custom("This enchantment can only be applied to armor".to_string()));
+                return Err(InventoryError::Custom(
+                    "This enchantment can only be applied to armor".to_string(),
+                ));
             }
         }
         &"efficiency" | &"unbreaking" => {
             if !matches!(item_def.category, ItemCategory::Tool) {
-                return Err(InventoryError::Custom("This enchantment can only be applied to tools".to_string()));
+                return Err(InventoryError::Custom(
+                    "This enchantment can only be applied to tools".to_string(),
+                ));
             }
         }
         _ => {} // Custom enchantments allowed on any item
@@ -358,13 +402,17 @@ fn validate_item_enchantable(
     // Check item durability
     if let Some(durability) = item_instance.durability {
         if durability == 0 {
-            return Err(InventoryError::Custom("Cannot enchant broken items".to_string()));
+            return Err(InventoryError::Custom(
+                "Cannot enchant broken items".to_string(),
+            ));
         }
     }
 
     // Check if item already has maximum enchantments
     if item_instance.enchantments.len() >= 5 {
-        return Err(InventoryError::Custom("Item has maximum number of enchantments".to_string()));
+        return Err(InventoryError::Custom(
+            "Item has maximum number of enchantments".to_string(),
+        ));
     }
 
     Ok(())
@@ -375,41 +423,47 @@ fn validate_enchantment_level_progression(
     new_enchantment: &Enchantment,
 ) -> Result<(), InventoryError> {
     // Check if this enchantment already exists
-    if let Some(existing) = item_instance.enchantments.iter()
-        .find(|e| e.enchantment_id == new_enchantment.enchantment_id) {
-        
+    if let Some(existing) = item_instance
+        .enchantments
+        .iter()
+        .find(|e| e.enchantment_id == new_enchantment.enchantment_id)
+    {
         // Must be exactly one level higher
         if new_enchantment.level != existing.level + 1 {
             return Err(InventoryError::Custom(format!(
                 "Enchantment level must progress from {} to {}, not {}",
-                existing.level, existing.level + 1, new_enchantment.level
+                existing.level,
+                existing.level + 1,
+                new_enchantment.level
             )));
         }
     } else {
         // New enchantment must start at level 1
         if new_enchantment.level != 1 {
-            return Err(InventoryError::Custom("New enchantments must start at level 1".to_string()));
+            return Err(InventoryError::Custom(
+                "New enchantments must start at level 1".to_string(),
+            ));
         }
     }
 
     Ok(())
 }
 
-fn calculate_enchantment_success_chance(
-    enchantment: &Enchantment,
-    materials: &[TradeItem],
-) -> f32 {
+fn calculate_enchantment_success_chance(enchantment: &Enchantment, materials: &[TradeItem]) -> f32 {
     let base_chance = 0.7; // 70% base success rate
-    
+
     // Higher level enchantments are harder
     let level_penalty = (enchantment.level - 1) as f32 * 0.1;
-    
+
     // More/better materials increase success rate
     let material_bonus = materials.len() as f32 * 0.05;
-    
+
     let final_chance = (base_chance - level_penalty + material_bonus).clamp(0.1, 0.95);
-    
-    println!("🎲 Enchantment success chance: {:.1}%", final_chance * 100.0);
+
+    println!(
+        "🎲 Enchantment success chance: {:.1}%",
+        final_chance * 100.0
+    );
     final_chance
 }
 
@@ -420,9 +474,9 @@ fn consume_enchantment_materials(
     materials: &[TradeItem],
 ) -> Result<Vec<MaterialConsumed>, InventoryError> {
     let mut consumed_materials = Vec::new();
-    
+
     let item_defs_guard = item_definitions.lock().unwrap();
-    
+
     for material in materials {
         // Remove items from player inventory
         let removed_items = remove_item_by_id_from_player_all_inventories(
@@ -431,14 +485,15 @@ fn consume_enchantment_materials(
             material.item_instance.definition_id,
             material.quantity,
         )?;
-        
+
         // Get item name and value
-        let (item_name, item_value) = if let Some(item_def) = item_defs_guard.get(&material.item_instance.definition_id) {
-            (item_def.name.clone(), item_def.value)
-        } else {
-            (format!("Item_{}", material.item_instance.definition_id), 0)
-        };
-        
+        let (item_name, item_value) =
+            if let Some(item_def) = item_defs_guard.get(&material.item_instance.definition_id) {
+                (item_def.name.clone(), item_def.value)
+            } else {
+                (format!("Item_{}", material.item_instance.definition_id), 0)
+            };
+
         consumed_materials.push(MaterialConsumed {
             item_id: material.item_instance.definition_id,
             item_name,
@@ -446,7 +501,7 @@ fn consume_enchantment_materials(
             value: item_value * material.quantity,
         });
     }
-    
+
     Ok(consumed_materials)
 }
 
@@ -459,46 +514,63 @@ fn apply_enchantment_to_item(
     item_location: &ItemLocation,
 ) -> Result<(Option<Enchantment>, u32), InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     // Find and modify the item
     let item_instance = match item_location {
-        ItemLocation::Inventory { inventory_name, slot_id } => {
-            let inventory = player.inventories.inventories
+        ItemLocation::Inventory {
+            inventory_name,
+            slot_id,
+        } => {
+            let inventory = player
+                .inventories
+                .inventories
                 .get_mut(inventory_name)
-                .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
-            
-            let slot = inventory.slots.get_mut(slot_id)
+                .ok_or_else(|| {
+                    InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+                })?;
+
+            let slot = inventory
+                .slots
+                .get_mut(slot_id)
                 .ok_or(InventoryError::InvalidSlot(*slot_id))?;
-            
-            slot.item.as_mut()
+
+            slot.item
+                .as_mut()
                 .ok_or_else(|| InventoryError::Custom("Item not found in slot".to_string()))?
         }
-        ItemLocation::Equipment { slot_name } => {
-            match slot_name.as_str() {
-                "helmet" => player.inventories.equipped_items.helmet.as_mut(),
-                "chest" => player.inventories.equipped_items.chest.as_mut(),
-                "legs" => player.inventories.equipped_items.legs.as_mut(),
-                "boots" => player.inventories.equipped_items.boots.as_mut(),
-                "gloves" => player.inventories.equipped_items.gloves.as_mut(),
-                "weapon_main" => player.inventories.equipped_items.weapon_main.as_mut(),
-                "weapon_off" => player.inventories.equipped_items.weapon_off.as_mut(),
-                "ring_1" => player.inventories.equipped_items.ring_1.as_mut(),
-                "ring_2" => player.inventories.equipped_items.ring_2.as_mut(),
-                "necklace" => player.inventories.equipped_items.necklace.as_mut(),
-                custom_slot => player.inventories.equipped_items.custom_slots.get_mut(custom_slot),
-            }.ok_or_else(|| InventoryError::Custom("Equipped item not found".to_string()))?
+        ItemLocation::Equipment { slot_name } => match slot_name.as_str() {
+            "helmet" => player.inventories.equipped_items.helmet.as_mut(),
+            "chest" => player.inventories.equipped_items.chest.as_mut(),
+            "legs" => player.inventories.equipped_items.legs.as_mut(),
+            "boots" => player.inventories.equipped_items.boots.as_mut(),
+            "gloves" => player.inventories.equipped_items.gloves.as_mut(),
+            "weapon_main" => player.inventories.equipped_items.weapon_main.as_mut(),
+            "weapon_off" => player.inventories.equipped_items.weapon_off.as_mut(),
+            "ring_1" => player.inventories.equipped_items.ring_1.as_mut(),
+            "ring_2" => player.inventories.equipped_items.ring_2.as_mut(),
+            "necklace" => player.inventories.equipped_items.necklace.as_mut(),
+            custom_slot => player
+                .inventories
+                .equipped_items
+                .custom_slots
+                .get_mut(custom_slot),
         }
+        .ok_or_else(|| InventoryError::Custom("Equipped item not found".to_string()))?,
     };
 
     // Apply the enchantment
-    let replaced_enchantment = if let Some(existing_index) = item_instance.enchantments.iter()
-        .position(|e| e.enchantment_id == enchantment.enchantment_id) {
-        
+    let replaced_enchantment = if let Some(existing_index) = item_instance
+        .enchantments
+        .iter()
+        .position(|e| e.enchantment_id == enchantment.enchantment_id)
+    {
         let old_enchantment = item_instance.enchantments[existing_index].clone();
         item_instance.enchantments[existing_index] = enchantment;
         Some(old_enchantment)
@@ -516,7 +588,8 @@ fn apply_enchantment_to_item(
 }
 
 fn calculate_enchantment_value_bonus(enchantments: &[Enchantment]) -> u32 {
-    enchantments.iter()
+    enchantments
+        .iter()
         .map(|enchantment| {
             // Simple calculation: level * 100 per enchantment
             enchantment.level * 100
@@ -525,9 +598,14 @@ fn calculate_enchantment_value_bonus(enchantments: &[Enchantment]) -> u32 {
 }
 
 fn count_item_in_player_inventories(player: &Player, item_id: u64) -> u32 {
-    player.inventories.inventories.values()
+    player
+        .inventories
+        .inventories
+        .values()
         .map(|inventory| {
-            inventory.slots.values()
+            inventory
+                .slots
+                .values()
                 .filter_map(|slot| {
                     if let Some(ref item) = slot.item {
                         if item.definition_id == item_id {
@@ -552,9 +630,12 @@ fn remove_item_by_id_from_player_all_inventories(
 ) -> Result<Vec<ItemInstance>, InventoryError> {
     // This is a simplified version - in reality would need to properly remove items
     // across all inventories while maintaining consistency
-    
-    println!("🔧 Removing {} of item {} from player {:?}", amount, item_id, player_id);
-    
+
+    println!(
+        "🔧 Removing {} of item {} from player {:?}",
+        amount, item_id, player_id
+    );
+
     // For demo purposes, return empty list
     Ok(Vec::new())
 }
@@ -567,15 +648,19 @@ pub fn remove_enchantment_from_player_item(
     enchantment_id: &str,
 ) -> Result<Enchantment, InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     // Find the item and remove enchantment
     // This would need to search through all inventories and equipment
     // For demo purposes, simplified implementation
-    
-    Err(InventoryError::Custom("Enchantment removal not fully implemented".to_string()))
+
+    Err(InventoryError::Custom(
+        "Enchantment removal not fully implemented".to_string(),
+    ))
 }

@@ -1,5 +1,5 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
+use crate::types::*;
 
 pub fn create_trade_handler(
     players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
@@ -95,64 +95,62 @@ pub fn trade_action_handler(
     );
 
     match result {
-        Ok(trade_result) => {
-            match trade_result {
-                TradeResult::Accepted(trade) => {
-                    println!("✅ Trade {} accepted and completed", trade.trade_id);
-                    
-                    let _ = events.emit_plugin(
-                        "InventorySystem",
-                        "trade_completed",
-                        &serde_json::json!({
-                            "trade_id": trade.trade_id,
-                            "from_player": trade.from_player,
-                            "to_player": trade.to_player,
-                            "completed_at": current_timestamp()
-                        }),
-                    );
-                }
-                TradeResult::Declined(trade_id) => {
-                    println!("❌ Trade {} declined", trade_id);
-                    
-                    let _ = events.emit_plugin(
-                        "InventorySystem",
-                        "trade_declined",
-                        &serde_json::json!({
-                            "trade_id": trade_id,
-                            "declined_by": event.player_id,
-                            "timestamp": current_timestamp()
-                        }),
-                    );
-                }
-                TradeResult::Cancelled(trade_id) => {
-                    println!("🚫 Trade {} cancelled", trade_id);
-                    
-                    let _ = events.emit_plugin(
-                        "InventorySystem",
-                        "trade_cancelled",
-                        &serde_json::json!({
-                            "trade_id": trade_id,
-                            "cancelled_by": event.player_id,
-                            "timestamp": current_timestamp()
-                        }),
-                    );
-                }
-                TradeResult::Modified(trade) => {
-                    println!("🔄 Trade {} modified", trade.trade_id);
-                    
-                    let _ = events.emit_plugin(
-                        "InventorySystem",
-                        "trade_modified",
-                        &serde_json::json!({
-                            "trade_id": trade.trade_id,
-                            "modified_by": event.player_id,
-                            "new_offer": trade.offered_items,
-                            "timestamp": current_timestamp()
-                        }),
-                    );
-                }
+        Ok(trade_result) => match trade_result {
+            TradeResult::Accepted(trade) => {
+                println!("✅ Trade {} accepted and completed", trade.trade_id);
+
+                let _ = events.emit_plugin(
+                    "InventorySystem",
+                    "trade_completed",
+                    &serde_json::json!({
+                        "trade_id": trade.trade_id,
+                        "from_player": trade.from_player,
+                        "to_player": trade.to_player,
+                        "completed_at": current_timestamp()
+                    }),
+                );
             }
-        }
+            TradeResult::Declined(trade_id) => {
+                println!("❌ Trade {} declined", trade_id);
+
+                let _ = events.emit_plugin(
+                    "InventorySystem",
+                    "trade_declined",
+                    &serde_json::json!({
+                        "trade_id": trade_id,
+                        "declined_by": event.player_id,
+                        "timestamp": current_timestamp()
+                    }),
+                );
+            }
+            TradeResult::Cancelled(trade_id) => {
+                println!("🚫 Trade {} cancelled", trade_id);
+
+                let _ = events.emit_plugin(
+                    "InventorySystem",
+                    "trade_cancelled",
+                    &serde_json::json!({
+                        "trade_id": trade_id,
+                        "cancelled_by": event.player_id,
+                        "timestamp": current_timestamp()
+                    }),
+                );
+            }
+            TradeResult::Modified(trade) => {
+                println!("🔄 Trade {} modified", trade.trade_id);
+
+                let _ = events.emit_plugin(
+                    "InventorySystem",
+                    "trade_modified",
+                    &serde_json::json!({
+                        "trade_id": trade.trade_id,
+                        "modified_by": event.player_id,
+                        "new_offer": trade.offered_items,
+                        "timestamp": current_timestamp()
+                    }),
+                );
+            }
+        },
         Err(e) => {
             println!(
                 "❌ Trade action failed for player {:?} on trade {}: {}",
@@ -183,7 +181,8 @@ pub fn get_trades_handler(
 
     println!(
         "📋 Retrieved {} active trades for player {:?}",
-        trades.len(), player_id
+        trades.len(),
+        player_id
     );
 
     let _ = events.emit_plugin(
@@ -220,12 +219,15 @@ fn create_trade_offer(
     // Validate both players exist
     {
         let players_guard = players.lock().unwrap();
-        let players_map = players_guard.as_ref()
+        let players_map = players_guard
+            .as_ref()
             .ok_or(InventoryError::PlayerNotFound(from_player))?;
-        
-        players_map.get(&from_player)
+
+        players_map
+            .get(&from_player)
             .ok_or(InventoryError::PlayerNotFound(from_player))?;
-        players_map.get(&to_player)
+        players_map
+            .get(&to_player)
             .ok_or(InventoryError::PlayerNotFound(to_player))?;
     }
 
@@ -235,9 +237,8 @@ fn create_trade_offer(
     // Create trade offer
     let trade_id = uuid::Uuid::new_v4().to_string();
     let config_guard = config.lock().unwrap();
-    let expires_at = expires_in_seconds.map(|seconds| {
-        current_timestamp() + seconds.min(config_guard.trade_timeout_seconds)
-    });
+    let expires_at = expires_in_seconds
+        .map(|seconds| current_timestamp() + seconds.min(config_guard.trade_timeout_seconds));
 
     let trade_offer = TradeOffer {
         trade_id: trade_id.clone(),
@@ -266,7 +267,8 @@ fn handle_trade_action(
     action: TradeAction,
 ) -> Result<TradeResult, InventoryError> {
     let mut trades_guard = active_trades.lock().unwrap();
-    let trade = trades_guard.get_mut(trade_id)
+    let trade = trades_guard
+        .get_mut(trade_id)
         .ok_or_else(|| InventoryError::TradeNotFound(trade_id.to_string()))?;
 
     // Check if player is involved in this trade
@@ -276,7 +278,9 @@ fn handle_trade_action(
 
     // Check if trade is still valid
     if trade.status != TradeStatus::Pending {
-        return Err(InventoryError::Custom("Trade is no longer pending".to_string()));
+        return Err(InventoryError::Custom(
+            "Trade is no longer pending".to_string(),
+        ));
     }
 
     // Check expiration
@@ -292,11 +296,11 @@ fn handle_trade_action(
             if trade.to_player != player_id {
                 return Err(InventoryError::AccessDenied);
             }
-            
+
             // Execute the trade
             execute_trade(players, item_definitions, trade)?;
             trade.status = TradeStatus::Completed;
-            
+
             let completed_trade = trade.clone();
             trades_guard.remove(trade_id);
             Ok(TradeResult::Accepted(completed_trade))
@@ -305,7 +309,7 @@ fn handle_trade_action(
             if trade.to_player != player_id {
                 return Err(InventoryError::AccessDenied);
             }
-            
+
             trade.status = TradeStatus::Declined;
             let trade_id = trade.trade_id.clone();
             trades_guard.remove(&trade_id);
@@ -315,7 +319,7 @@ fn handle_trade_action(
             if trade.from_player != player_id {
                 return Err(InventoryError::AccessDenied);
             }
-            
+
             trade.status = TradeStatus::Cancelled;
             let trade_id = trade.trade_id.clone();
             trades_guard.remove(&trade_id);
@@ -325,11 +329,11 @@ fn handle_trade_action(
             if trade.from_player != player_id {
                 return Err(InventoryError::AccessDenied);
             }
-            
+
             // Validate new items
             validate_trade_items(players, item_definitions, player_id, &new_items)?;
             trade.offered_items = new_items;
-            
+
             Ok(TradeResult::Modified(trade.clone()))
         }
     }
@@ -342,18 +346,23 @@ fn validate_trade_items(
     items: &[TradeItem],
 ) -> Result<(), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let defs_guard = item_definitions.lock().unwrap();
 
     for trade_item in items {
         // Check if item definition exists
-        let item_def = defs_guard.get(&trade_item.item_instance.definition_id)
-            .ok_or(InventoryError::ItemNotFound(trade_item.item_instance.definition_id))?;
+        let item_def = defs_guard
+            .get(&trade_item.item_instance.definition_id)
+            .ok_or(InventoryError::ItemNotFound(
+                trade_item.item_instance.definition_id,
+            ))?;
 
         // Check if item is tradeable
         if !item_def.tradeable {
@@ -373,7 +382,9 @@ fn validate_trade_items(
                     }
                 }
             }
-            if found { break; }
+            if found {
+                break;
+            }
         }
 
         if !found {
@@ -393,7 +404,8 @@ fn execute_trade(
     trade: &TradeOffer,
 ) -> Result<(), InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(trade.from_player))?;
 
     // Remove offered items from from_player
@@ -426,7 +438,7 @@ fn execute_trade(
             &trade_item.item_instance.instance_id,
             trade_item.quantity,
         )?;
-        
+
         add_item_instance_to_player(
             players_map,
             item_definitions,
@@ -445,7 +457,8 @@ fn get_player_trades(
     player_id: PlayerId,
 ) -> Vec<TradeOffer> {
     let trades_guard = active_trades.lock().unwrap();
-    trades_guard.values()
+    trades_guard
+        .values()
         .filter(|trade| trade.from_player == player_id || trade.to_player == player_id)
         .cloned()
         .collect()
@@ -457,7 +470,8 @@ fn remove_item_instance_from_player(
     instance_id: &str,
     quantity: u32,
 ) -> Result<(), InventoryError> {
-    let player = players_map.get_mut(&player_id)
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     for inventory in player.inventories.inventories.values_mut() {
@@ -481,7 +495,10 @@ fn remove_item_instance_from_player(
         }
     }
 
-    Err(InventoryError::Custom(format!("Item instance {} not found", instance_id)))
+    Err(InventoryError::Custom(format!(
+        "Item instance {} not found",
+        instance_id
+    )))
 }
 
 fn add_item_instance_to_player(
@@ -492,16 +509,23 @@ fn add_item_instance_to_player(
     quantity: u32,
     target_inventory: Option<String>,
 ) -> Result<(), InventoryError> {
-    let player = players_map.get_mut(&player_id)
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = target_inventory.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     // Find empty slot
-    let empty_slot = inventory.slots.iter()
+    let empty_slot = inventory
+        .slots
+        .iter()
         .find(|(_, slot)| slot.item.is_none() && !slot.locked)
         .map(|(slot_id, _)| *slot_id)
         .ok_or(InventoryError::InventoryFull)?;

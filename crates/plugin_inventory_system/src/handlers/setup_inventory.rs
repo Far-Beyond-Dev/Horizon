@@ -7,19 +7,13 @@ pub fn setup_inventory_handler(
     events: &Arc<EventSystem>,
     event: InventorySettingRequest,
 ) {
-    let result = setup_inventory_system(
-        config,
-        item_definitions,
-        crafting_recipes,
-        event,
-    );
+    let result = setup_inventory_system(config, item_definitions, crafting_recipes, event);
 
     match result {
         Ok(setup_result) => {
             println!(
                 "🎒 Inventory system setup complete: {} item definitions, {} recipes loaded",
-                setup_result.items_loaded,
-                setup_result.recipes_loaded
+                setup_result.items_loaded, setup_result.recipes_loaded
             );
 
             // Emit setup completion event
@@ -134,7 +128,7 @@ fn load_default_item_definitions(
 
     // Load basic item definitions
     let default_items = create_default_item_definitions();
-    
+
     for item_def in default_items {
         defs_guard.insert(item_def.id, item_def);
         loaded_count += 1;
@@ -169,7 +163,6 @@ fn create_default_item_definitions() -> Vec<ItemDefinition> {
                 props
             },
         },
-        
         // Basic armor
         ItemDefinition {
             id: 2001,
@@ -192,7 +185,6 @@ fn create_default_item_definitions() -> Vec<ItemDefinition> {
                 props
             },
         },
-
         // Consumables
         ItemDefinition {
             id: 3001,
@@ -211,18 +203,20 @@ fn create_default_item_definitions() -> Vec<ItemDefinition> {
             level_requirement: None,
             custom_properties: {
                 let mut props = HashMap::new();
-                props.insert("consumption_effects".to_string(), serde_json::json!([
-                    {
-                        "effect_type": "health_restore",
-                        "value": 50.0,
-                        "duration": null,
-                        "description": "Restores health"
-                    }
-                ]));
+                props.insert(
+                    "consumption_effects".to_string(),
+                    serde_json::json!([
+                        {
+                            "effect_type": "health_restore",
+                            "value": 50.0,
+                            "duration": null,
+                            "description": "Restores health"
+                        }
+                    ]),
+                );
                 props
             },
         },
-
         // Materials
         ItemDefinition {
             id: 4001,
@@ -241,7 +235,6 @@ fn create_default_item_definitions() -> Vec<ItemDefinition> {
             level_requirement: None,
             custom_properties: HashMap::new(),
         },
-
         // Currency
         ItemDefinition {
             id: 5001,
@@ -260,7 +253,6 @@ fn create_default_item_definitions() -> Vec<ItemDefinition> {
             level_requirement: None,
             custom_properties: HashMap::new(),
         },
-
         // Tools
         ItemDefinition {
             id: 6001,
@@ -296,22 +288,28 @@ fn load_default_crafting_recipes(
 
     // Validate that required items exist
     let defs_guard = item_definitions.lock().unwrap();
-    
+
     let default_recipes = create_default_crafting_recipes();
-    
+
     for recipe in default_recipes {
         // Validate recipe ingredients exist
         let mut valid_recipe = true;
         for required_item in &recipe.required_items {
             if !defs_guard.contains_key(&required_item.item_id) {
-                println!("⚠️ Recipe '{}' references non-existent item {}", recipe.name, required_item.item_id);
+                println!(
+                    "⚠️ Recipe '{}' references non-existent item {}",
+                    recipe.name, required_item.item_id
+                );
                 valid_recipe = false;
             }
         }
-        
+
         for output_item in &recipe.output_items {
             if !defs_guard.contains_key(&output_item.item_id) {
-                println!("⚠️ Recipe '{}' outputs non-existent item {}", recipe.name, output_item.item_id);
+                println!(
+                    "⚠️ Recipe '{}' outputs non-existent item {}",
+                    recipe.name, output_item.item_id
+                );
                 valid_recipe = false;
             }
         }
@@ -332,21 +330,17 @@ fn create_default_crafting_recipes() -> Vec<CraftingRecipe> {
             recipe_id: "craft_iron_sword".to_string(),
             name: "Iron Sword".to_string(),
             category: "weapons".to_string(),
-            required_items: vec![
-                RecipeItem {
-                    item_id: 4001, // Iron Ore
-                    quantity: 3,
-                    consumed: true,
-                },
-            ],
+            required_items: vec![RecipeItem {
+                item_id: 4001, // Iron Ore
+                quantity: 3,
+                consumed: true,
+            }],
             required_tools: vec![6001], // Iron Pickaxe (not consumed)
-            output_items: vec![
-                RecipeItem {
-                    item_id: 1001, // Iron Sword
-                    quantity: 1,
-                    consumed: false,
-                }
-            ],
+            output_items: vec![RecipeItem {
+                item_id: 1001, // Iron Sword
+                quantity: 1,
+                consumed: false,
+            }],
             skill_requirements: {
                 let mut skills = HashMap::new();
                 skills.insert("smithing".to_string(), 15);
@@ -356,26 +350,21 @@ fn create_default_crafting_recipes() -> Vec<CraftingRecipe> {
             experience_reward: 50,
             unlock_level: Some(10),
         },
-
         CraftingRecipe {
             recipe_id: "brew_health_potion".to_string(),
             name: "Health Potion".to_string(),
             category: "alchemy".to_string(),
-            required_items: vec![
-                RecipeItem {
-                    item_id: 4001, // Using Iron Ore as placeholder for herbs
-                    quantity: 2,
-                    consumed: true,
-                },
-            ],
+            required_items: vec![RecipeItem {
+                item_id: 4001, // Using Iron Ore as placeholder for herbs
+                quantity: 2,
+                consumed: true,
+            }],
             required_tools: vec![], // No special tools required
-            output_items: vec![
-                RecipeItem {
-                    item_id: 3001, // Health Potion
-                    quantity: 3,
-                    consumed: false,
-                }
-            ],
+            output_items: vec![RecipeItem {
+                item_id: 3001, // Health Potion
+                quantity: 3,
+                consumed: false,
+            }],
             skill_requirements: {
                 let mut skills = HashMap::new();
                 skills.insert("alchemy".to_string(), 5);
@@ -459,10 +448,10 @@ fn validate_system_integrity(
 fn create_default_inventory_templates() -> Result<u32, InventoryError> {
     // This would create default inventory templates for different player types
     // For now, we'll just log that templates are created
-    
+
     let templates = vec![
         "warrior_starter_inventory",
-        "mage_starter_inventory", 
+        "mage_starter_inventory",
         "archer_starter_inventory",
         "crafter_starter_inventory",
     ];

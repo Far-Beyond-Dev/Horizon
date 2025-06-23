@@ -19,7 +19,10 @@ pub fn sort_inventory_handler(
         Ok(sort_result) => {
             println!(
                 "📋 Sorted inventory '{}' for player {:?} by {:?} ({:?}): {} items reorganized",
-                event.inventory_name.as_ref().unwrap_or(&"general".to_string()),
+                event
+                    .inventory_name
+                    .as_ref()
+                    .unwrap_or(&"general".to_string()),
                 event.player_id,
                 event.sort_criteria,
                 event.sort_order,
@@ -88,23 +91,31 @@ fn sort_player_inventory(
     sort_order: &SortOrder,
 ) -> Result<SortResult, InventoryError> {
     let start_time = current_timestamp();
-    
+
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = inventory_name.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     let item_defs_guard = item_definitions.lock().unwrap();
 
     // Collect all items with their slot information
-    let mut items_with_slots: Vec<_> = inventory.slots.iter()
+    let mut items_with_slots: Vec<_> = inventory
+        .slots
+        .iter()
         .filter_map(|(slot_id, slot)| {
             if let Some(ref item) = slot.item {
                 if let Some(item_def) = item_defs_guard.get(&item.definition_id) {
@@ -156,62 +167,73 @@ struct SortableItem {
     item_definition: ItemDefinition,
 }
 
-fn sort_items(
-    items: &mut Vec<SortableItem>,
-    sort_criteria: &SortCriteria,
-    sort_order: &SortOrder,
-) {
+fn sort_items(items: &mut Vec<SortableItem>, sort_criteria: &SortCriteria, sort_order: &SortOrder) {
     items.sort_by(|a, b| {
         let comparison = match sort_criteria {
             SortCriteria::Name => a.item_definition.name.cmp(&b.item_definition.name),
             SortCriteria::Category => {
                 let cat_order_a = get_category_order(&a.item_definition.category);
                 let cat_order_b = get_category_order(&b.item_definition.category);
-                cat_order_a.cmp(&cat_order_b)
+                cat_order_a
+                    .cmp(&cat_order_b)
                     .then_with(|| a.item_definition.name.cmp(&b.item_definition.name))
-            },
+            }
             SortCriteria::Rarity => {
                 let rarity_order_a = get_rarity_order(&a.item_definition.rarity);
                 let rarity_order_b = get_rarity_order(&b.item_definition.rarity);
-                rarity_order_a.cmp(&rarity_order_b)
+                rarity_order_a
+                    .cmp(&rarity_order_b)
                     .then_with(|| a.item_definition.name.cmp(&b.item_definition.name))
-            },
-            SortCriteria::Quantity => {
-                a.item_instance.stack.cmp(&b.item_instance.stack)
-                    .then_with(|| a.item_definition.name.cmp(&b.item_definition.name))
-            },
+            }
+            SortCriteria::Quantity => a
+                .item_instance
+                .stack
+                .cmp(&b.item_instance.stack)
+                .then_with(|| a.item_definition.name.cmp(&b.item_definition.name)),
             SortCriteria::Value => {
                 let value_a = a.item_definition.value * a.item_instance.stack;
                 let value_b = b.item_definition.value * b.item_instance.stack;
-                value_a.cmp(&value_b)
+                value_a
+                    .cmp(&value_b)
                     .then_with(|| a.item_definition.name.cmp(&b.item_definition.name))
-            },
-            SortCriteria::DateAcquired => {
-                a.item_instance.acquired_timestamp.cmp(&b.item_instance.acquired_timestamp)
-                    .then_with(|| a.item_definition.name.cmp(&b.item_definition.name))
-            },
+            }
+            SortCriteria::DateAcquired => a
+                .item_instance
+                .acquired_timestamp
+                .cmp(&b.item_instance.acquired_timestamp)
+                .then_with(|| a.item_definition.name.cmp(&b.item_definition.name)),
             SortCriteria::Weight => {
                 let weight_a = a.item_definition.weight * a.item_instance.stack as f32;
                 let weight_b = b.item_definition.weight * b.item_instance.stack as f32;
-                weight_a.partial_cmp(&weight_b).unwrap_or(std::cmp::Ordering::Equal)
+                weight_a
+                    .partial_cmp(&weight_b)
+                    .unwrap_or(std::cmp::Ordering::Equal)
                     .then_with(|| a.item_definition.name.cmp(&b.item_definition.name))
-            },
+            }
             SortCriteria::Durability => {
                 let durability_a = a.item_instance.durability.unwrap_or(u32::MAX);
                 let durability_b = b.item_instance.durability.unwrap_or(u32::MAX);
-                durability_a.cmp(&durability_b)
+                durability_a
+                    .cmp(&durability_b)
                     .then_with(|| a.item_definition.name.cmp(&b.item_definition.name))
-            },
+            }
             SortCriteria::Custom(field) => {
-                let value_a = a.item_instance.custom_data.get(field)
+                let value_a = a
+                    .item_instance
+                    .custom_data
+                    .get(field)
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let value_b = b.item_instance.custom_data.get(field)
+                let value_b = b
+                    .item_instance
+                    .custom_data
+                    .get(field)
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                value_a.cmp(value_b)
+                value_a
+                    .cmp(value_b)
                     .then_with(|| a.item_definition.name.cmp(&b.item_definition.name))
-            },
+            }
         };
 
         match sort_order {
@@ -256,7 +278,11 @@ fn stack_similar_items(items: Vec<SortableItem>) -> Vec<SortableItem> {
         match &mut current_group {
             Some(ref mut group) => {
                 // Check if items can be stacked
-                if can_stack_items(&group.item_instance, &item.item_instance, &item.item_definition) {
+                if can_stack_items(
+                    &group.item_instance,
+                    &item.item_instance,
+                    &item.item_definition,
+                ) {
                     // Combine stacks
                     let new_stack = group.item_instance.stack + item.item_instance.stack;
                     if new_stack <= item.item_definition.max_stack {
@@ -267,7 +293,7 @@ fn stack_similar_items(items: Vec<SortableItem>) -> Vec<SortableItem> {
                         let remaining = new_stack - item.item_definition.max_stack;
                         group.item_instance.stack = item.item_definition.max_stack;
                         result.push(group.clone());
-                        
+
                         let mut new_item = item.clone();
                         new_item.item_instance.stack = remaining;
                         current_group = Some(new_item);
@@ -291,11 +317,7 @@ fn stack_similar_items(items: Vec<SortableItem>) -> Vec<SortableItem> {
     result
 }
 
-fn can_stack_items(
-    item1: &ItemInstance,
-    item2: &ItemInstance,
-    item_def: &ItemDefinition,
-) -> bool {
+fn can_stack_items(item1: &ItemInstance, item2: &ItemInstance, item_def: &ItemDefinition) -> bool {
     // Items must be the same type
     if item1.definition_id != item2.definition_id {
         return false;
@@ -373,7 +395,9 @@ pub fn auto_sort_inventory(
     }
 
     // Collect all items
-    let mut items_with_slots: Vec<_> = inventory.slots.iter()
+    let mut items_with_slots: Vec<_> = inventory
+        .slots
+        .iter()
         .filter_map(|(slot_id, slot)| {
             if let Some(ref item) = slot.item {
                 if let Some(item_def) = item_definitions.get(&item.definition_id) {
@@ -396,7 +420,11 @@ pub fn auto_sort_inventory(
     }
 
     // Sort by category first, then by name
-    sort_items(&mut items_with_slots, &SortCriteria::Category, &SortOrder::Ascending);
+    sort_items(
+        &mut items_with_slots,
+        &SortCriteria::Category,
+        &SortOrder::Ascending,
+    );
 
     // Stack similar items
     let stacked_items = stack_similar_items(items_with_slots);

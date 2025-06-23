@@ -3,14 +3,14 @@ pub use event_system::{
     create_simple_plugin, current_timestamp, EventSystem, LogLevel, PlayerId, PluginError,
     ServerContext, SimplePlugin,
 };
+pub use indexmap::IndexMap;
+pub use lru::LruCache;
 pub use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
     vec::Vec,
 };
 pub use uuid::Uuid;
-pub use lru::LruCache;
-pub use indexmap::IndexMap;
 
 // Core Item Types
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -506,9 +506,17 @@ pub struct AccessContainerRequest {
 pub enum ContainerAction {
     Open,
     Close,
-    AddItem { item_instance_id: String, quantity: u32 },
-    RemoveItem { item_instance_id: String, quantity: u32 },
-    SetPermissions { permissions: Vec<PlayerId> },
+    AddItem {
+        item_instance_id: String,
+        quantity: u32,
+    },
+    RemoveItem {
+        item_instance_id: String,
+        quantity: u32,
+    },
+    SetPermissions {
+        permissions: Vec<PlayerId>,
+    },
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]

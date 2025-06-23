@@ -1,5 +1,5 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
+use crate::types::*;
 
 pub fn create_container_handler(
     containers: &Arc<Mutex<HashMap<String, Container>>>,
@@ -41,7 +41,10 @@ pub fn create_container_handler(
             );
         }
         Err(e) => {
-            println!("❌ Failed to create container '{}': {}", event.container_id, e);
+            println!(
+                "❌ Failed to create container '{}': {}",
+                event.container_id, e
+            );
 
             let _ = events.emit_plugin(
                 "InventorySystem",
@@ -73,93 +76,91 @@ pub fn access_container_handler(
     );
 
     match result {
-        Ok(access_result) => {
-            match access_result {
-                ContainerAccessResult::Opened(container_info) => {
-                    println!(
-                        "📂 Player {:?} opened container '{}'",
-                        event.player_id, event.container_id
-                    );
+        Ok(access_result) => match access_result {
+            ContainerAccessResult::Opened(container_info) => {
+                println!(
+                    "📂 Player {:?} opened container '{}'",
+                    event.player_id, event.container_id
+                );
 
-                    let _ = events.emit_plugin(
-                        "InventorySystem",
-                        "container_opened",
-                        &serde_json::json!({
-                            "player_id": event.player_id,
-                            "container_id": event.container_id,
-                            "container_info": container_info,
-                            "timestamp": current_timestamp()
-                        }),
-                    );
-                }
-                ContainerAccessResult::Closed => {
-                    println!(
-                        "📁 Player {:?} closed container '{}'",
-                        event.player_id, event.container_id
-                    );
-
-                    let _ = events.emit_plugin(
-                        "InventorySystem",
-                        "container_closed",
-                        &serde_json::json!({
-                            "player_id": event.player_id,
-                            "container_id": event.container_id,
-                            "timestamp": current_timestamp()
-                        }),
-                    );
-                }
-                ContainerAccessResult::ItemAdded(item_info) => {
-                    println!(
-                        "➕ Player {:?} added item to container '{}': {} x{}",
-                        event.player_id, event.container_id, item_info.item_name, item_info.quantity
-                    );
-
-                    let _ = events.emit_plugin(
-                        "InventorySystem",
-                        "container_item_added",
-                        &serde_json::json!({
-                            "player_id": event.player_id,
-                            "container_id": event.container_id,
-                            "item_info": item_info,
-                            "timestamp": current_timestamp()
-                        }),
-                    );
-                }
-                ContainerAccessResult::ItemRemoved(item_info) => {
-                    println!(
-                        "➖ Player {:?} removed item from container '{}': {} x{}",
-                        event.player_id, event.container_id, item_info.item_name, item_info.quantity
-                    );
-
-                    let _ = events.emit_plugin(
-                        "InventorySystem",
-                        "container_item_removed",
-                        &serde_json::json!({
-                            "player_id": event.player_id,
-                            "container_id": event.container_id,
-                            "item_info": item_info,
-                            "timestamp": current_timestamp()
-                        }),
-                    );
-                }
-                ContainerAccessResult::PermissionsUpdated => {
-                    println!(
-                        "🔐 Player {:?} updated permissions for container '{}'",
-                        event.player_id, event.container_id
-                    );
-
-                    let _ = events.emit_plugin(
-                        "InventorySystem",
-                        "container_permissions_updated",
-                        &serde_json::json!({
-                            "player_id": event.player_id,
-                            "container_id": event.container_id,
-                            "timestamp": current_timestamp()
-                        }),
-                    );
-                }
+                let _ = events.emit_plugin(
+                    "InventorySystem",
+                    "container_opened",
+                    &serde_json::json!({
+                        "player_id": event.player_id,
+                        "container_id": event.container_id,
+                        "container_info": container_info,
+                        "timestamp": current_timestamp()
+                    }),
+                );
             }
-        }
+            ContainerAccessResult::Closed => {
+                println!(
+                    "📁 Player {:?} closed container '{}'",
+                    event.player_id, event.container_id
+                );
+
+                let _ = events.emit_plugin(
+                    "InventorySystem",
+                    "container_closed",
+                    &serde_json::json!({
+                        "player_id": event.player_id,
+                        "container_id": event.container_id,
+                        "timestamp": current_timestamp()
+                    }),
+                );
+            }
+            ContainerAccessResult::ItemAdded(item_info) => {
+                println!(
+                    "➕ Player {:?} added item to container '{}': {} x{}",
+                    event.player_id, event.container_id, item_info.item_name, item_info.quantity
+                );
+
+                let _ = events.emit_plugin(
+                    "InventorySystem",
+                    "container_item_added",
+                    &serde_json::json!({
+                        "player_id": event.player_id,
+                        "container_id": event.container_id,
+                        "item_info": item_info,
+                        "timestamp": current_timestamp()
+                    }),
+                );
+            }
+            ContainerAccessResult::ItemRemoved(item_info) => {
+                println!(
+                    "➖ Player {:?} removed item from container '{}': {} x{}",
+                    event.player_id, event.container_id, item_info.item_name, item_info.quantity
+                );
+
+                let _ = events.emit_plugin(
+                    "InventorySystem",
+                    "container_item_removed",
+                    &serde_json::json!({
+                        "player_id": event.player_id,
+                        "container_id": event.container_id,
+                        "item_info": item_info,
+                        "timestamp": current_timestamp()
+                    }),
+                );
+            }
+            ContainerAccessResult::PermissionsUpdated => {
+                println!(
+                    "🔐 Player {:?} updated permissions for container '{}'",
+                    event.player_id, event.container_id
+                );
+
+                let _ = events.emit_plugin(
+                    "InventorySystem",
+                    "container_permissions_updated",
+                    &serde_json::json!({
+                        "player_id": event.player_id,
+                        "container_id": event.container_id,
+                        "timestamp": current_timestamp()
+                    }),
+                );
+            }
+        },
         Err(e) => {
             println!(
                 "❌ Container access failed for player {:?} on container '{}': {}",
@@ -254,10 +255,7 @@ pub fn delete_container_handler(
             );
         }
         Err(e) => {
-            println!(
-                "❌ Failed to delete container '{}': {}",
-                container_id, e
-            );
+            println!("❌ Failed to delete container '{}': {}", container_id, e);
 
             let _ = events.emit_plugin(
                 "InventorySystem",
@@ -333,19 +331,25 @@ fn create_new_container(
 
     // Check if container already exists
     if containers_guard.contains_key(&container_id) {
-        return Err(InventoryError::Custom(format!("Container '{}' already exists", container_id)));
+        return Err(InventoryError::Custom(format!(
+            "Container '{}' already exists",
+            container_id
+        )));
     }
 
     // Create inventory for the container
     let slot_count = constraints.max_slots.unwrap_or(27); // Default chest size
     let mut slots = HashMap::new();
-    
+
     for i in 0..slot_count {
-        slots.insert(i, InventorySlot {
-            slot_id: i,
-            item: None,
-            locked: false,
-        });
+        slots.insert(
+            i,
+            InventorySlot {
+                slot_id: i,
+                item: None,
+                locked: false,
+            },
+        );
     }
 
     let inventory = Inventory {
@@ -392,10 +396,11 @@ fn handle_container_access(
             let container_info = get_container_info(containers, container_id, player_id)?;
             Ok(ContainerAccessResult::Opened(container_info))
         }
-        ContainerAction::Close => {
-            Ok(ContainerAccessResult::Closed)
-        }
-        ContainerAction::AddItem { item_instance_id, quantity } => {
+        ContainerAction::Close => Ok(ContainerAccessResult::Closed),
+        ContainerAction::AddItem {
+            item_instance_id,
+            quantity,
+        } => {
             let transfer_info = add_item_to_container(
                 players,
                 containers,
@@ -407,7 +412,10 @@ fn handle_container_access(
             )?;
             Ok(ContainerAccessResult::ItemAdded(transfer_info))
         }
-        ContainerAction::RemoveItem { item_instance_id, quantity } => {
+        ContainerAction::RemoveItem {
+            item_instance_id,
+            quantity,
+        } => {
             let transfer_info = remove_item_from_container(
                 players,
                 containers,
@@ -432,17 +440,24 @@ fn get_container_info(
     requesting_player: PlayerId,
 ) -> Result<ContainerInfo, InventoryError> {
     let containers_guard = containers.lock().unwrap();
-    let container = containers_guard.get(container_id)
+    let container = containers_guard
+        .get(container_id)
         .ok_or_else(|| InventoryError::ContainerNotFound(container_id.to_string()))?;
 
     // Check access
     validate_container_access(container, requesting_player)?;
 
-    let used_slots = container.inventory.slots.values()
+    let used_slots = container
+        .inventory
+        .slots
+        .values()
         .filter(|slot| slot.item.is_some())
         .count() as u32;
 
-    let items: Vec<ContainerItemInfo> = container.inventory.slots.iter()
+    let items: Vec<ContainerItemInfo> = container
+        .inventory
+        .slots
+        .iter()
         .filter_map(|(slot_id, slot)| {
             if let Some(ref item) = slot.item {
                 // This would normally need item definitions, but we'll create a simplified version
@@ -451,7 +466,7 @@ fn get_container_info(
                     item_instance_id: item.instance_id.clone(),
                     item_name: format!("Item_{}", item.definition_id), // Simplified
                     stack: item.stack,
-                    item_value: 0, // Would calculate from definition
+                    item_value: 0,              // Would calculate from definition
                     rarity: ItemRarity::Common, // Would get from definition
                 })
             } else {
@@ -492,10 +507,12 @@ fn add_item_to_container(
     // Find and remove item from player
     let (removed_item, item_name) = {
         let mut players_guard = players.lock().unwrap();
-        let players_map = players_guard.as_mut()
+        let players_map = players_guard
+            .as_mut()
             .ok_or(InventoryError::PlayerNotFound(player_id))?;
-        
-        let player = players_map.get_mut(&player_id)
+
+        let player = players_map
+            .get_mut(&player_id)
             .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
         let mut found_item = None;
@@ -530,11 +547,15 @@ fn add_item_to_container(
                     }
                 }
             }
-            if found_item.is_some() { break; }
+            if found_item.is_some() {
+                break;
+            }
         }
 
-        let item = found_item.ok_or_else(|| InventoryError::Custom(format!("Item {} not found", item_instance_id)))?;
-        
+        let item = found_item.ok_or_else(|| {
+            InventoryError::Custom(format!("Item {} not found", item_instance_id))
+        })?;
+
         // Get item name from definitions
         let item_name = {
             let defs_guard = item_definitions.lock().unwrap();
@@ -550,11 +571,15 @@ fn add_item_to_container(
 
     // Add item to container
     let mut containers_guard = containers.lock().unwrap();
-    let container = containers_guard.get_mut(container_id)
+    let container = containers_guard
+        .get_mut(container_id)
         .ok_or_else(|| InventoryError::ContainerNotFound(container_id.to_string()))?;
 
     // Find empty slot in container
-    let empty_slot = container.inventory.slots.iter()
+    let empty_slot = container
+        .inventory
+        .slots
+        .iter()
         .find(|(_, slot)| slot.item.is_none())
         .map(|(slot_id, _)| *slot_id)
         .ok_or(InventoryError::InventoryFull)?;
@@ -597,7 +622,8 @@ fn set_container_permissions(
     new_permissions: Vec<PlayerId>,
 ) -> Result<(), InventoryError> {
     let mut containers_guard = containers.lock().unwrap();
-    let container = containers_guard.get_mut(container_id)
+    let container = containers_guard
+        .get_mut(container_id)
         .ok_or_else(|| InventoryError::ContainerNotFound(container_id.to_string()))?;
 
     // Only owner can change permissions (simplified - would need proper ownership system)
@@ -612,9 +638,10 @@ fn delete_container(
     requesting_player: PlayerId,
 ) -> Result<Container, InventoryError> {
     let mut containers_guard = containers.lock().unwrap();
-    
+
     // Check if container exists
-    let container = containers_guard.get(container_id)
+    let container = containers_guard
+        .get(container_id)
         .ok_or_else(|| InventoryError::ContainerNotFound(container_id.to_string()))?;
 
     // Check permissions (simplified)

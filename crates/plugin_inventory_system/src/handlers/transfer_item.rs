@@ -1,6 +1,6 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
 use crate::handlers::item_management::*;
+use crate::types::*;
 
 pub fn transfer_item_handler(
     players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
@@ -27,8 +27,14 @@ pub fn transfer_item_handler(
                 event.amount,
                 event.from_player,
                 event.to_player,
-                event.from_inventory.as_ref().unwrap_or(&"general".to_string()),
-                event.to_inventory.as_ref().unwrap_or(&"general".to_string())
+                event
+                    .from_inventory
+                    .as_ref()
+                    .unwrap_or(&"general".to_string()),
+                event
+                    .to_inventory
+                    .as_ref()
+                    .unwrap_or(&"general".to_string())
             );
 
             // Emit transfer success event
@@ -127,19 +133,24 @@ fn transfer_item_between_players(
     // Validate both players exist
     {
         let players_guard = players.lock().unwrap();
-        let players_map = players_guard.as_ref()
+        let players_map = players_guard
+            .as_ref()
             .ok_or(InventoryError::PlayerNotFound(from_player))?;
-        
-        players_map.get(&from_player)
+
+        players_map
+            .get(&from_player)
             .ok_or(InventoryError::PlayerNotFound(from_player))?;
-        players_map.get(&to_player)
+        players_map
+            .get(&to_player)
             .ok_or(InventoryError::PlayerNotFound(to_player))?;
     }
 
     // Get item definition for validation
     let item_def = {
         let defs_guard = item_definitions.lock().unwrap();
-        defs_guard.get(&item_id).cloned()
+        defs_guard
+            .get(&item_id)
+            .cloned()
             .ok_or(InventoryError::ItemNotFound(item_id))?
     };
 
@@ -168,7 +179,7 @@ fn transfer_item_between_players(
 
     // Execute the transfer
     let transaction_id = uuid::Uuid::new_v4().to_string();
-    
+
     // Remove from source player
     let removed_items = remove_items_from_player(
         players,
@@ -203,18 +214,26 @@ fn validate_player_has_item_amount(
     inventory_name: Option<String>,
 ) -> Result<(), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = inventory_name.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
-    let available_amount: u32 = inventory.slots.values()
+    let available_amount: u32 = inventory
+        .slots
+        .values()
         .filter_map(|slot| {
             if let Some(ref item) = slot.item {
                 if item.definition_id == item_id {
@@ -246,25 +265,34 @@ fn validate_player_has_inventory_space(
     inventory_name: Option<String>,
 ) -> Result<(), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = inventory_name.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
-    let empty_slots = inventory.slots.values()
+    let empty_slots = inventory
+        .slots
+        .values()
         .filter(|slot| slot.item.is_none() && !slot.locked)
         .count();
 
     // Check weight constraints
     if let Some(max_weight) = inventory.constraints.max_weight {
         let defs_guard = item_definitions.lock().unwrap();
-        let additional_weight: f32 = items.iter()
+        let additional_weight: f32 = items
+            .iter()
             .map(|(item_id, amount)| {
                 if let Some(item_def) = defs_guard.get(item_id) {
                     item_def.weight * (*amount as f32)
@@ -297,20 +325,28 @@ fn remove_items_from_player(
     inventory_name: Option<String>,
 ) -> Result<Vec<ItemInstance>, InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = inventory_name.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     let item_def = {
         let defs_guard = item_definitions.lock().unwrap();
-        defs_guard.get(&item_id).cloned()
+        defs_guard
+            .get(&item_id)
+            .cloned()
             .ok_or(InventoryError::ItemNotFound(item_id))?
     };
 
@@ -318,7 +354,9 @@ fn remove_items_from_player(
     let mut remaining_to_remove = amount;
 
     // Find slots with this item and remove from them
-    let mut slots_to_process: Vec<_> = inventory.slots.iter()
+    let mut slots_to_process: Vec<_> = inventory
+        .slots
+        .iter()
         .filter_map(|(slot_id, slot)| {
             if let Some(ref item) = slot.item {
                 if item.definition_id == item_id {
@@ -340,12 +378,14 @@ fn remove_items_from_player(
     });
 
     for slot_id in slots_to_process {
-        if remaining_to_remove == 0 { break; }
+        if remaining_to_remove == 0 {
+            break;
+        }
 
         if let Some(slot) = inventory.slots.get_mut(&slot_id) {
             if let Some(ref mut item_instance) = slot.item {
                 let remove_amount = std::cmp::min(remaining_to_remove, item_instance.stack);
-                
+
                 if remove_amount == item_instance.stack {
                     // Remove entire stack
                     let removed_item = slot.item.take().unwrap();
@@ -355,7 +395,7 @@ fn remove_items_from_player(
                     // Partial removal
                     item_instance.stack -= remove_amount;
                     inventory.current_weight -= item_def.weight * remove_amount as f32;
-                    
+
                     let mut partial_item = item_instance.clone();
                     partial_item.stack = remove_amount;
                     partial_item.instance_id = uuid::Uuid::new_v4().to_string();
@@ -387,16 +427,22 @@ fn add_items_to_player(
     inventory_name: Option<String>,
 ) -> Result<Vec<String>, InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let inventory_name = inventory_name.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     let mut transferred_instances = Vec::new();
     let defs_guard = item_definitions.lock().unwrap();
@@ -406,12 +452,14 @@ fn add_items_to_player(
         let mut new_instance = item_instance.clone();
         new_instance.instance_id = uuid::Uuid::new_v4().to_string();
         new_instance.acquired_timestamp = current_timestamp();
-        
+
         // Clear any player binding for transfer
         new_instance.bound_to_player = None;
 
         // Find empty slot
-        let empty_slot = inventory.slots.iter()
+        let empty_slot = inventory
+            .slots
+            .iter()
             .find(|(_, slot)| slot.item.is_none() && !slot.locked)
             .map(|(slot_id, _)| *slot_id)
             .ok_or(InventoryError::InventoryFull)?;

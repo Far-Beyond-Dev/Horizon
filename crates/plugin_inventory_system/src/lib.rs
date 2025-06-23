@@ -1,13 +1,13 @@
-mod types;
 mod handlers;
+mod types;
 
-use types::*;
 use handlers::*;
+use types::*;
 
 impl InventorySystem {
     pub fn new() -> Self {
         println!("📝 InventoryPlugin: Initializing comprehensive inventory management system...");
-        
+
         // Initialize with default configuration
         let default_config = InventoryConfig {
             default_inventory_size: 27,
@@ -45,10 +45,13 @@ impl SimplePlugin for InventorySystem {
     }
 
     async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        context.log(LogLevel::Info, "📝 InventorySystem: Advanced inventory management system starting...");
+        context.log(
+            LogLevel::Info,
+            "📝 InventorySystem: Advanced inventory management system starting...",
+        );
 
         let events = context.events();
-        
+
         // Initialize system with default settings
         let default_settings = InventorySettingRequest {
             slot_count: Some(27),
@@ -78,7 +81,7 @@ impl SimplePlugin for InventorySystem {
                     "start_time": current_timestamp(),
                     "features": [
                         "item_management",
-                        "equipment_system", 
+                        "equipment_system",
                         "trading_system",
                         "crafting_system",
                         "container_system",
@@ -106,7 +109,7 @@ impl SimplePlugin for InventorySystem {
 
         println!("📝 InventorySystem: ✅ Comprehensive Inventory Management Active");
         println!("🎯 Features: Item Management | Equipment | Trading | Crafting | Containers | Enchantments | Repairs");
-        
+
         Ok(())
     }
 
@@ -131,19 +134,26 @@ impl SimplePlugin for InventorySystem {
             let item_definitions = item_definitions.clone();
             let config = config.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "PickupItem", move |json_event: serde_json::Value| {
-                let event: PickupItemRequest = serde_json::from_value(json_event)?;
-                pickup_item_handler(
-                    &players, 
-                    &player_count, 
-                    &item_definitions,
-                    &config,
-                    &events_for_emit, 
-                    event
-                );
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "PickupItem",
+                    move |json_event: serde_json::Value| {
+                        let event: PickupItemRequest = serde_json::from_value(json_event)?;
+                        pickup_item_handler(
+                            &players,
+                            &player_count,
+                            &item_definitions,
+                            &config,
+                            &events_for_emit,
+                            event,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // DropItem handler
@@ -151,12 +161,19 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "DropItem", move |json_event: serde_json::Value| {
-                let event: DropItemRequest = serde_json::from_value(json_event)?;
-                drop_item_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "DropItem",
+                    move |json_event: serde_json::Value| {
+                        let event: DropItemRequest = serde_json::from_value(json_event)?;
+                        drop_item_handler(&players, &item_definitions, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // GetInventory handler
@@ -164,12 +181,19 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "GetInventory", move |json_event: serde_json::Value| {
-                let event: GetInventoryRequest = serde_json::from_value(json_event)?;
-                get_inventory_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "GetInventory",
+                    move |json_event: serde_json::Value| {
+                        let event: GetInventoryRequest = serde_json::from_value(json_event)?;
+                        get_inventory_handler(&players, &item_definitions, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // CheckItem handler
@@ -177,12 +201,19 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "CheckItem", move |json_event: serde_json::Value| {
-                let event: CheckItemRequest = serde_json::from_value(json_event)?;
-                check_item_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "CheckItem",
+                    move |json_event: serde_json::Value| {
+                        let event: CheckItemRequest = serde_json::from_value(json_event)?;
+                        check_item_handler(&players, &item_definitions, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // TransferItem handler
@@ -190,12 +221,19 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "TransferItem", move |json_event: serde_json::Value| {
-                let event: TransferItemRequest = serde_json::from_value(json_event)?;
-                transfer_item_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "TransferItem",
+                    move |json_event: serde_json::Value| {
+                        let event: TransferItemRequest = serde_json::from_value(json_event)?;
+                        transfer_item_handler(&players, &item_definitions, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // ConsumeItem handler
@@ -203,12 +241,19 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "ConsumeItem", move |json_event: serde_json::Value| {
-                let event: ConsumeItemRequest = serde_json::from_value(json_event)?;
-                consume_item_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "ConsumeItem",
+                    move |json_event: serde_json::Value| {
+                        let event: ConsumeItemRequest = serde_json::from_value(json_event)?;
+                        consume_item_handler(&players, &item_definitions, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // ClearInventory handler
@@ -216,12 +261,24 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "ClearInventory", move |json_event: serde_json::Value| {
-                let event: ClearInventoryRequest = serde_json::from_value(json_event)?;
-                clear_inventory_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "ClearInventory",
+                    move |json_event: serde_json::Value| {
+                        let event: ClearInventoryRequest = serde_json::from_value(json_event)?;
+                        clear_inventory_handler(
+                            &players,
+                            &item_definitions,
+                            &events_for_emit,
+                            event,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // === EQUIPMENT SYSTEM ===
@@ -231,24 +288,38 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "EquipItem", move |json_event: serde_json::Value| {
-                let event: EquipItemRequest = serde_json::from_value(json_event)?;
-                equip_item_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "EquipItem",
+                    move |json_event: serde_json::Value| {
+                        let event: EquipItemRequest = serde_json::from_value(json_event)?;
+                        equip_item_handler(&players, &item_definitions, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // UnequipItem handler
         {
             let players = players.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "UnequipItem", move |json_event: serde_json::Value| {
-                let event: UnequipItemRequest = serde_json::from_value(json_event)?;
-                unequip_item_handler(&players, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "UnequipItem",
+                    move |json_event: serde_json::Value| {
+                        let event: UnequipItemRequest = serde_json::from_value(json_event)?;
+                        unequip_item_handler(&players, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // === TRADING SYSTEM ===
@@ -260,19 +331,26 @@ impl SimplePlugin for InventorySystem {
             let item_definitions = item_definitions.clone();
             let config = config.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "CreateTrade", move |json_event: serde_json::Value| {
-                let event: CreateTradeRequest = serde_json::from_value(json_event)?;
-                create_trade_handler(
-                    &players,
-                    &active_trades, 
-                    &item_definitions,
-                    &config,
-                    &events_for_emit, 
-                    event
-                );
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "CreateTrade",
+                    move |json_event: serde_json::Value| {
+                        let event: CreateTradeRequest = serde_json::from_value(json_event)?;
+                        create_trade_handler(
+                            &players,
+                            &active_trades,
+                            &item_definitions,
+                            &config,
+                            &events_for_emit,
+                            event,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // TradeAction handler
@@ -281,30 +359,44 @@ impl SimplePlugin for InventorySystem {
             let active_trades = active_trades.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "TradeAction", move |json_event: serde_json::Value| {
-                let event: TradeActionRequest = serde_json::from_value(json_event)?;
-                trade_action_handler(
-                    &players,
-                    &active_trades,
-                    &item_definitions,
-                    &events_for_emit, 
-                    event
-                );
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "TradeAction",
+                    move |json_event: serde_json::Value| {
+                        let event: TradeActionRequest = serde_json::from_value(json_event)?;
+                        trade_action_handler(
+                            &players,
+                            &active_trades,
+                            &item_definitions,
+                            &events_for_emit,
+                            event,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // GetTrades handler
         {
             let active_trades = active_trades.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "GetTrades", move |json_event: serde_json::Value| {
-                let player_id: PlayerId = serde_json::from_value(json_event)?;
-                get_trades_handler(&active_trades, &events_for_emit, player_id);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "GetTrades",
+                    move |json_event: serde_json::Value| {
+                        let player_id: PlayerId = serde_json::from_value(json_event)?;
+                        get_trades_handler(&active_trades, &events_for_emit, player_id);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // === CRAFTING SYSTEM ===
@@ -315,18 +407,25 @@ impl SimplePlugin for InventorySystem {
             let crafting_recipes = crafting_recipes.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "CraftItem", move |json_event: serde_json::Value| {
-                let event: CraftItemRequest = serde_json::from_value(json_event)?;
-                craft_item_handler(
-                    &players,
-                    &crafting_recipes,
-                    &item_definitions,
-                    &events_for_emit, 
-                    event
-                );
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "CraftItem",
+                    move |json_event: serde_json::Value| {
+                        let event: CraftItemRequest = serde_json::from_value(json_event)?;
+                        craft_item_handler(
+                            &players,
+                            &crafting_recipes,
+                            &item_definitions,
+                            &events_for_emit,
+                            event,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // === SEARCH AND SORTING ===
@@ -336,12 +435,24 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "SearchInventory", move |json_event: serde_json::Value| {
-                let event: SearchInventoryRequest = serde_json::from_value(json_event)?;
-                search_inventory_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "SearchInventory",
+                    move |json_event: serde_json::Value| {
+                        let event: SearchInventoryRequest = serde_json::from_value(json_event)?;
+                        search_inventory_handler(
+                            &players,
+                            &item_definitions,
+                            &events_for_emit,
+                            event,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // SortInventory handler
@@ -349,12 +460,24 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "SortInventory", move |json_event: serde_json::Value| {
-                let event: SortInventoryRequest = serde_json::from_value(json_event)?;
-                sort_inventory_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "SortInventory",
+                    move |json_event: serde_json::Value| {
+                        let event: SortInventoryRequest = serde_json::from_value(json_event)?;
+                        sort_inventory_handler(
+                            &players,
+                            &item_definitions,
+                            &events_for_emit,
+                            event,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // === CONTAINER SYSTEM ===
@@ -363,12 +486,19 @@ impl SimplePlugin for InventorySystem {
         {
             let containers = containers.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "CreateContainer", move |json_event: serde_json::Value| {
-                let event: CreateContainerRequest = serde_json::from_value(json_event)?;
-                create_container_handler(&containers, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "CreateContainer",
+                    move |json_event: serde_json::Value| {
+                        let event: CreateContainerRequest = serde_json::from_value(json_event)?;
+                        create_container_handler(&containers, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // AccessContainer handler
@@ -377,52 +507,85 @@ impl SimplePlugin for InventorySystem {
             let containers = containers.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "AccessContainer", move |json_event: serde_json::Value| {
-                let event: AccessContainerRequest = serde_json::from_value(json_event)?;
-                access_container_handler(
-                    &players,
-                    &containers,
-                    &item_definitions,
-                    &events_for_emit, 
-                    event
-                );
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "AccessContainer",
+                    move |json_event: serde_json::Value| {
+                        let event: AccessContainerRequest = serde_json::from_value(json_event)?;
+                        access_container_handler(
+                            &players,
+                            &containers,
+                            &item_definitions,
+                            &events_for_emit,
+                            event,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // GetContainer handler
         {
             let containers = containers.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "GetContainer", move |json_event: serde_json::Value| {
-            let request: serde_json::Value = json_event;
-            let player_id = request["player_id"]
-                .as_str()
-                .and_then(|id| PlayerId::from_str(id).ok())
-                .unwrap_or_else(PlayerId::default);
-            let container_id = request["container_id"].as_str().unwrap_or("").to_string();
-            get_container_handler(&containers, &events_for_emit, player_id, container_id);
-            Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "GetContainer",
+                    move |json_event: serde_json::Value| {
+                        let request: serde_json::Value = json_event;
+                        let player_id = request["player_id"]
+                            .as_str()
+                            .and_then(|id| PlayerId::from_str(id).ok())
+                            .unwrap_or_else(PlayerId::default);
+                        let container_id =
+                            request["container_id"].as_str().unwrap_or("").to_string();
+                        get_container_handler(
+                            &containers,
+                            &events_for_emit,
+                            player_id,
+                            container_id,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // DeleteContainer handler
         {
             let containers = containers.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "DeleteContainer", move |json_event: serde_json::Value| {
-            let request: serde_json::Value = json_event;
-            let player_id = request["player_id"]
-                .as_str()
-                .and_then(|id| PlayerId::from_str(id).ok())
-                .unwrap_or_else(PlayerId::default);
-            let container_id = request["container_id"].as_str().unwrap_or("").to_string();
-            delete_container_handler(&containers, &events_for_emit, container_id, player_id);
-            Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "DeleteContainer",
+                    move |json_event: serde_json::Value| {
+                        let request: serde_json::Value = json_event;
+                        let player_id = request["player_id"]
+                            .as_str()
+                            .and_then(|id| PlayerId::from_str(id).ok())
+                            .unwrap_or_else(PlayerId::default);
+                        let container_id =
+                            request["container_id"].as_str().unwrap_or("").to_string();
+                        delete_container_handler(
+                            &containers,
+                            &events_for_emit,
+                            container_id,
+                            player_id,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // === ITEM ENHANCEMENT ===
@@ -432,12 +595,19 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "EnchantItem", move |json_event: serde_json::Value| {
-                let event: EnchantItemRequest = serde_json::from_value(json_event)?;
-                enchant_item_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "EnchantItem",
+                    move |json_event: serde_json::Value| {
+                        let event: EnchantItemRequest = serde_json::from_value(json_event)?;
+                        enchant_item_handler(&players, &item_definitions, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // RepairItem handler
@@ -445,12 +615,19 @@ impl SimplePlugin for InventorySystem {
             let players = players.clone();
             let item_definitions = item_definitions.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "RepairItem", move |json_event: serde_json::Value| {
-                let event: RepairItemRequest = serde_json::from_value(json_event)?;
-                repair_item_handler(&players, &item_definitions, &events_for_emit, event);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "RepairItem",
+                    move |json_event: serde_json::Value| {
+                        let event: RepairItemRequest = serde_json::from_value(json_event)?;
+                        repair_item_handler(&players, &item_definitions, &events_for_emit, event);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // === SYSTEM MANAGEMENT ===
@@ -461,18 +638,25 @@ impl SimplePlugin for InventorySystem {
             let item_definitions = item_definitions.clone();
             let crafting_recipes = crafting_recipes.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "SetupInventory", move |json_event: serde_json::Value| {
-                let event: InventorySettingRequest = serde_json::from_value(json_event)?;
-                setup_inventory_handler(
-                    &config,
-                    &item_definitions,
-                    &crafting_recipes,
-                    &events_for_emit,
-                    event
-                );
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "SetupInventory",
+                    move |json_event: serde_json::Value| {
+                        let event: InventorySettingRequest = serde_json::from_value(json_event)?;
+                        setup_inventory_handler(
+                            &config,
+                            &item_definitions,
+                            &crafting_recipes,
+                            &events_for_emit,
+                            event,
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // === UTILITY HANDLERS ===
@@ -481,12 +665,19 @@ impl SimplePlugin for InventorySystem {
         {
             let players = players.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "CleanupExpiredEffects", move |_json_event: serde_json::Value| {
-                use crate::handlers::consume_item::cleanup_expired_effects;
-                cleanup_expired_effects(&players, &events_for_emit);
-                Ok(())
-            }).await.unwrap();
+
+            events
+                .on_plugin(
+                    "InventorySystem",
+                    "CleanupExpiredEffects",
+                    move |_json_event: serde_json::Value| {
+                        use crate::handlers::consume_item::cleanup_expired_effects;
+                        cleanup_expired_effects(&players, &events_for_emit);
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
         // GetSystemStats handler
@@ -496,28 +687,38 @@ impl SimplePlugin for InventorySystem {
             let containers = containers.clone();
             let active_trades = active_trades.clone();
             let events_for_emit = events.clone();
-            
-            events.on_plugin("InventorySystem", "GetSystemStats", move |_json_event: serde_json::Value| {
-                let stats = get_system_statistics(
-                    &players,
-                    &item_definitions,
-                    &containers,
-                    &active_trades
-                );
-                
-                let _ = events_for_emit.emit_plugin(
+
+            events
+                .on_plugin(
                     "InventorySystem",
-                    "system_statistics",
-                    &serde_json::json!({
-                        "stats": stats,
-                        "timestamp": current_timestamp()
-                    }),
-                );
-                Ok(())
-            }).await.unwrap();
+                    "GetSystemStats",
+                    move |_json_event: serde_json::Value| {
+                        let stats = get_system_statistics(
+                            &players,
+                            &item_definitions,
+                            &containers,
+                            &active_trades,
+                        );
+
+                        let _ = events_for_emit.emit_plugin(
+                            "InventorySystem",
+                            "system_statistics",
+                            &serde_json::json!({
+                                "stats": stats,
+                                "timestamp": current_timestamp()
+                            }),
+                        );
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap();
         }
 
-        println!("InventorySystem: ✅ All {} inventory event handlers registered! 🎮", 25);
+        println!(
+            "InventorySystem: ✅ All {} inventory event handlers registered! 🎮",
+            25
+        );
         println!("🎯 Available Operations:");
         println!("   📦 Core: Pickup, Drop, Transfer, Consume, Clear, Check");
         println!("   ⚔️ Equipment: Equip, Unequip");
@@ -527,7 +728,7 @@ impl SimplePlugin for InventorySystem {
         println!("   📦 Containers: Create, Access, Manage");
         println!("   ✨ Enhancement: Enchant, Repair");
         println!("   ⚙️ System: Setup, Stats, Maintenance");
-        
+
         Ok(())
     }
 }
@@ -583,11 +784,17 @@ fn get_system_statistics(
     let total_items_in_circulation = {
         let players_guard = players.lock().unwrap();
         if let Some(ref players_map) = *players_guard {
-            players_map.values()
+            players_map
+                .values()
                 .map(|player| {
-                    player.inventories.inventories.values()
+                    player
+                        .inventories
+                        .inventories
+                        .values()
                         .map(|inventory| {
-                            inventory.slots.values()
+                            inventory
+                                .slots
+                                .values()
                                 .filter_map(|slot| slot.item.as_ref())
                                 .map(|item| item.stack as u64)
                                 .sum::<u64>()

@@ -1,6 +1,6 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
 use crate::handlers::item_management::*;
+use crate::types::*;
 
 pub fn pickup_item_handler(
     players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
@@ -33,11 +33,13 @@ pub fn pickup_item_handler(
             let players_guard = players.lock().unwrap();
             if let Some(ref players_map) = *players_guard {
                 if let Some(player) = players_map.get(&event.id) {
-                    let total_items: u32 = player.inventories.inventories
+                    let total_items: u32 = player
+                        .inventories
+                        .inventories
                         .values()
                         .map(|inv| inv.slots.len() as u32)
                         .sum();
-                    
+
                     println!(
                         "📊 Player {:?} now has {} total items across all inventories",
                         event.id, total_items
@@ -121,7 +123,9 @@ fn add_item_to_player(
 
     let item_def = {
         let defs_guard = item_definitions.lock().unwrap();
-        defs_guard.get(&item_id).cloned()
+        defs_guard
+            .get(&item_id)
+            .cloned()
             .ok_or(InventoryError::ItemNotFound(item_id))?
     };
 
@@ -133,13 +137,17 @@ fn add_item_to_player(
     let player = players_map.entry(player_id).or_insert_with(|| {
         let mut count_guard = player_count.lock().unwrap();
         *count_guard = Some(count_guard.unwrap_or(0) + 1);
-        
+
         let mut general_inventory = Inventory {
             inventory_type: InventoryType::General,
             slots: HashMap::new(),
             constraints: InventoryConstraints {
                 max_slots: Some(config_guard.default_inventory_size),
-                max_weight: if config_guard.enable_weight_system { Some(100.0) } else { None },
+                max_weight: if config_guard.enable_weight_system {
+                    Some(100.0)
+                } else {
+                    None
+                },
                 allowed_categories: None,
                 grid_size: None,
                 auto_sort: config_guard.auto_stack_items,
@@ -151,11 +159,14 @@ fn add_item_to_player(
 
         // Initialize slots
         for i in 0..config_guard.default_inventory_size {
-            general_inventory.slots.insert(i, InventorySlot {
-                slot_id: i,
-                item: None,
-                locked: false,
-            });
+            general_inventory.slots.insert(
+                i,
+                InventorySlot {
+                    slot_id: i,
+                    item: None,
+                    locked: false,
+                },
+            );
         }
 
         let mut inventories = HashMap::new();
@@ -187,9 +198,13 @@ fn add_item_to_player(
     });
 
     let inventory_name = inventory_name.unwrap_or_else(|| "general".to_string());
-    let inventory = player.inventories.inventories
+    let inventory = player
+        .inventories
+        .inventories
         .get_mut(&inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     // Check weight constraints
     if let Some(max_weight) = inventory.constraints.max_weight {
@@ -215,8 +230,9 @@ fn add_item_to_player(
     if config_guard.auto_stack_items && amount <= item_def.max_stack {
         for slot in inventory.slots.values_mut() {
             if let Some(ref mut existing_item) = slot.item {
-                if existing_item.definition_id == item_id && 
-                   existing_item.stack + amount <= item_def.max_stack {
+                if existing_item.definition_id == item_id
+                    && existing_item.stack + amount <= item_def.max_stack
+                {
                     existing_item.stack += amount;
                     inventory.current_weight += item_def.weight * amount as f32;
                     inventory.last_modified = current_timestamp();
@@ -239,7 +255,9 @@ fn add_item_to_player(
         }
     } else {
         // Find first empty slot
-        inventory.slots.iter()
+        inventory
+            .slots
+            .iter()
             .find(|(_, slot)| slot.item.is_none() && !slot.locked)
             .map(|(slot_id, _)| *slot_id)
             .ok_or(InventoryError::InventoryFull)?

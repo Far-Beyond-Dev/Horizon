@@ -21,7 +21,11 @@ pub fn check_item_handler(
             println!(
                 "🔍 Player {:?} {} {} of item {} (required: {}, available: {})",
                 event.id,
-                if check_result.has_item { "has" } else { "doesn't have" },
+                if check_result.has_item {
+                    "has"
+                } else {
+                    "doesn't have"
+                },
                 check_result.available_amount,
                 event.item_id,
                 event.required_amount,
@@ -110,15 +114,19 @@ fn check_player_has_item(
     include_equipped: bool,
 ) -> Result<ItemCheckResult, InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let item_def = {
         let defs_guard = item_definitions.lock().unwrap();
-        defs_guard.get(&item_id).cloned()
+        defs_guard
+            .get(&item_id)
+            .cloned()
             .ok_or(InventoryError::ItemNotFound(item_id))?
     };
 
@@ -132,10 +140,16 @@ fn check_player_has_item(
         if let Some(inventory) = player.inventories.inventories.get(inv_name) {
             vec![(inv_name.clone(), inventory)]
         } else {
-            return Err(InventoryError::Custom(format!("Inventory '{}' not found", inv_name)));
+            return Err(InventoryError::Custom(format!(
+                "Inventory '{}' not found",
+                inv_name
+            )));
         }
     } else {
-        player.inventories.inventories.iter()
+        player
+            .inventories
+            .inventories
+            .iter()
             .map(|(name, inv)| (name.clone(), inv))
             .collect()
     };
@@ -172,7 +186,10 @@ fn check_player_has_item(
             ("legs", &player.inventories.equipped_items.legs),
             ("boots", &player.inventories.equipped_items.boots),
             ("gloves", &player.inventories.equipped_items.gloves),
-            ("weapon_main", &player.inventories.equipped_items.weapon_main),
+            (
+                "weapon_main",
+                &player.inventories.equipped_items.weapon_main,
+            ),
             ("weapon_off", &player.inventories.equipped_items.weapon_off),
             ("ring_1", &player.inventories.equipped_items.ring_1),
             ("ring_2", &player.inventories.equipped_items.ring_2),
@@ -232,10 +249,15 @@ fn check_player_has_item(
     })
 }
 
-fn calculate_item_condition(item_instance: &ItemInstance, item_def: &ItemDefinition) -> ItemCondition {
-    if let (Some(current_durability), Some(max_durability)) = (item_instance.durability, item_def.durability_max) {
+fn calculate_item_condition(
+    item_instance: &ItemInstance,
+    item_def: &ItemDefinition,
+) -> ItemCondition {
+    if let (Some(current_durability), Some(max_durability)) =
+        (item_instance.durability, item_def.durability_max)
+    {
         let condition_ratio = current_durability as f32 / max_durability as f32;
-        
+
         match condition_ratio {
             ratio if ratio >= 0.9 => ItemCondition::Perfect,
             ratio if ratio >= 0.75 => ItemCondition::Excellent,

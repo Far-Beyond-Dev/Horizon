@@ -1,5 +1,5 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
+use crate::types::*;
 
 /// Creates a new item instance with proper initialization
 pub fn create_item_instance(
@@ -52,7 +52,9 @@ pub fn find_best_slot_for_item(
     }
 
     // Find first empty slot
-    inventory.slots.iter()
+    inventory
+        .slots
+        .iter()
         .find(|(_, slot)| slot.item.is_none() && !slot.locked)
         .map(|(slot_id, _)| *slot_id)
 }
@@ -103,13 +105,13 @@ pub fn split_item_stack(
 ) -> Result<(ItemInstance, ItemInstance), InventoryError> {
     if split_amount >= item_instance.stack {
         return Err(InventoryError::Custom(
-            "Cannot split more items than available in stack".to_string()
+            "Cannot split more items than available in stack".to_string(),
         ));
     }
 
     if split_amount == 0 {
         return Err(InventoryError::Custom(
-            "Cannot split zero items".to_string()
+            "Cannot split zero items".to_string(),
         ));
     }
 
@@ -132,7 +134,7 @@ pub fn merge_item_stacks(
 ) -> Result<ItemInstance, InventoryError> {
     if !can_stack_items_together(item1, item2, item_def) {
         return Err(InventoryError::Custom(
-            "Items cannot be stacked together".to_string()
+            "Items cannot be stacked together".to_string(),
         ));
     }
 
@@ -171,17 +173,21 @@ pub fn repair_item_durability(
     item_def: &ItemDefinition,
     repair_amount: Option<u32>,
 ) -> Result<u32, InventoryError> {
-    if let (Some(ref mut durability), Some(max_durability)) = (&mut item_instance.durability, item_def.durability_max) {
+    if let (Some(ref mut durability), Some(max_durability)) =
+        (&mut item_instance.durability, item_def.durability_max)
+    {
         let old_durability = *durability;
         *durability = if let Some(amount) = repair_amount {
             std::cmp::min(*durability + amount, max_durability)
         } else {
             max_durability // Full repair
         };
-        
+
         Ok(*durability - old_durability) // Return amount repaired
     } else {
-        Err(InventoryError::Custom("Item does not have durability".to_string()))
+        Err(InventoryError::Custom(
+            "Item does not have durability".to_string(),
+        ))
     }
 }
 
@@ -192,9 +198,11 @@ pub fn add_enchantment_to_item(
     allow_overwrite: bool,
 ) -> Result<(), InventoryError> {
     // Check if enchantment already exists
-    if let Some(existing_index) = item_instance.enchantments.iter()
-        .position(|e| e.enchantment_id == enchantment.enchantment_id) {
-        
+    if let Some(existing_index) = item_instance
+        .enchantments
+        .iter()
+        .position(|e| e.enchantment_id == enchantment.enchantment_id)
+    {
         if allow_overwrite {
             item_instance.enchantments[existing_index] = enchantment;
         } else {
@@ -215,9 +223,11 @@ pub fn remove_enchantment_from_item(
     item_instance: &mut ItemInstance,
     enchantment_id: &str,
 ) -> Result<Enchantment, InventoryError> {
-    if let Some(index) = item_instance.enchantments.iter()
-        .position(|e| e.enchantment_id == enchantment_id) {
-        
+    if let Some(index) = item_instance
+        .enchantments
+        .iter()
+        .position(|e| e.enchantment_id == enchantment_id)
+    {
         Ok(item_instance.enchantments.remove(index))
     } else {
         Err(InventoryError::Custom(format!(
@@ -228,26 +238,22 @@ pub fn remove_enchantment_from_item(
 }
 
 /// Calculates the total value of an item including enchantments
-pub fn calculate_total_item_value(
-    item_instance: &ItemInstance,
-    item_def: &ItemDefinition,
-) -> u32 {
+pub fn calculate_total_item_value(item_instance: &ItemInstance, item_def: &ItemDefinition) -> u32 {
     let base_value = item_def.value * item_instance.stack;
-    let enchantment_value: u32 = item_instance.enchantments.iter()
+    let enchantment_value: u32 = item_instance
+        .enchantments
+        .iter()
         .map(|enchantment| {
             // Simple calculation: level * 100 per enchantment
             enchantment.level * 100
         })
         .sum();
-    
+
     base_value + enchantment_value
 }
 
 /// Gets the effective weight of an item
-pub fn calculate_item_weight(
-    item_instance: &ItemInstance,
-    item_def: &ItemDefinition,
-) -> f32 {
+pub fn calculate_item_weight(item_instance: &ItemInstance, item_def: &ItemDefinition) -> f32 {
     item_def.weight * item_instance.stack as f32
 }
 
@@ -298,18 +304,15 @@ pub fn get_item_custom_data<'a>(
 }
 
 /// Creates a copy of an item instance for duplication/cloning
-pub fn clone_item_instance(
-    original: &ItemInstance,
-    new_stack: Option<u32>,
-) -> ItemInstance {
+pub fn clone_item_instance(original: &ItemInstance, new_stack: Option<u32>) -> ItemInstance {
     let mut cloned = original.clone();
     cloned.instance_id = uuid::Uuid::new_v4().to_string();
     cloned.acquired_timestamp = current_timestamp();
-    
+
     if let Some(stack) = new_stack {
         cloned.stack = stack;
     }
-    
+
     cloned
 }
 
@@ -318,7 +321,8 @@ pub fn validate_item_instance(
     item_instance: &ItemInstance,
     item_definitions: &HashMap<u64, ItemDefinition>,
 ) -> Result<(), InventoryError> {
-    let item_def = item_definitions.get(&item_instance.definition_id)
+    let item_def = item_definitions
+        .get(&item_instance.definition_id)
         .ok_or(InventoryError::ItemNotFound(item_instance.definition_id))?;
 
     // Check stack size
@@ -330,11 +334,15 @@ pub fn validate_item_instance(
     }
 
     if item_instance.stack == 0 {
-        return Err(InventoryError::Custom("Item stack cannot be zero".to_string()));
+        return Err(InventoryError::Custom(
+            "Item stack cannot be zero".to_string(),
+        ));
     }
 
     // Check durability
-    if let (Some(current_durability), Some(max_durability)) = (item_instance.durability, item_def.durability_max) {
+    if let (Some(current_durability), Some(max_durability)) =
+        (item_instance.durability, item_def.durability_max)
+    {
         if current_durability > max_durability {
             return Err(InventoryError::Custom(format!(
                 "Invalid durability: {} > {}",
@@ -342,7 +350,9 @@ pub fn validate_item_instance(
             )));
         }
     } else if item_instance.durability.is_some() && item_def.durability_max.is_none() {
-        return Err(InventoryError::Custom("Item has durability but definition doesn't support it".to_string()));
+        return Err(InventoryError::Custom(
+            "Item has durability but definition doesn't support it".to_string(),
+        ));
     }
 
     Ok(())
@@ -363,7 +373,10 @@ pub fn find_item_instances(
             vec![]
         }
     } else {
-        player.inventories.inventories.iter()
+        player
+            .inventories
+            .inventories
+            .iter()
             .map(|(name, inv)| (name.clone(), inv))
             .collect()
     };
@@ -391,20 +404,20 @@ pub fn optimize_inventory_stacking(
 
     // Find items that can be stacked together
     let slot_ids: Vec<_> = inventory.slots.keys().cloned().collect();
-    
+
     for i in 0..slot_ids.len() {
         for j in (i + 1)..slot_ids.len() {
             let slot_id1 = slot_ids[i];
             let slot_id2 = slot_ids[j];
-            
+
             let can_merge = {
                 let slot1 = &inventory.slots[&slot_id1];
                 let slot2 = &inventory.slots[&slot_id2];
-                
+
                 if let (Some(ref item1), Some(ref item2)) = (&slot1.item, &slot2.item) {
                     if let Some(item_def) = item_definitions.get(&item1.definition_id) {
-                        can_stack_items_together(item1, item2, item_def) &&
-                        item1.stack + item2.stack <= item_def.max_stack
+                        can_stack_items_together(item1, item2, item_def)
+                            && item1.stack + item2.stack <= item_def.max_stack
                     } else {
                         false
                     }
@@ -412,7 +425,7 @@ pub fn optimize_inventory_stacking(
                     false
                 }
             };
-            
+
             if can_merge {
                 items_to_merge.push((slot_id1, slot_id2));
             }
@@ -424,7 +437,7 @@ pub fn optimize_inventory_stacking(
         let (item1, item2, item_def) = {
             let slot1 = &inventory.slots[&slot_id1];
             let slot2 = &inventory.slots[&slot_id2];
-            
+
             if let (Some(ref item1), Some(ref item2)) = (&slot1.item, &slot2.item) {
                 if let Some(item_def) = item_definitions.get(&item1.definition_id) {
                     (item1.clone(), item2.clone(), item_def.clone())

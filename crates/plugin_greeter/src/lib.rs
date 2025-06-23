@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use chrono::prelude::*;
 use event_system::{
     create_simple_plugin, current_timestamp, on_event, register_handlers, EventSystem, LogLevel,
     PlayerId, PluginError, Position, ServerContext, SimplePlugin,
@@ -162,6 +163,23 @@ impl SimplePlugin for GreeterPlugin {
             )
             .await
             .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
+        {
+            let time = Utc::now();
+
+            events
+                .emit_plugin(
+                    "GuildComms",
+                    "Chat",
+                    &serde_json::json!({
+                        "id": "fc326f20-a5f8-43c4-85ff-d5be9a5bffd7",
+                        "name": "Example Guild Name",
+                        "time": time,
+                    }),
+                )
+                .await
+                .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+        }
 
         println!("👋 GreeterPlugin: ✅ Initialization complete!");
         Ok(())

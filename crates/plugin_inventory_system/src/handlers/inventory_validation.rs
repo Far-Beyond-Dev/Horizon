@@ -6,10 +6,12 @@ pub fn validate_player_access(
     player_id: PlayerId,
 ) -> Result<(), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    players_map.get(&player_id)
+
+    players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     Ok(())
@@ -22,14 +24,21 @@ pub fn validate_inventory_exists(
     inventory_name: &str,
 ) -> Result<(), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
-        .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
-    player.inventories.inventories.get(inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+    let player = players_map
+        .get(&player_id)
+        .ok_or(InventoryError::PlayerNotFound(player_id))?;
+
+    player
+        .inventories
+        .inventories
+        .get(inventory_name)
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
 
     Ok(())
 }
@@ -40,7 +49,9 @@ pub fn validate_item_definition(
     item_id: u64,
 ) -> Result<ItemDefinition, InventoryError> {
     let defs_guard = item_definitions.lock().unwrap();
-    defs_guard.get(&item_id).cloned()
+    defs_guard
+        .get(&item_id)
+        .cloned()
         .ok_or(InventoryError::ItemNotFound(item_id))
 }
 
@@ -52,20 +63,32 @@ pub fn validate_slot_access(
     slot_id: u32,
 ) -> Result<(), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
-        .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
-    let inventory = player.inventories.inventories.get(inventory_name)
-        .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
+    let player = players_map
+        .get(&player_id)
+        .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
-    let slot = inventory.slots.get(&slot_id)
+    let inventory = player
+        .inventories
+        .inventories
+        .get(inventory_name)
+        .ok_or_else(|| {
+            InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+        })?;
+
+    let slot = inventory
+        .slots
+        .get(&slot_id)
         .ok_or(InventoryError::InvalidSlot(slot_id))?;
 
     if slot.locked {
-        return Err(InventoryError::Custom(format!("Slot {} is locked", slot_id)));
+        return Err(InventoryError::Custom(format!(
+            "Slot {} is locked",
+            slot_id
+        )));
     }
 
     Ok(())
@@ -111,20 +134,28 @@ pub fn validate_sufficient_items(
     inventory_name: Option<String>,
 ) -> Result<u32, InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     let available_amount = if let Some(inv_name) = inventory_name {
-        let inventory = player.inventories.inventories.get(&inv_name)
+        let inventory = player
+            .inventories
+            .inventories
+            .get(&inv_name)
             .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inv_name)))?;
-        
+
         count_item_in_inventory(inventory, item_id)
     } else {
         // Count across all inventories
-        player.inventories.inventories.values()
+        player
+            .inventories
+            .inventories
+            .values()
             .map(|inv| count_item_in_inventory(inv, item_id))
             .sum()
     };
@@ -165,7 +196,9 @@ pub fn validate_item_durability(
     item_def: &ItemDefinition,
     minimum_durability: Option<u32>,
 ) -> Result<(), InventoryError> {
-    if let (Some(current_durability), Some(min_required)) = (item_instance.durability, minimum_durability) {
+    if let (Some(current_durability), Some(min_required)) =
+        (item_instance.durability, minimum_durability)
+    {
         if current_durability < min_required {
             return Err(InventoryError::DurabilityTooLow);
         }
@@ -202,7 +235,9 @@ pub fn validate_inventory_space(
     items_to_add: &[(u64, u32)], // (item_id, amount)
     item_definitions: &HashMap<u64, ItemDefinition>,
 ) -> Result<(), InventoryError> {
-    let empty_slots = inventory.slots.values()
+    let empty_slots = inventory
+        .slots
+        .values()
         .filter(|slot| slot.item.is_none() && !slot.locked)
         .count();
 
@@ -214,7 +249,8 @@ pub fn validate_inventory_space(
 
     // Check weight constraints
     if let Some(max_weight) = inventory.constraints.max_weight {
-        let additional_weight: f32 = items_to_add.iter()
+        let additional_weight: f32 = items_to_add
+            .iter()
             .map(|(item_id, amount)| {
                 if let Some(item_def) = item_definitions.get(item_id) {
                     item_def.weight * (*amount as f32)
@@ -237,7 +273,8 @@ pub fn validate_level_requirements(
     item_def: &ItemDefinition,
     player_level: Option<u32>,
 ) -> Result<(), InventoryError> {
-    if let (Some(required_level), Some(current_level)) = (item_def.level_requirement, player_level) {
+    if let (Some(required_level), Some(current_level)) = (item_def.level_requirement, player_level)
+    {
         if current_level < required_level {
             return Err(InventoryError::Custom(format!(
                 "Level {} required to use this item (current level: {})",
@@ -272,7 +309,8 @@ pub fn validate_container_exists_and_accessible(
     player_id: PlayerId,
 ) -> Result<(), InventoryError> {
     let containers_guard = containers.lock().unwrap();
-    let container = containers_guard.get(container_id)
+    let container = containers_guard
+        .get(container_id)
         .ok_or_else(|| InventoryError::ContainerNotFound(container_id.to_string()))?;
 
     validate_container_access(container, player_id)
@@ -285,7 +323,9 @@ pub fn validate_recipe_access(
     player_level: Option<u32>,
 ) -> Result<CraftingRecipe, InventoryError> {
     let recipes_guard = recipes.lock().unwrap();
-    let recipe = recipes_guard.get(recipe_id).cloned()
+    let recipe = recipes_guard
+        .get(recipe_id)
+        .cloned()
         .ok_or_else(|| InventoryError::RecipeNotFound(recipe_id.to_string()))?;
 
     // Check unlock level
@@ -306,9 +346,7 @@ pub fn validate_transaction_integrity(
     transaction_items: &[ItemInstance],
     expected_total: u32,
 ) -> Result<(), InventoryError> {
-    let actual_total: u32 = transaction_items.iter()
-        .map(|item| item.stack)
-        .sum();
+    let actual_total: u32 = transaction_items.iter().map(|item| item.stack).sum();
 
     if actual_total != expected_total {
         return Err(InventoryError::Custom(format!(
@@ -322,7 +360,9 @@ pub fn validate_transaction_integrity(
 
 /// Helper function to count items in an inventory
 fn count_item_in_inventory(inventory: &Inventory, item_id: u64) -> u32 {
-    inventory.slots.values()
+    inventory
+        .slots
+        .values()
         .filter_map(|slot| {
             if let Some(ref item) = slot.item {
                 if item.definition_id == item_id {
@@ -344,13 +384,15 @@ pub fn validate_rate_limit(
     rate_limits: &mut HashMap<PlayerId, HashMap<String, RateLimit>>,
 ) -> Result<(), InventoryError> {
     let current_time = current_timestamp();
-    
+
     let player_limits = rate_limits.entry(player_id).or_insert_with(HashMap::new);
-    let limit = player_limits.entry(operation.to_string()).or_insert_with(|| RateLimit {
-        last_operation: 0,
-        operation_count: 0,
-        window_start: current_time,
-    });
+    let limit = player_limits
+        .entry(operation.to_string())
+        .or_insert_with(|| RateLimit {
+            last_operation: 0,
+            operation_count: 0,
+            window_start: current_time,
+        });
 
     // Simple rate limiting: max 10 operations per second
     if current_time - limit.window_start < 1000 {

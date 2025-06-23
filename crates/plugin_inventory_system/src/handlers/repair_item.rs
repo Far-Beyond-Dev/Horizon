@@ -1,6 +1,6 @@
-use crate::types::*;
 use crate::handlers::inventory_validation::*;
 use crate::handlers::item_management::*;
+use crate::types::*;
 
 pub fn repair_item_handler(
     players: &Arc<Mutex<Option<HashMap<PlayerId, Player>>>>,
@@ -117,11 +117,11 @@ pub enum RepairType {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub enum RepairQuality {
-    Perfect,    // 100% repair
-    Good,       // 80-99% repair
-    Fair,       // 60-79% repair
-    Poor,       // 40-59% repair
-    Minimal,    // 20-39% repair
+    Perfect, // 100% repair
+    Good,    // 80-99% repair
+    Fair,    // 60-79% repair
+    Poor,    // 40-59% repair
+    Minimal, // 20-39% repair
 }
 
 fn repair_player_item(
@@ -134,16 +134,13 @@ fn repair_player_item(
 ) -> Result<RepairResult, InventoryError> {
     // Validate player and find item
     validate_player_access(players, player_id)?;
-    
-    let (item_location, item_was_equipped) = find_item_location_for_repair(players, player_id, item_instance_id)?;
-    
+
+    let (item_location, item_was_equipped) =
+        find_item_location_for_repair(players, player_id, item_instance_id)?;
+
     // Get item details and validate repairability
-    let (item_def, current_durability, max_durability) = validate_item_repairable(
-        players,
-        item_definitions,
-        player_id,
-        item_instance_id,
-    )?;
+    let (item_def, current_durability, max_durability) =
+        validate_item_repairable(players, item_definitions, player_id, item_instance_id)?;
 
     // Calculate repair parameters
     let repair_plan = calculate_repair_plan(
@@ -155,20 +152,11 @@ fn repair_player_item(
     )?;
 
     // Validate player has required resources
-    validate_repair_resources(
-        players,
-        item_definitions,
-        player_id,
-        &repair_plan,
-    )?;
+    validate_repair_resources(players, item_definitions, player_id, &repair_plan)?;
 
     // Consume resources
-    let materials_consumed = consume_repair_resources(
-        players,
-        item_definitions,
-        player_id,
-        &repair_plan,
-    )?;
+    let materials_consumed =
+        consume_repair_resources(players, item_definitions, player_id, &repair_plan)?;
 
     // Apply repair to item
     let durability_restored = apply_repair_to_item(
@@ -183,7 +171,8 @@ fn repair_player_item(
     let durability_before_percent = (current_durability as f32 / max_durability as f32) * 100.0;
     let durability_after_percent = (durability_after as f32 / max_durability as f32) * 100.0;
 
-    let repair_quality = calculate_repair_quality(durability_restored, repair_plan.durability_to_restore);
+    let repair_quality =
+        calculate_repair_quality(durability_restored, repair_plan.durability_to_restore);
 
     Ok(RepairResult {
         durability_restored,
@@ -202,8 +191,13 @@ fn repair_player_item(
 
 #[derive(Debug, Clone)]
 enum ItemLocationForRepair {
-    Inventory { inventory_name: String, slot_id: u32 },
-    Equipment { slot_name: String },
+    Inventory {
+        inventory_name: String,
+        slot_id: u32,
+    },
+    Equipment {
+        slot_name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -229,10 +223,12 @@ fn find_item_location_for_repair(
     item_instance_id: &str,
 ) -> Result<(ItemLocationForRepair, bool), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     // Search in inventories
@@ -240,10 +236,13 @@ fn find_item_location_for_repair(
         for (slot_id, slot) in &inventory.slots {
             if let Some(ref item) = slot.item {
                 if item.instance_id == item_instance_id {
-                    return Ok((ItemLocationForRepair::Inventory {
-                        inventory_name: inv_name.clone(),
-                        slot_id: *slot_id,
-                    }, false));
+                    return Ok((
+                        ItemLocationForRepair::Inventory {
+                            inventory_name: inv_name.clone(),
+                            slot_id: *slot_id,
+                        },
+                        false,
+                    ));
                 }
             }
         }
@@ -256,7 +255,10 @@ fn find_item_location_for_repair(
         ("legs", &player.inventories.equipped_items.legs),
         ("boots", &player.inventories.equipped_items.boots),
         ("gloves", &player.inventories.equipped_items.gloves),
-        ("weapon_main", &player.inventories.equipped_items.weapon_main),
+        (
+            "weapon_main",
+            &player.inventories.equipped_items.weapon_main,
+        ),
         ("weapon_off", &player.inventories.equipped_items.weapon_off),
         ("ring_1", &player.inventories.equipped_items.ring_1),
         ("ring_2", &player.inventories.equipped_items.ring_2),
@@ -266,14 +268,20 @@ fn find_item_location_for_repair(
     for (slot_name, equipped_item) in equipment_checks {
         if let Some(ref item) = equipped_item {
             if item.instance_id == item_instance_id {
-                return Ok((ItemLocationForRepair::Equipment {
-                    slot_name: slot_name.to_string(),
-                }, true));
+                return Ok((
+                    ItemLocationForRepair::Equipment {
+                        slot_name: slot_name.to_string(),
+                    },
+                    true,
+                ));
             }
         }
     }
 
-    Err(InventoryError::Custom(format!("Item {} not found", item_instance_id)))
+    Err(InventoryError::Custom(format!(
+        "Item {} not found",
+        item_instance_id
+    )))
 }
 
 fn validate_item_repairable(
@@ -283,40 +291,53 @@ fn validate_item_repairable(
     item_instance_id: &str,
 ) -> Result<(ItemDefinition, u32, u32), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     // Find the item instance
     let item_instance = find_item_instance_in_player_for_repair(&player, item_instance_id)?;
-    
+
     // Get item definition
     let item_def = {
         let defs_guard = item_definitions.lock().unwrap();
-        defs_guard.get(&item_instance.definition_id).cloned()
+        defs_guard
+            .get(&item_instance.definition_id)
+            .cloned()
             .ok_or(InventoryError::ItemNotFound(item_instance.definition_id))?
     };
 
     // Check if item has durability
-    let (current_durability, max_durability) = if let (Some(current), Some(max)) = (item_instance.durability, item_def.durability_max) {
-        (current, max)
-    } else {
-        return Err(InventoryError::Custom("Item cannot be repaired (no durability)".to_string()));
-    };
+    let (current_durability, max_durability) =
+        if let (Some(current), Some(max)) = (item_instance.durability, item_def.durability_max) {
+            (current, max)
+        } else {
+            return Err(InventoryError::Custom(
+                "Item cannot be repaired (no durability)".to_string(),
+            ));
+        };
 
     // Check if item needs repair
     if current_durability >= max_durability {
-        return Err(InventoryError::Custom("Item is already at full durability".to_string()));
+        return Err(InventoryError::Custom(
+            "Item is already at full durability".to_string(),
+        ));
     }
 
     // Check if item is completely broken
     if current_durability == 0 {
         // Some items might be unrepairable when completely broken
-        if let Some(unrepairable_when_broken) = item_def.custom_properties.get("unrepairable_when_broken") {
+        if let Some(unrepairable_when_broken) =
+            item_def.custom_properties.get("unrepairable_when_broken")
+        {
             if unrepairable_when_broken.as_bool().unwrap_or(false) {
-                return Err(InventoryError::Custom("Item is too damaged to repair".to_string()));
+                return Err(InventoryError::Custom(
+                    "Item is too damaged to repair".to_string(),
+                ));
             }
         }
     }
@@ -361,7 +382,10 @@ fn find_item_instance_in_player_for_repair<'a>(
         }
     }
 
-    Err(InventoryError::Custom(format!("Item {} not found", item_instance_id)))
+    Err(InventoryError::Custom(format!(
+        "Item {} not found",
+        item_instance_id
+    )))
 }
 
 fn calculate_repair_plan(
@@ -372,12 +396,16 @@ fn calculate_repair_plan(
     use_currency: Option<u32>,
 ) -> Result<RepairPlan, InventoryError> {
     let durability_missing = max_durability - current_durability;
-    
+
     let repair_type = match (repair_materials.as_ref(), use_currency) {
         (Some(_), Some(_)) => RepairType::Mixed,
         (Some(_), None) => RepairType::Materials,
         (None, Some(_)) => RepairType::Currency,
-        (None, None) => return Err(InventoryError::Custom("No repair method specified".to_string())),
+        (None, None) => {
+            return Err(InventoryError::Custom(
+                "No repair method specified".to_string(),
+            ))
+        }
     };
 
     let mut durability_to_restore = 0;
@@ -388,10 +416,11 @@ fn calculate_repair_plan(
     // Calculate repair from materials
     if let Some(ref materials) = repair_materials {
         for material in materials {
-            let repair_value = calculate_material_repair_value(item_def, material.item_instance.definition_id);
+            let repair_value =
+                calculate_material_repair_value(item_def, material.item_instance.definition_id);
             let durability_from_material = repair_value * material.quantity;
             durability_to_restore += durability_from_material;
-            
+
             materials_needed.push(MaterialNeeded {
                 item_id: material.item_instance.definition_id,
                 quantity: material.quantity,
@@ -447,9 +476,10 @@ fn calculate_currency_repair_efficiency(item_def: &ItemDefinition) -> f32 {
 fn calculate_repair_efficiency(item_def: &ItemDefinition, materials: &[MaterialNeeded]) -> f32 {
     // Material repair efficiency based on item type and materials used
     let base_efficiency = 0.8; // 80% efficiency with materials
-    
+
     // Bonus for using appropriate materials
-    let material_bonus = materials.iter()
+    let material_bonus = materials
+        .iter()
         .map(|material| {
             match (&item_def.category, material.item_id) {
                 (ItemCategory::Weapon(_), 4001) => 0.1, // Iron ore for weapons
@@ -459,15 +489,16 @@ fn calculate_repair_efficiency(item_def: &ItemDefinition, materials: &[MaterialN
             }
         })
         .sum::<f32>();
-    
+
     (base_efficiency + material_bonus).min(1.0)
 }
 
 fn calculate_total_repair_cost(materials: &[MaterialNeeded], currency_cost: u32) -> u32 {
-    let material_cost: u32 = materials.iter()
+    let material_cost: u32 = materials
+        .iter()
         .map(|material| material.repair_value * material.quantity)
         .sum();
-    
+
     material_cost + currency_cost
 }
 
@@ -478,10 +509,12 @@ fn validate_repair_resources(
     repair_plan: &RepairPlan,
 ) -> Result<(), InventoryError> {
     let players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_ref()
+    let players_map = players_guard
+        .as_ref()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get(&player_id)
+
+    let player = players_map
+        .get(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     // Check materials
@@ -511,7 +544,7 @@ fn consume_repair_resources(
     repair_plan: &RepairPlan,
 ) -> Result<Vec<MaterialConsumed>, InventoryError> {
     let mut materials_consumed = Vec::new();
-    
+
     // Consume materials
     for material_needed in &repair_plan.materials_needed {
         // Remove materials from player inventory
@@ -556,40 +589,55 @@ fn apply_repair_to_item(
     item_location: &ItemLocationForRepair,
 ) -> Result<u32, InventoryError> {
     let mut players_guard = players.lock().unwrap();
-    let players_map = players_guard.as_mut()
+    let players_map = players_guard
+        .as_mut()
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
-    
-    let player = players_map.get_mut(&player_id)
+
+    let player = players_map
+        .get_mut(&player_id)
         .ok_or(InventoryError::PlayerNotFound(player_id))?;
 
     // Find and modify the item
     let item_instance = match item_location {
-        ItemLocationForRepair::Inventory { inventory_name, slot_id } => {
-            let inventory = player.inventories.inventories
+        ItemLocationForRepair::Inventory {
+            inventory_name,
+            slot_id,
+        } => {
+            let inventory = player
+                .inventories
+                .inventories
                 .get_mut(inventory_name)
-                .ok_or_else(|| InventoryError::Custom(format!("Inventory '{}' not found", inventory_name)))?;
-            
-            let slot = inventory.slots.get_mut(slot_id)
+                .ok_or_else(|| {
+                    InventoryError::Custom(format!("Inventory '{}' not found", inventory_name))
+                })?;
+
+            let slot = inventory
+                .slots
+                .get_mut(slot_id)
                 .ok_or(InventoryError::InvalidSlot(*slot_id))?;
-            
-            slot.item.as_mut()
+
+            slot.item
+                .as_mut()
                 .ok_or_else(|| InventoryError::Custom("Item not found in slot".to_string()))?
         }
-        ItemLocationForRepair::Equipment { slot_name } => {
-            match slot_name.as_str() {
-                "helmet" => player.inventories.equipped_items.helmet.as_mut(),
-                "chest" => player.inventories.equipped_items.chest.as_mut(),
-                "legs" => player.inventories.equipped_items.legs.as_mut(),
-                "boots" => player.inventories.equipped_items.boots.as_mut(),
-                "gloves" => player.inventories.equipped_items.gloves.as_mut(),
-                "weapon_main" => player.inventories.equipped_items.weapon_main.as_mut(),
-                "weapon_off" => player.inventories.equipped_items.weapon_off.as_mut(),
-                "ring_1" => player.inventories.equipped_items.ring_1.as_mut(),
-                "ring_2" => player.inventories.equipped_items.ring_2.as_mut(),
-                "necklace" => player.inventories.equipped_items.necklace.as_mut(),
-                custom_slot => player.inventories.equipped_items.custom_slots.get_mut(custom_slot),
-            }.ok_or_else(|| InventoryError::Custom("Equipped item not found".to_string()))?
+        ItemLocationForRepair::Equipment { slot_name } => match slot_name.as_str() {
+            "helmet" => player.inventories.equipped_items.helmet.as_mut(),
+            "chest" => player.inventories.equipped_items.chest.as_mut(),
+            "legs" => player.inventories.equipped_items.legs.as_mut(),
+            "boots" => player.inventories.equipped_items.boots.as_mut(),
+            "gloves" => player.inventories.equipped_items.gloves.as_mut(),
+            "weapon_main" => player.inventories.equipped_items.weapon_main.as_mut(),
+            "weapon_off" => player.inventories.equipped_items.weapon_off.as_mut(),
+            "ring_1" => player.inventories.equipped_items.ring_1.as_mut(),
+            "ring_2" => player.inventories.equipped_items.ring_2.as_mut(),
+            "necklace" => player.inventories.equipped_items.necklace.as_mut(),
+            custom_slot => player
+                .inventories
+                .equipped_items
+                .custom_slots
+                .get_mut(custom_slot),
         }
+        .ok_or_else(|| InventoryError::Custom("Equipped item not found".to_string()))?,
     };
 
     // Apply repair
@@ -597,14 +645,19 @@ fn apply_repair_to_item(
         let old_durability = *durability;
         *durability += durability_to_restore;
         let actual_restored = *durability - old_durability;
-        
-        println!("🔧 Repaired item: {} -> {} durability", old_durability, *durability);
-        
+
+        println!(
+            "🔧 Repaired item: {} -> {} durability",
+            old_durability, *durability
+        );
+
         player.last_activity = current_timestamp();
-        
+
         Ok(actual_restored)
     } else {
-        Err(InventoryError::Custom("Item has no durability to repair".to_string()))
+        Err(InventoryError::Custom(
+            "Item has no durability to repair".to_string(),
+        ))
     }
 }
 
@@ -614,7 +667,7 @@ fn calculate_repair_quality(actual_restored: u32, planned_restored: u32) -> Repa
     }
 
     let efficiency_ratio = actual_restored as f32 / planned_restored as f32;
-    
+
     match efficiency_ratio {
         ratio if ratio >= 0.95 => RepairQuality::Perfect,
         ratio if ratio >= 0.8 => RepairQuality::Good,
@@ -625,9 +678,14 @@ fn calculate_repair_quality(actual_restored: u32, planned_restored: u32) -> Repa
 }
 
 fn count_item_in_player_inventories_by_id(player: &Player, item_id: u64) -> u32 {
-    player.inventories.inventories.values()
+    player
+        .inventories
+        .inventories
+        .values()
         .map(|inventory| {
-            inventory.slots.values()
+            inventory
+                .slots
+                .values()
                 .filter_map(|slot| {
                     if let Some(ref item) = slot.item {
                         if item.definition_id == item_id {
@@ -663,9 +721,9 @@ pub fn repair_all_equipped_items(
     max_cost: Option<u32>,
 ) -> Result<Vec<RepairResult>, InventoryError> {
     let mut repair_results = Vec::new();
-    
+
     // This would iterate through all equipped items and repair them
     // For demo purposes, return empty list
-    
+
     Ok(repair_results)
 }

@@ -9,6 +9,7 @@ members = [
     "crates/plugin_greeter",
     "crates/plugin_logger",
     "crates/plugin_inventory_system",
+    "crates/plugin_guild_comms",
 ]
 
 [workspace.dependencies]
