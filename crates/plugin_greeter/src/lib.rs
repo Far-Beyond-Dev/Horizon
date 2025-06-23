@@ -143,7 +143,7 @@ impl SimplePlugin for GreeterPlugin {
                 &serde_json::json!({
                     "id": "701d617f-3e4f-41b4-b4c6-c1b53709fc63",
                     "item_count": 5,
-                    "item_id": 42
+                    "item_id": 1
                 }),
             )
             .await
