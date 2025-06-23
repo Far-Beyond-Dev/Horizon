@@ -18,7 +18,7 @@ pub fn check_item_handler(
 
     match result {
         Ok(check_result) => {
-            println!(
+            info!(
                 "🔍 Player {:?} {} {} of item {} (required: {}, available: {})",
                 event.id,
                 if check_result.has_item { "has" } else { "doesn't have" },
@@ -48,7 +48,7 @@ pub fn check_item_handler(
             );
         }
         Err(e) => {
-            println!("❌ Failed to check item for player {:?}: {}", event.id, e);
+            info!("❌ Failed to check item for player {:?}: {}", event.id, e);
 
             let _ = events.emit_plugin(
                 "InventorySystem",

@@ -17,7 +17,7 @@ pub fn sort_inventory_handler(
 
     match result {
         Ok(sort_result) => {
-            println!(
+            info!(
                 "📋 Sorted inventory '{}' for player {:?} by {:?} ({:?}): {} items reorganized",
                 event.inventory_name.as_ref().unwrap_or(&"general".to_string()),
                 event.player_id,
@@ -54,7 +54,7 @@ pub fn sort_inventory_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Failed to sort inventory for player {:?}: {}",
                 event.player_id, e
             );

@@ -19,7 +19,7 @@ pub fn enchant_item_handler(
 
     match result {
         Ok(enchantment_result) => {
-            println!(
+            info!(
                 "✨ Player {:?} successfully enchanted item {} with '{}' (level {})",
                 event.player_id,
                 event.item_instance_id,
@@ -68,7 +68,7 @@ pub fn enchant_item_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Enchantment failed for player {:?} on item {}: {}",
                 event.player_id, event.item_instance_id, e
             );
@@ -409,7 +409,7 @@ fn calculate_enchantment_success_chance(
     
     let final_chance = (base_chance - level_penalty + material_bonus).clamp(0.1, 0.95);
     
-    println!("🎲 Enchantment success chance: {:.1}%", final_chance * 100.0);
+    info!("🎲 Enchantment success chance: {:.1}%", final_chance * 100.0);
     final_chance
 }
 
@@ -553,7 +553,7 @@ fn remove_item_by_id_from_player_all_inventories(
     // This is a simplified version - in reality would need to properly remove items
     // across all inventories while maintaining consistency
     
-    println!("🔧 Removing {} of item {} from player {:?}", amount, item_id, player_id);
+    info!("🔧 Removing {} of item {} from player {:?}", amount, item_id, player_id);
     
     // For demo purposes, return empty list
     Ok(Vec::new())

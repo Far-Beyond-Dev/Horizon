@@ -1,7 +1,9 @@
 [package]
-name = "event_system"
+name = "horizon_event_system"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Horizon Event System for handling events in the Horizon game server ecosystem."
 
 [dependencies]
 tokio = { workspace = true }

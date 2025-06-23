@@ -11,5 +11,5 @@ futures = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tokio-tungstenite = { workspace = true }
-event_system = { path = "../event_system" }
+horizon_event_system = { path = "../horizon_event_system" }
 plugin_system = { path = "../plugin_system" }

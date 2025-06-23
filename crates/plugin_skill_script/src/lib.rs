@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use event_system::{
+use horizon_event_system::{
     create_simple_plugin, current_timestamp, on_event, register_handlers, EventSystem, LogLevel,
     PlayerId, PluginError, Position, ServerContext, SimplePlugin,
 };
@@ -30,7 +30,7 @@ pub struct LoggerPlugin {
 
 impl LoggerPlugin {
     pub fn new() -> Self {
-        println!("📝 LoggerPlugin: Creating new instance");
+        info!("📝 LoggerPlugin: Creating new instance");
         Self {
             name: "logger".to_string(),
             events_logged: 0,
@@ -59,13 +59,13 @@ impl SimplePlugin for LoggerPlugin {
     }
 
     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
-        println!("📝 LoggerPlugin: Registering comprehensive event logging...");
+        info!("📝 LoggerPlugin: Registering comprehensive event logging...");
 
         // Use individual registrations to show different API styles
 
         events
             .on_core("player_connected", |event: serde_json::Value| {
-                println!(
+                info!(
                     "📝 LoggerPlugin: 🟢 CONNECTION - Player joined server: {:?}",
                     event
                 );
@@ -76,7 +76,7 @@ impl SimplePlugin for LoggerPlugin {
 
         events
             .on_core("player_disconnected", |event: serde_json::Value| {
-                println!(
+                info!(
                     "📝 LoggerPlugin: 🔴 DISCONNECTION - Player left server: {:?}",
                     event
                 );
@@ -87,7 +87,7 @@ impl SimplePlugin for LoggerPlugin {
 
         events
             .on_core("plugin_loaded", |event: serde_json::Value| {
-                println!("📝 LoggerPlugin: 🔌 PLUGIN LOADED - {:?}", event);
+                info!("📝 LoggerPlugin: 🔌 PLUGIN LOADED - {:?}", event);
                 Ok(())
             })
             .await
@@ -96,7 +96,7 @@ impl SimplePlugin for LoggerPlugin {
         // Client events from players
         events
             .on_client("chat", "message", |event: PlayerChatEvent| {
-                println!(
+                info!(
                     "📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'",
                     event.player_id, event.channel, event.message
                 );
@@ -107,7 +107,7 @@ impl SimplePlugin for LoggerPlugin {
 
         events
             .on_client("movement", "jump", |event: PlayerJumpEvent| {
-                println!(
+                info!(
                     "📝 LoggerPlugin: 🦘 MOVEMENT - Player {} jumped {:.1}m at {:?}",
                     event.player_id, event.height, event.position
                 );
@@ -119,7 +119,7 @@ impl SimplePlugin for LoggerPlugin {
         // Inter-plugin communication
         events
             .on_plugin("mygreeter", "startup", |event: serde_json::Value| {
-                println!(
+                info!(
                     "📝 LoggerPlugin: 🤝 PLUGIN EVENT - Greeter started: {:?}",
                     event
                 );
@@ -130,7 +130,7 @@ impl SimplePlugin for LoggerPlugin {
 
         events
             .on_plugin("greeter", "shutdown", |event: serde_json::Value| {
-                println!(
+                info!(
                     "📝 LoggerPlugin: 🤝 PLUGIN EVENT - Greeter shutting down: {:?}",
                     event
                 );
@@ -142,25 +142,13 @@ impl SimplePlugin for LoggerPlugin {
         // Listen to any plugin events (wildcard-style)
         events
             .on_plugin("*", "activity", |event: serde_json::Value| {
-                println!("📝 LoggerPlugin: 🌐 GENERAL ACTIVITY - {:?}", event);
+                info!("📝 LoggerPlugin: 🌐 GENERAL ACTIVITY - {:?}", event);
                 Ok(())
             })
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        events
-            .on_plugin(
-                "InventorySystem",
-                "service_started",
-                |event: serde_json::Value| {
-                    println!("Plugin event received: {:?}", event);
-                    Ok(())
-                },
-            )
-            .await
-            .unwrap();
-
-        println!("📝 LoggerPlugin: ✅ Event logging system activated!");
+        info!("📝 LoggerPlugin: ✅ Event logging system activated!");
         Ok(())
     }
 
@@ -186,7 +174,7 @@ impl SimplePlugin for LoggerPlugin {
             .await
             .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
-        println!("📝 LoggerPlugin: ✅ Now monitoring all server events!");
+        info!("📝 LoggerPlugin: ✅ Now monitoring all server events!");
 
         // TODO: TOKIO SUPPORT!!
         // // Start a periodic summary task
@@ -205,7 +193,7 @@ impl SimplePlugin for LoggerPlugin {
         //             "timestamp": current_timestamp()
         //         })).await;
 
-        //         println!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count);
+        //         info!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count);
         //     }
         // });
 
@@ -241,7 +229,7 @@ impl SimplePlugin for LoggerPlugin {
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        println!("📝 LoggerPlugin: ✅ Final report submitted. Logging service offline.");
+        info!("📝 LoggerPlugin: ✅ Final report submitted. Logging service offline.");
         Ok(())
     }
 }
@@ -255,7 +243,7 @@ create_simple_plugin!(LoggerPlugin);
 
 /// Helper function to simulate some player events for testing
 pub async fn simulate_player_activity(events: Arc<EventSystem>) {
-    println!("\n🎮 Starting player activity simulation...\n");
+    info!("\n🎮 Starting player activity simulation...\n");
 
     let player_id = PlayerId::new();
 
@@ -324,7 +312,7 @@ pub async fn simulate_player_activity(events: Arc<EventSystem>) {
         .await
         .unwrap();
 
-    println!("\n🎮 Player activity simulation complete!\n");
+    info!("\n🎮 Player activity simulation complete!\n");
 }
 
 // ============================================================================
@@ -334,18 +322,18 @@ pub async fn simulate_player_activity(events: Arc<EventSystem>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use event_system::create_event_system;
+    use horizon_event_system::create_horizon_event_system;
 
     #[tokio::test]
     async fn test_plugin_communication() {
-        println!("\n🧪 Testing inter-plugin communication...\n");
+        info!("\n🧪 Testing inter-plugin communication...\n");
 
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Test that events can be emitted and received
         events
             .on_plugin("test", "message", |event: serde_json::Value| {
-                println!("✅ Test: Received plugin event: {:?}", event);
+                info!("✅ Test: Received plugin event: {:?}", event);
                 Ok(())
             })
             .await
@@ -363,19 +351,19 @@ mod tests {
             .await
             .unwrap();
 
-        println!("✅ Plugin communication test passed!\n");
+        info!("✅ Plugin communication test passed!\n");
     }
 
     #[tokio::test]
-    async fn test_event_system_integration() {
-        println!("\n🧪 Testing complete event system integration...\n");
+    async fn test_horizon_event_system_integration() {
+        info!("\n🧪 Testing complete event system integration...\n");
 
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Register handlers for all event types
         events
             .on_core("test_core", |event: serde_json::Value| {
-                println!("✅ Core event received: {:?}", event);
+                info!("✅ Core event received: {:?}", event);
                 Ok(())
             })
             .await
@@ -383,15 +371,7 @@ mod tests {
 
         events
             .on_client("test", "client_event", |event: serde_json::Value| {
-                println!("✅ Client event received: {:?}", event);
-                Ok(())
-            })
-            .await
-            .unwrap();
-
-        events
-            .on_plugin("test", "plugin_event", |event: serde_json::Value| {
-                println!("✅ Plugin event received: {:?}", event);
+                info!("✅ Client event received: {:?}", event);
                 Ok(())
             })
             .await
@@ -402,7 +382,7 @@ mod tests {
                 "InventorySystem",
                 "service_started",
                 |event: serde_json::Value| {
-                    println!("Plugin event received: {:?}", event);
+                    info!("Plugin event received: {:?}", event);
                     Ok(())
                 },
             )
@@ -431,6 +411,6 @@ mod tests {
             .await
             .unwrap();
 
-        println!("✅ Complete integration test passed!\n");
+        info!("✅ Complete integration test passed!\n");
     }
 }

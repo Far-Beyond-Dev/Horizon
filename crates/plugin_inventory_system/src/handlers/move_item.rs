@@ -13,7 +13,7 @@ pub fn move_item_handler(
     );
 
     if success {
-        println!(
+        info!(
             "🔄 Player {:?} moved item from slot {} to slot {}",
             event.player_id, event.original_slot, event.new_slot
         );
@@ -30,7 +30,7 @@ pub fn move_item_handler(
             }),
         );
     } else {
-        println!(
+        info!(
             "❌ Failed to move item from slot {} to slot {} for player {:?}",
             event.original_slot, event.new_slot, event.player_id
         );

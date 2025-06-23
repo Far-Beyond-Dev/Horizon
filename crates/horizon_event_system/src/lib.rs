@@ -625,7 +625,7 @@ pub fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-pub fn create_event_system() -> Arc<EventSystem> {
+pub fn create_horizon_event_system() -> Arc<EventSystem> {
     Arc::new(EventSystem::new())
 }
 
@@ -640,12 +640,12 @@ mod tests {
 
     #[tokio::test]
     async fn test_refined_event_api() {
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Test the new cleaner API - individual registration
         events
             .on_core("server_started", |event: TestEvent| {
-                println!("Core event: {}", event.message);
+                info!("Core event: {}", event.message);
                 Ok(())
             })
             .await
@@ -653,7 +653,7 @@ mod tests {
 
         events
             .on_client("movement", "player_moved", |event: TestEvent| {
-                println!("Client movement event: {}", event.message);
+                info!("Client movement event: {}", event.message);
                 Ok(())
             })
             .await
@@ -661,7 +661,7 @@ mod tests {
 
         events
             .on_plugin("combat", "attack", |event: TestEvent| {
-                println!("Combat plugin event: {}", event.message);
+                info!("Combat plugin event: {}", event.message);
                 Ok(())
             })
             .await
@@ -703,29 +703,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_bulk_registration_macro() -> Result<(), Box<dyn std::error::Error>> {
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Test the bulk registration macro
         register_handlers!(events;
             client {
                 "movement", "jump" => |event: TestEvent| {
-                    println!("Jump: {}", event.message);
+                    info!("Jump: {}", event.message);
                     Ok(())
                 },
                 "chat", "message" => |event: TestEvent| {
-                    println!("Chat: {}", event.message);
+                    info!("Chat: {}", event.message);
                     Ok(())
                 }
             }
             plugin {
                 "combat", "damage" => |event: TestEvent| {
-                    println!("Damage: {}", event.message);
+                    info!("Damage: {}", event.message);
                     Ok(())
                 }
             }
             core {
                 "server_started" => |event: TestEvent| {
-                    println!("Server: {}", event.message);
+                    info!("Server: {}", event.message);
                     Ok(())
                 }
             }
@@ -759,16 +759,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_simple_on_event_macro() -> Result<(), Box<dyn std::error::Error>> {
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Test the simple on_event! macro for single registrations
         on_event!(events, client "test", "event" => |event: TestEvent| {
-            println!("Simple macro test: {}", event.message);
+            info!("Simple macro test: {}", event.message);
             Ok(())
         });
 
         on_event!(events, core "test_core" => |event: TestEvent| {
-            println!("Core macro test: {}", event.message);
+            info!("Core macro test: {}", event.message);
             Ok(())
         });
 

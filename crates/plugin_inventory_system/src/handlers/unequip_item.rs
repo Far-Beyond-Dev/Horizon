@@ -15,7 +15,7 @@ pub fn unequip_item_handler(
 
     match result {
         Ok(unequipped_item) => {
-            println!(
+            info!(
                 "🛡️ Player {:?} unequipped {} from slot '{}'",
                 event.id, unequipped_item.instance_id, event.equipment_slot
             );
@@ -50,7 +50,7 @@ pub fn unequip_item_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Player {:?} failed to unequip from slot '{}': {}",
                 event.id, event.equipment_slot, e
             );
@@ -115,7 +115,7 @@ fn remove_equipment_effects(
     // Remove enchantment effects
     for enchantment in &item.enchantments {
         for effect in &enchantment.effects {
-            println!(
+            info!(
                 "📊 Removing effect '{}' with value {} from enchantment '{}'",
                 effect.effect_type, effect.value, enchantment.name
             );

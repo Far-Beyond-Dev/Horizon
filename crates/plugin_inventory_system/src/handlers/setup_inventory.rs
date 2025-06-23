@@ -16,7 +16,7 @@ pub fn setup_inventory_handler(
 
     match result {
         Ok(setup_result) => {
-            println!(
+            info!(
                 "🎒 Inventory system setup complete: {} item definitions, {} recipes loaded",
                 setup_result.items_loaded,
                 setup_result.recipes_loaded
@@ -33,7 +33,7 @@ pub fn setup_inventory_handler(
             );
         }
         Err(e) => {
-            println!("❌ Failed to setup inventory system: {}", e);
+            info!("❌ Failed to setup inventory system: {}", e);
 
             let _ = events.emit_plugin(
                 "InventorySystem",
@@ -90,7 +90,7 @@ fn setup_inventory_system(
     let templates_created = create_default_inventory_templates()?;
     setup_result.default_inventories_created = templates_created;
 
-    println!("✅ Inventory system setup completed successfully");
+    info!("✅ Inventory system setup completed successfully");
 
     Ok(setup_result)
 }
@@ -122,7 +122,7 @@ fn update_system_config(
         config_guard.auto_stack_items = auto_stack;
     }
 
-    println!("⚙️ System configuration updated");
+    info!("⚙️ System configuration updated");
     Ok(())
 }
 
@@ -140,7 +140,7 @@ fn load_default_item_definitions(
         loaded_count += 1;
     }
 
-    println!("📦 Loaded {} default item definitions", loaded_count);
+    info!("📦 Loaded {} default item definitions", loaded_count);
     Ok(loaded_count)
 }
 
@@ -304,14 +304,14 @@ fn load_default_crafting_recipes(
         let mut valid_recipe = true;
         for required_item in &recipe.required_items {
             if !defs_guard.contains_key(&required_item.item_id) {
-                println!("⚠️ Recipe '{}' references non-existent item {}", recipe.name, required_item.item_id);
+                info!("⚠️ Recipe '{}' references non-existent item {}", recipe.name, required_item.item_id);
                 valid_recipe = false;
             }
         }
         
         for output_item in &recipe.output_items {
             if !defs_guard.contains_key(&output_item.item_id) {
-                println!("⚠️ Recipe '{}' outputs non-existent item {}", recipe.name, output_item.item_id);
+                info!("⚠️ Recipe '{}' outputs non-existent item {}", recipe.name, output_item.item_id);
                 valid_recipe = false;
             }
         }
@@ -322,7 +322,7 @@ fn load_default_crafting_recipes(
         }
     }
 
-    println!("🔨 Loaded {} crafting recipes", loaded_count);
+    info!("🔨 Loaded {} crafting recipes", loaded_count);
     Ok(loaded_count)
 }
 
@@ -452,7 +452,7 @@ fn validate_system_integrity(
         }
     }
 
-    println!("✅ System integrity validation passed");
+    info!("✅ System integrity validation passed");
     Ok(())
 }
 
@@ -468,7 +468,7 @@ fn create_default_inventory_templates() -> Result<u32, InventoryError> {
     ];
 
     for template_name in &templates {
-        println!("📋 Created inventory template: {}", template_name);
+        info!("📋 Created inventory template: {}", template_name);
     }
 
     Ok(templates.len() as u32)
@@ -481,7 +481,7 @@ pub fn reset_inventory_system(
     crafting_recipes: &Arc<Mutex<HashMap<String, CraftingRecipe>>>,
     events: &Arc<EventSystem>,
 ) -> Result<(), InventoryError> {
-    println!("🔄 Resetting inventory system...");
+    info!("🔄 Resetting inventory system...");
 
     // Clear all data
     {
@@ -531,6 +531,6 @@ pub fn reset_inventory_system(
         }),
     );
 
-    println!("✅ Inventory system reset completed");
+    info!("✅ Inventory system reset completed");
     Ok(())
 }

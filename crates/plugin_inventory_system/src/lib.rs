@@ -6,7 +6,7 @@ use handlers::*;
 
 impl InventorySystem {
     pub fn new() -> Self {
-        println!("📝 InventoryPlugin: Initializing comprehensive inventory management system...");
+        info!("📝 InventoryPlugin: Initializing comprehensive inventory management system...");
         
         // Initialize with default configuration
         let default_config = InventoryConfig {
@@ -104,14 +104,14 @@ impl SimplePlugin for InventorySystem {
             .await
             .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
-        println!("📝 InventorySystem: ✅ Comprehensive Inventory Management Active");
-        println!("🎯 Features: Item Management | Equipment | Trading | Crafting | Containers | Enchantments | Repairs");
+        info!("📝 InventorySystem: ✅ Comprehensive Inventory Management Active");
+        info!("🎯 Features: Item Management | Equipment | Trading | Crafting | Containers | Enchantments | Repairs");
         
         Ok(())
     }
 
     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
-        println!("📝 InventorySystem: Registering comprehensive inventory event handlers...");
+        info!("📝 InventorySystem: Registering comprehensive inventory event handlers...");
 
         // Clone references for handlers
         let players = self.players.clone();
@@ -517,16 +517,16 @@ impl SimplePlugin for InventorySystem {
             }).await.unwrap();
         }
 
-        println!("InventorySystem: ✅ All {} inventory event handlers registered! 🎮", 25);
-        println!("🎯 Available Operations:");
-        println!("   📦 Core: Pickup, Drop, Transfer, Consume, Clear, Check");
-        println!("   ⚔️ Equipment: Equip, Unequip");
-        println!("   🤝 Trading: Create, Accept, Decline, Cancel");
-        println!("   🔨 Crafting: Craft items with recipes");
-        println!("   🔍 Search: Advanced search and sorting");
-        println!("   📦 Containers: Create, Access, Manage");
-        println!("   ✨ Enhancement: Enchant, Repair");
-        println!("   ⚙️ System: Setup, Stats, Maintenance");
+        info!("InventorySystem: ✅ All {} inventory event handlers registered! 🎮", 25);
+        info!("🎯 Available Operations:");
+        info!("   📦 Core: Pickup, Drop, Transfer, Consume, Clear, Check");
+        info!("   ⚔️ Equipment: Equip, Unequip");
+        info!("   🤝 Trading: Create, Accept, Decline, Cancel");
+        info!("   🔨 Crafting: Craft items with recipes");
+        info!("   🔍 Search: Advanced search and sorting");
+        info!("   📦 Containers: Create, Access, Manage");
+        info!("   ✨ Enhancement: Enchant, Repair");
+        info!("   ⚙️ System: Setup, Stats, Maintenance");
         
         Ok(())
     }

@@ -1,10 +1,11 @@
 use async_trait::async_trait;
-use event_system::{
+use horizon_event_system::{
     create_simple_plugin, current_timestamp, on_event, register_handlers, EventSystem, LogLevel,
     PlayerId, PluginError, Position, ServerContext, SimplePlugin,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::{error, info, warn};
 
 // ============================================================================
 // Sample Plugin 1: Greeter Plugin
@@ -18,7 +19,7 @@ pub struct GreeterPlugin {
 
 impl GreeterPlugin {
     pub fn new() -> Self {
-        println!("🎉 GreeterPlugin: Creating new instance");
+        info!("🎉 GreeterPlugin: Creating new instance");
         Self {
             name: "greeter".to_string(),
             welcome_count: 0,
@@ -60,17 +61,17 @@ impl SimplePlugin for GreeterPlugin {
     }
 
     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
-        println!("👋 GreeterPlugin: Registering event handlers...");
+        info!("👋 GreeterPlugin: Registering event handlers...");
 
         // Register core events
         register_handlers!(events; core {
             "player_connected" => |event: serde_json::Value| {
-                println!("👋 GreeterPlugin: New player connected! {:?}", event);
+                info!("👋 GreeterPlugin: New player connected! {:?}", event);
                 Ok(())
             },
 
             "player_disconnected" => |event: serde_json::Value| {
-                println!("👋 GreeterPlugin: Player disconnected. Farewell! {:?}", event);
+                info!("👋 GreeterPlugin: Player disconnected. Farewell! {:?}", event);
                 Ok(())
             }
         })?;
@@ -78,23 +79,23 @@ impl SimplePlugin for GreeterPlugin {
         // Register client events
         register_handlers!(events; client {
             "chat", "message" => |event: PlayerChatEvent| {
-                println!("👋 GreeterPlugin: Player {} said: '{}' in {}",
+                info!("👋 GreeterPlugin: Player {} said: '{}' in {}",
                          event.player_id, event.message, event.channel);
 
                 // Respond to greetings
                 if event.message.to_lowercase().contains("hello") ||
                    event.message.to_lowercase().contains("hi") {
-                    println!("👋 GreeterPlugin: Detected greeting! Preparing response...");
+                    info!("👋 GreeterPlugin: Detected greeting! Preparing response...");
                 }
                 Ok(())
             },
 
             "movement", "jump" => |event: PlayerJumpEvent| {
-                println!("👋 GreeterPlugin: Player {} jumped {:.1}m high! 🦘",
+                info!("👋 GreeterPlugin: Player {} jumped {:.1}m high! 🦘",
                          event.player_id, event.height);
 
                 if event.height > 5.0 {
-                    println!("👋 GreeterPlugin: Wow, that's a high jump!");
+                    info!("👋 GreeterPlugin: Wow, that's a high jump!");
                 }
                 Ok(())
             }
@@ -103,12 +104,12 @@ impl SimplePlugin for GreeterPlugin {
         // Register plugin events
         register_handlers!(events; plugin {
             "logger", "activity_logged" => |event: serde_json::Value| {
-                println!("👋 GreeterPlugin: Logger plugin recorded activity: {:?}", event);
+                info!("👋 GreeterPlugin: Logger plugin recorded activity: {:?}", event);
                 Ok(())
             }
         })?;
 
-        println!("👋 GreeterPlugin: ✅ All handlers registered successfully!");
+        info!("👋 GreeterPlugin: ✅ All handlers registered successfully!");
         Ok(())
     }
 
@@ -134,7 +135,7 @@ impl SimplePlugin for GreeterPlugin {
             .await
             .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
-        println!("Sending inventory a message!");
+        info!("Sending inventory a message!");
 
         events
             .emit_plugin(
@@ -149,7 +150,7 @@ impl SimplePlugin for GreeterPlugin {
             .await
             .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
-        println!("Setting up inventory!");
+        info!("Setting up inventory!");
 
         events
             .emit_plugin(
@@ -163,7 +164,7 @@ impl SimplePlugin for GreeterPlugin {
             .await
             .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
-        println!("👋 GreeterPlugin: ✅ Initialization complete!");
+        info!("👋 GreeterPlugin: ✅ Initialization complete!");
         Ok(())
     }
 
@@ -192,7 +193,7 @@ impl SimplePlugin for GreeterPlugin {
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        println!("👋 GreeterPlugin: ✅ Shutdown complete!");
+        info!("👋 GreeterPlugin: ✅ Shutdown complete!");
         Ok(())
     }
 }

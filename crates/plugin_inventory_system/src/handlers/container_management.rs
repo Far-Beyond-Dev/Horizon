@@ -18,7 +18,7 @@ pub fn create_container_handler(
 
     match result {
         Ok(container) => {
-            println!(
+            info!(
                 "📦 Created container '{}' ({}): {} slots, public: {}",
                 container.name,
                 container.container_id,
@@ -41,7 +41,7 @@ pub fn create_container_handler(
             );
         }
         Err(e) => {
-            println!("❌ Failed to create container '{}': {}", event.container_id, e);
+            info!("❌ Failed to create container '{}': {}", event.container_id, e);
 
             let _ = events.emit_plugin(
                 "InventorySystem",
@@ -76,7 +76,7 @@ pub fn access_container_handler(
         Ok(access_result) => {
             match access_result {
                 ContainerAccessResult::Opened(container_info) => {
-                    println!(
+                    info!(
                         "📂 Player {:?} opened container '{}'",
                         event.player_id, event.container_id
                     );
@@ -93,7 +93,7 @@ pub fn access_container_handler(
                     );
                 }
                 ContainerAccessResult::Closed => {
-                    println!(
+                    info!(
                         "📁 Player {:?} closed container '{}'",
                         event.player_id, event.container_id
                     );
@@ -109,7 +109,7 @@ pub fn access_container_handler(
                     );
                 }
                 ContainerAccessResult::ItemAdded(item_info) => {
-                    println!(
+                    info!(
                         "➕ Player {:?} added item to container '{}': {} x{}",
                         event.player_id, event.container_id, item_info.item_name, item_info.quantity
                     );
@@ -126,7 +126,7 @@ pub fn access_container_handler(
                     );
                 }
                 ContainerAccessResult::ItemRemoved(item_info) => {
-                    println!(
+                    info!(
                         "➖ Player {:?} removed item from container '{}': {} x{}",
                         event.player_id, event.container_id, item_info.item_name, item_info.quantity
                     );
@@ -143,7 +143,7 @@ pub fn access_container_handler(
                     );
                 }
                 ContainerAccessResult::PermissionsUpdated => {
-                    println!(
+                    info!(
                         "🔐 Player {:?} updated permissions for container '{}'",
                         event.player_id, event.container_id
                     );
@@ -161,7 +161,7 @@ pub fn access_container_handler(
             }
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Container access failed for player {:?} on container '{}': {}",
                 event.player_id, event.container_id, e
             );
@@ -191,7 +191,7 @@ pub fn get_container_handler(
 
     match result {
         Ok(container_info) => {
-            println!(
+            info!(
                 "📋 Retrieved container info for '{}' (requested by {:?})",
                 container_id, player_id
             );
@@ -208,7 +208,7 @@ pub fn get_container_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Failed to get container info for '{}': {}",
                 container_id, e
             );
@@ -237,7 +237,7 @@ pub fn delete_container_handler(
 
     match result {
         Ok(deleted_container) => {
-            println!(
+            info!(
                 "🗑️ Deleted container '{}' ({})",
                 deleted_container.name, container_id
             );
@@ -254,7 +254,7 @@ pub fn delete_container_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Failed to delete container '{}': {}",
                 container_id, e
             );

@@ -1,5 +1,5 @@
 pub use async_trait::async_trait;
-pub use event_system::{
+pub use horizon_event_system::{
     create_simple_plugin, current_timestamp, EventSystem, LogLevel, PlayerId, PluginError,
     ServerContext, SimplePlugin,
 };
@@ -10,6 +10,7 @@ pub use std::{
 };
 pub use uuid::Uuid;
 pub use lru::LruCache;
+pub use tracing::{error, info, warn};
 pub use indexmap::IndexMap;
 
 // Core Item Types

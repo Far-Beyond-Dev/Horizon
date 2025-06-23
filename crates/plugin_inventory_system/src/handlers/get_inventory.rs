@@ -18,7 +18,7 @@ pub fn get_inventory_handler(
         Ok(inventory_data) => {
             let inventory_name = event.inventory_name.unwrap_or_else(|| "general".to_string());
             
-            println!(
+            info!(
                 "📋 Retrieved inventory '{}' for player {:?}: {} items, {:.2}kg total weight",
                 inventory_name,
                 event.id,
@@ -40,7 +40,7 @@ pub fn get_inventory_handler(
             );
         }
         Err(e) => {
-            println!("❌ Failed to retrieve inventory for player {:?}: {}", event.id, e);
+            info!("❌ Failed to retrieve inventory for player {:?}: {}", event.id, e);
 
             // Emit failure event
             let _ = events.emit_plugin(

@@ -18,7 +18,7 @@ pub fn equip_item_handler(
 
     match result {
         Ok((equipped_item, unequipped_item)) => {
-            println!(
+            info!(
                 "⚔️ Player {:?} equipped {} to slot '{}'",
                 event.id, equipped_item.instance_id, event.equipment_slot
             );
@@ -69,7 +69,7 @@ pub fn equip_item_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Player {:?} failed to equip item {}: {}",
                 event.id, event.item_instance_id, e
             );
@@ -237,7 +237,7 @@ fn apply_equipment_effects(
     for enchantment in &item.enchantments {
         for effect in &enchantment.effects {
             // This would integrate with a stats/effects system
-            println!(
+            info!(
                 "📊 Applying effect '{}' with value {} from enchantment '{}'",
                 effect.effect_type, effect.value, enchantment.name
             );

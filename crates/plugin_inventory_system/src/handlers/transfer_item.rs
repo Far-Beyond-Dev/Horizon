@@ -21,7 +21,7 @@ pub fn transfer_item_handler(
 
     match result {
         Ok(transfer_result) => {
-            println!(
+            info!(
                 "🔄 Transferred {} x{} from {:?} to {:?} (from: {}, to: {})",
                 transfer_result.item_name,
                 event.amount,
@@ -86,7 +86,7 @@ pub fn transfer_item_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Failed to transfer {} of item {} from {:?} to {:?}: {}",
                 event.amount, event.item_id, event.from_player, event.to_player, e
             );

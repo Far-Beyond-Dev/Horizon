@@ -31,7 +31,7 @@ pub fn clear_inventory_handler(
 
     match result {
         Ok(clear_result) => {
-            println!(
+            info!(
                 "🗑️ Cleared inventory '{}' for player {:?}: {} items removed, {:.2}kg freed",
                 event.inventory_name.as_ref().unwrap_or(&"general".to_string()),
                 event.id,
@@ -82,7 +82,7 @@ pub fn clear_inventory_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Failed to clear inventory for player {:?}: {}",
                 event.id, e
             );
@@ -257,7 +257,7 @@ fn create_inventory_backup(
 
     // In a real implementation, this would be stored in a database
     // For now, we'll just log it
-    println!(
+    info!(
         "💾 Created backup '{}' for player {:?} inventory '{}' with {} items",
         backup_id, player_id, inventory_name, backup.backed_up_items.len()
     );
@@ -285,7 +285,7 @@ fn apply_clearing_effects(
         
         player.inventories.active_effects.push(grief_effect);
         
-        println!(
+        info!(
             "😢 Player {:?} is experiencing inventory grief after losing {} items",
             player.id, items_removed
         );
@@ -293,7 +293,7 @@ fn apply_clearing_effects(
 
     // Example: Achievement for clearing large inventory
     if items_removed > 100 {
-        println!(
+        info!(
             "🏆 Player {:?} earned 'Fresh Start' achievement for clearing {} items",
             player.id, items_removed
         );
@@ -352,7 +352,7 @@ pub fn restore_inventory_from_backup(
     inventory.last_modified = current_timestamp();
     player.last_activity = current_timestamp();
 
-    println!(
+    info!(
         "🔄 Restored {} items to player {:?} inventory '{}' from backup '{}'",
         restored_items, backup.player_id, backup.inventory_name, backup.backup_id
     );

@@ -9,5 +9,5 @@ tracing = {workspace = true}
 tokio = {workspace = true}
 serde = { workspace = true }
 serde_json = { workspace = true }
-event_system = { path = "../event_system" }
+horizon_event_system = { path = "../horizon_event_system" }
 async-trait = { workspace = true }

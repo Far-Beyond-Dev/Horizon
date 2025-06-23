@@ -15,7 +15,7 @@ pub fn search_inventory_handler(
 
     match result {
         Ok(search_result) => {
-            println!(
+            info!(
                 "🔍 Search completed for player {:?}: {} results found (page {}/{})",
                 event.query.player_id,
                 search_result.total_count,
@@ -36,7 +36,7 @@ pub fn search_inventory_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Search failed for player {:?}: {}",
                 event.query.player_id, e
             );

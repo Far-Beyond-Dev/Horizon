@@ -55,7 +55,7 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 plugin_inventory_system = { path = "path/to/inventory_system" }
-event_system = { path = "../event_system" }
+horizon_event_system = { path = "../horizon_event_system" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.0", features = ["full"] }
@@ -889,13 +889,13 @@ All errors are emitted as events with consistent structure:
 let inventory_system = InventorySystem::new();
 
 // Register event handlers
-inventory_system.register_handlers(event_system).await?;
+inventory_system.register_handlers(horizon_event_system).await?;
 
 // Listen for events
-event_system.on_plugin("InventorySystem", "item_picked_up", |event| {
+horizon_event_system.on_plugin("InventorySystem", "item_picked_up", |event| {
     // Handle pickup event
     let data: serde_json::Value = event;
-    println!("Item picked up: {}", data);
+    info!("Item picked up: {}", data);
     Ok(())
 }).await?;
 ```
@@ -904,7 +904,7 @@ event_system.on_plugin("InventorySystem", "item_picked_up", |event| {
 
 ```rust
 // Custom inventory validation
-event_system.on_plugin("InventorySystem", "pickup_failed", |event| {
+horizon_event_system.on_plugin("InventorySystem", "pickup_failed", |event| {
     let error_data: serde_json::Value = event;
     
     if error_data["error_type"] == "InventoryFull" {
@@ -919,7 +919,7 @@ event_system.on_plugin("InventorySystem", "pickup_failed", |event| {
 }).await?;
 
 // Stats system integration
-event_system.on_plugin("InventorySystem", "equipment_changed", |event| {
+horizon_event_system.on_plugin("InventorySystem", "equipment_changed", |event| {
     let equip_data: serde_json::Value = event;
     
     // Update player combat stats
@@ -936,7 +936,7 @@ event_system.on_plugin("InventorySystem", "equipment_changed", |event| {
 
 ```rust
 // Inventory UI updates
-event_system.on_plugin("InventorySystem", "inventory_updated", |event| {
+horizon_event_system.on_plugin("InventorySystem", "inventory_updated", |event| {
     let update_data: serde_json::Value = event;
     
     // Refresh UI for affected player
@@ -950,7 +950,7 @@ event_system.on_plugin("InventorySystem", "inventory_updated", |event| {
 }).await?;
 
 // Real-time search results
-event_system.on_plugin("InventorySystem", "search_results", |event| {
+horizon_event_system.on_plugin("InventorySystem", "search_results", |event| {
     let search_data: serde_json::Value = event;
     
     // Send search results to client
@@ -1001,7 +1001,7 @@ event_system.on_plugin("InventorySystem", "search_results", |event| {
 #[tokio::test]
 async fn test_pickup_item() {
     let inventory_system = InventorySystem::new();
-    let event_system = create_test_event_system();
+    let horizon_event_system = create_test_horizon_event_system();
     
     // Test successful pickup
     let pickup_request = PickupItemRequest {
@@ -1017,12 +1017,12 @@ async fn test_pickup_item() {
         &inventory_system.player_count,
         &inventory_system.item_definitions,
         &inventory_system.config,
-        &event_system,
+        &horizon_event_system,
         pickup_request,
     );
     
     // Verify event was emitted
-    assert_event_emitted(&event_system, "item_picked_up").await;
+    assert_event_emitted(&horizon_event_system, "item_picked_up").await;
 }
 ```
 
@@ -1057,7 +1057,7 @@ The system provides comprehensive statistics for monitoring:
 
 ```rust
 // Get system health
-event_system.emit_plugin(
+horizon_event_system.emit_plugin(
     "InventorySystem",
     "GetSystemStats",
     &serde_json::json!({})

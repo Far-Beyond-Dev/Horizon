@@ -19,7 +19,7 @@ pub fn repair_item_handler(
 
     match result {
         Ok(repair_result) => {
-            println!(
+            info!(
                 "🔧 Player {:?} repaired item {} for {} durability ({}% -> {}%)",
                 event.player_id,
                 event.item_instance_id,
@@ -65,7 +65,7 @@ pub fn repair_item_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Repair failed for player {:?} on item {}: {}",
                 event.player_id, event.item_instance_id, e
             );
@@ -498,7 +498,7 @@ fn validate_repair_resources(
     // Check currency (simplified - would check specific currency items)
     if repair_plan.currency_cost > 0 {
         // For demo, assume player always has enough currency
-        println!("💰 Repair cost: {} coins", repair_plan.currency_cost);
+        info!("💰 Repair cost: {} coins", repair_plan.currency_cost);
     }
 
     Ok(())
@@ -542,7 +542,7 @@ fn consume_repair_resources(
 
     // Consume currency would be handled here
     if repair_plan.currency_cost > 0 {
-        println!("💸 Spent {} coins for repair", repair_plan.currency_cost);
+        info!("💸 Spent {} coins for repair", repair_plan.currency_cost);
     }
 
     Ok(materials_consumed)
@@ -598,7 +598,7 @@ fn apply_repair_to_item(
         *durability += durability_to_restore;
         let actual_restored = *durability - old_durability;
         
-        println!("🔧 Repaired item: {} -> {} durability", old_durability, *durability);
+        info!("🔧 Repaired item: {} -> {} durability", old_durability, *durability);
         
         player.last_activity = current_timestamp();
         
@@ -651,7 +651,7 @@ fn remove_item_from_player_inventories(
     quantity: u32,
 ) -> Result<u32, InventoryError> {
     // Simplified implementation for demo
-    println!("🔧 Removing {} of item {} for repair", quantity, item_id);
+    info!("🔧 Removing {} of item {} for repair", quantity, item_id);
     Ok(quantity)
 }
 

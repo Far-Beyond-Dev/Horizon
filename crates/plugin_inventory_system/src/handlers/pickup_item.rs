@@ -24,7 +24,7 @@ pub fn pickup_item_handler(
 
     match result {
         Ok(item_instance) => {
-            println!(
+            info!(
                 "📦 Player {:?} picked up {} of item {} (instance: {})",
                 event.id, event.item_count, event.item_id, item_instance.instance_id
             );
@@ -38,7 +38,7 @@ pub fn pickup_item_handler(
                         .map(|inv| inv.slots.len() as u32)
                         .sum();
                     
-                    println!(
+                    info!(
                         "📊 Player {:?} now has {} total items across all inventories",
                         event.id, total_items
                     );
@@ -74,7 +74,7 @@ pub fn pickup_item_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Failed to add item {} to player {:?}: {}",
                 event.item_id, event.id, e
             );

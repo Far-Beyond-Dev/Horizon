@@ -20,7 +20,7 @@ pub fn consume_item_handler(
 
     match result {
         Ok(consumption_result) => {
-            println!(
+            info!(
                 "🍽️ Player {:?} consumed {} of {} from inventory '{}'",
                 event.id,
                 event.amount,
@@ -83,7 +83,7 @@ pub fn consume_item_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Player {:?} failed to consume item {}: {}",
                 event.id, event.item_id, e
             );
@@ -288,7 +288,7 @@ fn validate_item_consumable(
     if let Some(requires_condition) = item_def.custom_properties.get("requires_condition") {
         if let Some(condition_str) = requires_condition.as_str() {
             // This would integrate with a conditions system
-            println!("🔍 Checking consumption condition: {}", condition_str);
+            info!("🔍 Checking consumption condition: {}", condition_str);
         }
     }
 
@@ -419,22 +419,22 @@ fn apply_effect_to_player(
     // Apply immediate effects
     match effect.effect_type.as_str() {
         "health_restore" => {
-            println!("💚 Player {:?} restored {} health", player_id, effect.value);
+            info!("💚 Player {:?} restored {} health", player_id, effect.value);
         }
         "mana_restore" => {
-            println!("💙 Player {:?} restored {} mana", player_id, effect.value);
+            info!("💙 Player {:?} restored {} mana", player_id, effect.value);
         }
         "hunger_restore" => {
-            println!("🍖 Player {:?} restored {} hunger", player_id, effect.value);
+            info!("🍖 Player {:?} restored {} hunger", player_id, effect.value);
         }
         "speed_boost" => {
-            println!("🏃 Player {:?} gained speed boost: {}", player_id, effect.value);
+            info!("🏃 Player {:?} gained speed boost: {}", player_id, effect.value);
         }
         "strength_boost" => {
-            println!("💪 Player {:?} gained strength boost: {}", player_id, effect.value);
+            info!("💪 Player {:?} gained strength boost: {}", player_id, effect.value);
         }
         _ => {
-            println!("✨ Player {:?} gained effect '{}': {}", player_id, effect.effect_type, effect.value);
+            info!("✨ Player {:?} gained effect '{}': {}", player_id, effect.effect_type, effect.value);
         }
     }
 
@@ -464,7 +464,7 @@ fn update_consumption_statistics(
         .unwrap_or((0, 0)).0 + amount;
 
     // This would normally be stored in a proper statistics system
-    println!("📊 Player {:?} total consumption of item {}: {}", player_id, item_id, current_total);
+    info!("📊 Player {:?} total consumption of item {}: {}", player_id, item_id, current_total);
 
     Ok(current_total)
 }
@@ -532,7 +532,7 @@ pub fn cleanup_expired_effects(
             
             let removed_count = initial_count - player.inventories.active_effects.len();
             if removed_count > 0 {
-                println!("🧹 Cleaned up {} expired effects for player {:?}", removed_count, player_id);
+                info!("🧹 Cleaned up {} expired effects for player {:?}", removed_count, player_id);
             }
         }
     }

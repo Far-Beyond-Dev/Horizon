@@ -9,9 +9,9 @@ use std::path::PathBuf;
 use tokio::signal;
 use toml;
 use tracing::{error, info, warn};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-
-use event_system::RegionBounds;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing_subscriber::Layer;
+use horizon_event_system::RegionBounds;
 use game_server::{GameServer, ServerConfig};
 
 // ============================================================================
@@ -215,19 +215,29 @@ fn setup_logging(
     json_format: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let log_level = config.level.as_str();
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(log_level));
 
-    let registry = tracing_subscriber::registry().with(filter);
-
-    if json_format || config.json_format {
-        // JSON formatting
-        registry.with(fmt::layer().json()).init();
+    let fmt_layer = if json_format || config.json_format {
+        fmt::layer()
+            .json()
+            .with_thread_names(true)
+            .boxed()
     } else {
-        // Human-readable formatting with colors
-        registry.with(fmt::layer().pretty().with_ansi(true)).init();
-    }
+        fmt::layer()
+            .with_ansi(true)
+            .with_thread_names(true)
+            .with_line_number(false)
+            .with_file(false)
+            .boxed()
+    };
 
-    info!("🔧 Logging initialized with level: {}", log_level);
+    let subscriber = Registry::default()
+        .with(filter)
+        .with(fmt_layer);
+
+    tracing::subscriber::set_global_default(subscriber)?;
+    tracing::info!("🔧 Logging initialized with level: {}", log_level);
     Ok(())
 }
 
@@ -346,11 +356,11 @@ impl Application {
         );
 
         // Get references for monitoring
-        let event_system = self.server.get_event_system();
+        let horizon_event_system = self.server.get_horizon_event_system();
         //        let plugin_manager = self.server.();
 
         // Display initial statistics
-        let initial_stats = event_system.get_stats().await;
+        let initial_stats = horizon_event_system.get_stats().await;
         info!("📊 Initial Event System State:");
         info!("  - Handlers registered: {}", initial_stats.total_handlers);
         info!("  - Events emitted: {}", initial_stats.events_emitted);
@@ -378,7 +388,7 @@ impl Application {
 
         // Start monitoring task for real-time statistics
         let monitoring_handle = {
-            let event_system = event_system.clone();
+            let horizon_event_system = horizon_event_system.clone();
             //            let plugin_manager = plugin_manager.clone();
 
             tokio::spawn(async move {
@@ -389,7 +399,7 @@ impl Application {
                     interval.tick().await;
 
                     // Display periodic statistics
-                    let stats = event_system.get_stats().await;
+                    let stats = horizon_event_system.get_stats().await;
                     //                    let plugin_stats = plugin_manager.get_plugin_stats().await;
                     let events_this_period = stats.events_emitted - last_events_emitted;
                     last_events_emitted = stats.events_emitted;
@@ -436,7 +446,7 @@ impl Application {
         info!("📊 Final Statistics:");
 
         // Display final statistics if possible
-        let final_stats = event_system.get_stats().await;
+        let final_stats = horizon_event_system.get_stats().await;
         info!("  - Total events processed: {}", final_stats.events_emitted);
         info!("  - Peak handlers: {}", final_stats.total_handlers);
 
@@ -464,7 +474,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Err(e) => {
-            eprintln!("❌ Failed to start application: {:?}", e);
+            error!("❌ Failed to start application: {:?}", e);
             std::process::exit(1);
         }
     }

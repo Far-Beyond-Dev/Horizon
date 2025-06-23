@@ -23,7 +23,7 @@ pub fn create_trade_handler(
 
     match result {
         Ok(trade_offer) => {
-            println!(
+            info!(
                 "🤝 Trade created: {} offers {} items to {} for {} items",
                 trade_offer.from_player,
                 trade_offer.offered_items.len(),
@@ -59,7 +59,7 @@ pub fn create_trade_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Failed to create trade between {:?} and {:?}: {}",
                 event.from_player, event.to_player, e
             );
@@ -98,7 +98,7 @@ pub fn trade_action_handler(
         Ok(trade_result) => {
             match trade_result {
                 TradeResult::Accepted(trade) => {
-                    println!("✅ Trade {} accepted and completed", trade.trade_id);
+                    info!("✅ Trade {} accepted and completed", trade.trade_id);
                     
                     let _ = events.emit_plugin(
                         "InventorySystem",
@@ -112,7 +112,7 @@ pub fn trade_action_handler(
                     );
                 }
                 TradeResult::Declined(trade_id) => {
-                    println!("❌ Trade {} declined", trade_id);
+                    info!("❌ Trade {} declined", trade_id);
                     
                     let _ = events.emit_plugin(
                         "InventorySystem",
@@ -125,7 +125,7 @@ pub fn trade_action_handler(
                     );
                 }
                 TradeResult::Cancelled(trade_id) => {
-                    println!("🚫 Trade {} cancelled", trade_id);
+                    info!("🚫 Trade {} cancelled", trade_id);
                     
                     let _ = events.emit_plugin(
                         "InventorySystem",
@@ -138,7 +138,7 @@ pub fn trade_action_handler(
                     );
                 }
                 TradeResult::Modified(trade) => {
-                    println!("🔄 Trade {} modified", trade.trade_id);
+                    info!("🔄 Trade {} modified", trade.trade_id);
                     
                     let _ = events.emit_plugin(
                         "InventorySystem",
@@ -154,7 +154,7 @@ pub fn trade_action_handler(
             }
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Trade action failed for player {:?} on trade {}: {}",
                 event.player_id, event.trade_id, e
             );
@@ -181,7 +181,7 @@ pub fn get_trades_handler(
 ) {
     let trades = get_player_trades(active_trades, player_id);
 
-    println!(
+    info!(
         "📋 Retrieved {} active trades for player {:?}",
         trades.len(), player_id
     );

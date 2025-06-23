@@ -20,7 +20,7 @@ pub fn drop_item_handler(
 
     match result {
         Ok(removed_items) => {
-            println!(
+            info!(
                 "📤 Player {:?} dropped {} of item {} from inventory '{}'",
                 event.id, 
                 event.item_count, 
@@ -78,7 +78,7 @@ pub fn drop_item_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Player {:?} failed to drop item {}: {}",
                 event.id, event.item_id, e
             );

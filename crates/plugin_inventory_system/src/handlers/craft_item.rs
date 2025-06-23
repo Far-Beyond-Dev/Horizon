@@ -22,7 +22,7 @@ pub fn craft_item_handler(
 
     match result {
         Ok(craft_result) => {
-            println!(
+            info!(
                 "🔨 Player {:?} crafted {} x{} using recipe '{}'",
                 event.player_id,
                 craft_result.crafted_items.len(),
@@ -75,7 +75,7 @@ pub fn craft_item_handler(
             );
         }
         Err(e) => {
-            println!(
+            info!(
                 "❌ Player {:?} failed to craft recipe '{}': {}",
                 event.player_id, event.recipe_id, e
             );
@@ -225,7 +225,7 @@ fn validate_skill_requirements(
     // This would integrate with a skills system
     // For now, we'll just check if there are any requirements
     for (skill_name, required_level) in &recipe.skill_requirements {
-        println!(
+        info!(
             "🎯 Recipe requires {} level {} (skill validation not implemented)",
             skill_name, required_level
         );
@@ -439,7 +439,7 @@ fn apply_tool_durability_loss(
                         *durability = durability.saturating_sub(durability_loss);
                         
                         if *durability == 0 {
-                            println!("🔧 Tool {} broke during crafting", tool_id);
+                            info!("🔧 Tool {} broke during crafting", tool_id);
                             slot.item = None; // Tool breaks
                         }
                     }
