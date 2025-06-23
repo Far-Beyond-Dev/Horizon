@@ -181,6 +181,19 @@ impl SimplePlugin for GreeterPlugin {
                 .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
         }
 
+        events
+            .emit_plugin(
+                "GuildComms",
+                "Clan",
+                &serde_json::json!({
+                    "clan_id": "8b81645b-fa02-47ff-80c3-fb3f76c36bf1",
+                    "clan_name": "Example clan",
+                    "player_count": 100_000,
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
         println!("👋 GreeterPlugin: ✅ Initialization complete!");
         Ok(())
     }

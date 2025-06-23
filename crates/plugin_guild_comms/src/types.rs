@@ -8,8 +8,16 @@ pub use std::{
     sync::{Arc, Mutex},
     vec::Vec,
 };
+use uuid::Uuid;
 
 pub use chrono::prelude::*;
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct ClanSystem {
+    pub clan_id: Uuid,
+    pub clan_name: String,
+    pub player_count: u32,
+}
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct MessageSystemRequest {
@@ -20,5 +28,6 @@ pub struct MessageSystemRequest {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct GuildSystem {
-    pub chat: Option<Vec<MessageSystemRequest>>, 
+    pub clans: Option<Vec<ClanSystem>>,
+    pub chat: Option<Vec<MessageSystemRequest>>,
 }

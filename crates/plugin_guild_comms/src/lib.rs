@@ -7,10 +7,11 @@ use types::*;
 impl GuildSystem {
     pub fn new() -> Self {
         println!("📝 GuildPlugin: Initializing comprehensive chat management system...");
-        
+
         let now = Utc::now();
-        
+
         Self {
+            clans: None,
             chat: None,
         }
     }
@@ -33,13 +34,31 @@ impl SimplePlugin for GuildSystem {
                     "GuildComms",
                     "Chat",
                     move |json_event: serde_json::Value| {
-                        let event: GuildSystem =
+                        let event: MessageSystemRequest =
                             serde_json::from_value(json_event).expect("Failed to read json");
 
                         println!("Chat message received!: {:?}", event);
 
                         Ok(())
                     },
+                )
+                .await
+                .unwrap()
+        }
+
+        {
+            events
+                .on_plugin(
+                    "GuildComms", 
+                    "Clan", 
+                    move |json_event: serde_json::Value| {
+                        let event: ClanSystem =
+                            serde_json::from_value(json_event).expect("Failed to read json");
+
+                            println!("New clan!: {:?}", event);
+
+                        Ok(())
+                    }
                 )
                 .await
                 .unwrap()
