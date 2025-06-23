@@ -12,12 +12,13 @@ pub use std::{
 pub use chrono::prelude::*;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-struct MessageSystemRequest {
+pub struct MessageSystemRequest {
     id: PlayerId,
     name: String,
     time: DateTime<Utc>,
 }
 
-pub struct Guild {
-    chat: Option<Vec<MessageSystemRequest>>, 
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+pub struct GuildSystem {
+    pub chat: Option<Vec<MessageSystemRequest>>, 
 }

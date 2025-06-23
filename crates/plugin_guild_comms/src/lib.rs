@@ -11,9 +11,7 @@ impl GuildSystem {
         let now = Utc::now();
         
         Self {
-            id: PlayerId::new(),
-            name: String::new(),
-            time: DateTime::,
+            chat: None,
         }
     }
 }
