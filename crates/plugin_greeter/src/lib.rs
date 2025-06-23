@@ -194,6 +194,146 @@ impl SimplePlugin for GreeterPlugin {
             .await
             .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
+        events
+            .emit_plugin(
+                "GuildComms",
+                "Role",
+                &serde_json::json!({
+                    "permission": 1,
+                    "role_name": "Member",
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
+        events
+            .emit_plugin(
+                "GuildComms",
+                "Channel",
+                &serde_json::json!({
+                    "channel_name": "Memes",
+                    "roles_with_access": [{
+                        "permission": 1,
+                        "role_name": "Member"
+                    }],
+                    "active_users_in_channel": 100_000,
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
+        // ============================================================================
+        // Housing Plugin Events
+        // ============================================================================
+
+        println!("🏠 Sending housing events to Housing plugin!");
+
+        // Create a new house
+        events
+            .emit_plugin(
+                "Housing",
+                "CreateHouse",
+                &serde_json::json!({
+                    "house_id": "a09989fc-9957-4389-935e-f70c182b3ee5",
+                    "owner_id": "79dc25a1-22f5-4531-bbce-9cb3400f005d",
+                    "house_name": "Greeter's Welcome Home",
+                    "dimensions": {
+                        "x": 50,
+                        "y": 50,
+                        "z": 20
+                    },
+                    "location": {
+                        "x": 100.5,
+                        "y": 64.0,
+                        "z": 200.3,
+                        "world": "overworld"
+                    },
+                    "created_at": Utc::now(),
+                    "last_modified": Utc::now()
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
+        // Add a room to the house
+        events
+            .emit_plugin(
+                "Housing",
+                "AddRoom",
+                &serde_json::json!({
+                    "room_id": "3fdf159b-2463-42b9-b44a-585239284e3f",
+                    "room_name": "Welcome Living Room",
+                    "dimensions": {
+                        "x": 15,
+                        "y": 15,
+                        "z": 10
+                    },
+                    "room_type": "LivingRoom"
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
+        // Add another room
+        events
+            .emit_plugin(
+                "Housing",
+                "AddRoom",
+                &serde_json::json!({
+                    "room_id": "a5cf2191-bed4-447f-b82c-f63f99666e54",
+                    "room_name": "Hospitality Kitchen",
+                    "dimensions": {
+                        "x": 12,
+                        "y": 10,
+                        "z": 8
+                    },
+                    "room_type": "Kitchen"
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
+        // Update house information
+        events
+            .emit_plugin(
+                "Housing",
+                "UpdateHouse",
+                &serde_json::json!({
+                    "house_id": "5d466319-2a3e-4389-b33b-a801579db2a9",
+                    "house_name": "Greeter's Updated Welcome Home",
+                    "last_modified": Utc::now()
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
+        // Create a second house for demonstration
+        events
+            .emit_plugin(
+                "Housing",
+                "CreateHouse",
+                &serde_json::json!({
+                    "house_id": "1b1f76cf-0c8d-43be-9eb6-ba9fef3d5b71",
+                    "owner_id": "ddc15a1d-3b26-43c9-ab3f-e51a433b91fd",
+                    "house_name": "Guest House",
+                    "dimensions": {
+                        "x": 30,
+                        "y": 30,
+                        "z": 15
+                    },
+                    "location": {
+                        "x": 150.0,
+                        "y": 64.0,
+                        "z": 250.0,
+                        "world": "overworld"
+                    },
+                    "created_at": Utc::now(),
+                    "last_modified": Utc::now()
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+
         println!("👋 GreeterPlugin: ✅ Initialization complete!");
         Ok(())
     }
@@ -218,6 +358,19 @@ impl SimplePlugin for GreeterPlugin {
                     "total_welcomes": self.welcome_count,
                     "message": "Greeter plugin going offline. Goodbye!",
                     "timestamp": current_timestamp()
+                }),
+            )
+            .await
+            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        // Clean up housing data before shutdown
+        events
+            .emit_plugin(
+                "Housing",
+                "DeleteHouse",
+                &serde_json::json!({
+                    "house_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                    "owner_id": "701d617f-3e4f-41b4-b4c6-c1b53709fc63"
                 }),
             )
             .await

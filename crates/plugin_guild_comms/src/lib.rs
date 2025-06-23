@@ -1,7 +1,5 @@
-mod handlers;
 mod types;
 
-use handlers::*;
 use types::*;
 
 impl GuildSystem {
@@ -13,6 +11,8 @@ impl GuildSystem {
         Self {
             clans: None,
             chat: None,
+            roles: None,
+            channels: None,
         }
     }
 }
@@ -49,16 +49,52 @@ impl SimplePlugin for GuildSystem {
         {
             events
                 .on_plugin(
-                    "GuildComms", 
-                    "Clan", 
+                    "GuildComms",
+                    "Clan",
                     move |json_event: serde_json::Value| {
                         let event: ClanSystem =
                             serde_json::from_value(json_event).expect("Failed to read json");
 
-                            println!("New clan!: {:?}", event);
+                        println!("New clan!: {:?}", event);
 
                         Ok(())
-                    }
+                    },
+                )
+                .await
+                .unwrap()
+        }
+
+        {
+            events
+                .on_plugin(
+                    "GuildComms",
+                    "Role",
+                    move |json_event: serde_json::Value| {
+                        let event: Roles =
+                            serde_json::from_value(json_event).expect("Failed to read json");
+
+                        println!("New role!: {:?}", event);
+
+                        Ok(())
+                    },
+                )
+                .await
+                .unwrap()
+        }
+
+        {
+            events
+                .on_plugin(
+                    "GuildComms",
+                    "Channel",
+                    move |json_event: serde_json::Value| {
+                        let event: Channels =
+                            serde_json::from_value(json_event).expect("Failed to read json");
+
+                        println!("New channel!: {:?}", event);
+
+                        Ok(())
+                    },
                 )
                 .await
                 .unwrap()
