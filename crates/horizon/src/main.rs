@@ -205,6 +205,7 @@ impl CliArgs {
     }
 }
 
+
 // ============================================================================
 // Logging Setup
 // ============================================================================
@@ -220,16 +221,33 @@ fn setup_logging(
     let registry = tracing_subscriber::registry().with(filter);
 
     if json_format || config.json_format {
-        // JSON formatting
-        registry.with(fmt::layer().json()).init();
+        // JSON formatting with thread info
+        registry
+            .with(fmt::layer()
+                .json()
+                .with_file(false)
+                .with_line_number(false)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+            )
+            .init();
     } else {
-        // Human-readable formatting with colors
-        registry.with(fmt::layer().pretty().with_ansi(true)).init();
+        // Human-readable formatting with thread info
+        registry
+            .with(fmt::layer()
+                .with_ansi(true)
+                .with_file(false)
+                .with_line_number(false)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+            )
+            .init();
     }
 
     info!("🔧 Logging initialized with level: {}", log_level);
     Ok(())
 }
+
 
 // ============================================================================
 // Signal Handling
@@ -487,9 +505,9 @@ fn display_banner() {
     info!("║                                          ║");
     info!("║  🎯 Type-Safe Events                     ║");
     info!("║  🔌 Zero-Unsafe Plugins                  ║");
-    info!("║  🛡️  Memory Safe Architecture           ║");
-    info!("║  ⚡ High Performance Core               ║");
-    info!("║  🌐 WebSocket + TCP Support             ║");
+    info!("║  🛡️  Memory Safe Architecture            ║");
+    info!("║  ⚡ High Performance Core                ║");
+    info!("║  🌐 WebSocket + TCP Support              ║");
     info!("║                                          ║");
     info!("╚══════════════════════════════════════════╝");
 }

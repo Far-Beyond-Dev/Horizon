@@ -2,7 +2,7 @@
 //!
 //! This server handles only essential infrastructure: connections, plugin management,
 //! and message routing. All game logic is delegated to plugins.
-
+#[allow(unused_imports, dead_code)]
 use event_system::{
     create_event_system, current_timestamp, DisconnectReason, EventSystem, PlayerConnectedEvent,
     PlayerDisconnectedEvent, PlayerId, RawClientMessageEvent, RegionBounds, RegionId,

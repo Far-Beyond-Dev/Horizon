@@ -23,6 +23,16 @@ impl PlayerId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
+
+    pub fn from_str(s: &str) -> Result<Self, uuid::Error> {
+        Uuid::parse_str(s).map(Self)
+    }
+}
+
+impl Default for PlayerId {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl std::fmt::Display for PlayerId {
