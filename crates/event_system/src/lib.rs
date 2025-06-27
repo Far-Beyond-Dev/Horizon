@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
+use futures;
 
 // ============================================================================
 // Core Types (Minimal set)
@@ -440,61 +441,121 @@ pub trait SimplePlugin: Send + Sync + 'static {
     }
 }
 
-/// Macro to create a plugin with minimal boilerplate
+/// Macro to create a plugin with minimal boilerplate and comprehensive panic handling
 #[macro_export]
 macro_rules! create_simple_plugin {
     ($plugin_type:ty) => {
         use $crate::Plugin;
+        use std::panic::{catch_unwind, AssertUnwindSafe};
 
-        /// Wrapper to bridge SimplePlugin and Plugin traits
+        /// Wrapper to bridge SimplePlugin and Plugin traits with panic protection
         struct PluginWrapper {
             inner: $plugin_type,
+        }
+
+        impl PluginWrapper {
+            /// Helper to convert panics to PluginError
+            fn panic_to_error(panic_info: Box<dyn std::any::Any + Send>) -> PluginError {
+                let message = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                    format!("Plugin panicked: {}", s)
+                } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                    format!("Plugin panicked: {}", s)
+                } else {
+                    "Plugin panicked with unknown error".to_string()
+                };
+                
+                PluginError::Runtime(message)
+            }
         }
 
         #[async_trait]
         impl Plugin for PluginWrapper {
             fn name(&self) -> &str {
-                self.inner.name()
+                // For synchronous methods, we can use catch_unwind directly
+                match catch_unwind(AssertUnwindSafe(|| self.inner.name())) {
+                    Ok(name) => name,
+                    Err(_) => "unknown-plugin-name", // Fallback name if panic occurs
+                }
             }
 
             fn version(&self) -> &str {
-                self.inner.version()
+                match catch_unwind(AssertUnwindSafe(|| self.inner.version())) {
+                    Ok(version) => version,
+                    Err(_) => "unknown-version", // Fallback version if panic occurs
+                }
             }
 
             async fn pre_init(
                 &mut self,
                 context: Arc<dyn ServerContext>,
             ) -> Result<(), PluginError> {
-                self.inner.register_handlers(context.events()).await
+                // Run directly on the current thread using the current runtime handle
+                catch_unwind(AssertUnwindSafe(|| {
+                    futures::executor::block_on(self.inner.register_handlers(context.events()))
+                }))
+                .map_err(Self::panic_to_error)?
             }
 
             async fn init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-                self.inner.on_init(context).await
+                catch_unwind(AssertUnwindSafe(|| {
+                    futures::executor::block_on(self.inner.on_init(context))
+                }))
+                .map_err(Self::panic_to_error)?
             }
 
             async fn shutdown(
                 &mut self,
                 context: Arc<dyn ServerContext>,
             ) -> Result<(), PluginError> {
-                self.inner.on_shutdown(context).await
+                catch_unwind(AssertUnwindSafe(|| {
+                    futures::executor::block_on(self.inner.on_shutdown(context))
+                }))
+                .map_err(Self::panic_to_error)?
             }
         }
 
-        /// Plugin creation function - required export
+        /// Plugin creation function with panic protection - required export
         #[no_mangle]
         pub unsafe extern "C" fn create_plugin() -> *mut dyn Plugin {
-            let plugin = Box::new(PluginWrapper {
-                inner: <$plugin_type>::new(),
-            });
-            Box::into_raw(plugin)
+            // Critical: catch panics at FFI boundary to prevent UB
+            match catch_unwind(AssertUnwindSafe(|| {
+                let plugin = Box::new(PluginWrapper {
+                    inner: <$plugin_type>::new(),
+                });
+                Box::into_raw(plugin) as *mut dyn Plugin
+            })) {
+                Ok(plugin_ptr) => plugin_ptr,
+                Err(panic_info) => {
+                    // Log the panic if possible (you might want to use your logging system here)
+                    eprintln!("Plugin creation panicked: {:?}", panic_info);
+                    std::ptr::null_mut::<PluginWrapper>() as *mut dyn Plugin // Return null on panic
+                }
+            }
         }
 
-        /// Plugin destruction function - required export
+        /// Plugin destruction function with panic protection - required export
         #[no_mangle]
         pub unsafe extern "C" fn destroy_plugin(plugin: *mut dyn Plugin) {
-            if !plugin.is_null() {
-                let _ = Box::from_raw(plugin);
+            if plugin.is_null() {
+                return;
             }
+
+            // Critical: catch panics at FFI boundary to prevent UB
+            let _ = catch_unwind(AssertUnwindSafe(|| {
+                let _ = Box::from_raw(plugin);
+            }));
+            // If destruction panics, we just ignore it - the memory might leak
+            // but it's better than crashing the host process
+        }
+
+        /// Optional: Initialize panic hook for better panic handling
+        /// Call this once during plugin loading if desired
+        #[allow(dead_code)]
+        fn init_plugin_panic_hook() {
+            std::panic::set_hook(Box::new(|panic_info| {
+                eprintln!("Plugin panic occurred: {}", panic_info);
+                // You could also send this to your logging system
+            }));
         }
     };
 }
@@ -604,6 +665,8 @@ pub enum PluginError {
     ExecutionError(String),
     #[error("Plugin not found: {0}")]
     NotFound(String),
+    #[error("Plugin runtime error: {0}")]
+    Runtime(String),
 }
 
 #[derive(Debug, thiserror::Error)]
