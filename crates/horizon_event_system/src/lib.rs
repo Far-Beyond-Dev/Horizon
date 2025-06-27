@@ -684,7 +684,7 @@ pub enum ServerError {
 pub fn current_timestamp() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("Time went backwards")
         .as_secs()
 }
 
@@ -712,7 +712,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register core event in horizon_event_system");
 
         events
             .on_client("movement", "player_moved", |event: TestEvent| {
@@ -720,7 +720,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register core event in horizon_event_system");
 
         events
             .on_plugin("combat", "attack", |event: TestEvent| {
@@ -728,7 +728,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register core event in horizon_event_system");
 
         // Test emission
         events
@@ -739,7 +739,7 @@ mod tests {
                 },
             )
             .await
-            .unwrap();
+            .expect("Failed to emit core event in horizon_event_system");
 
         events
             .emit_client(
@@ -750,7 +750,7 @@ mod tests {
                 },
             )
             .await
-            .unwrap();
+            .expect("Failed to emit client event in horizon_event_system");
 
         events
             .emit_plugin(
@@ -761,7 +761,7 @@ mod tests {
                 },
             )
             .await
-            .unwrap();
+            .expect("Failed to emit plugin event in horizon_event_system");
     }
 
     #[tokio::test]
@@ -804,7 +804,7 @@ mod tests {
                 },
             )
             .await
-            .unwrap();
+            .expect("Failed to emit client event in horizon_event_system");
 
         events
             .emit_plugin(
@@ -815,7 +815,7 @@ mod tests {
                 },
             )
             .await
-            .unwrap();
+            .expect("Failed to emit plugin event in horizon_event_system");
 
         Ok(()) as Result<(), Box<dyn std::error::Error>>
     }
@@ -845,7 +845,7 @@ mod tests {
                 },
             )
             .await
-            .unwrap();
+            .expect("Failed to emit client event in horizon_event_system");
 
         Ok(())
     }

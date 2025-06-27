@@ -36,7 +36,7 @@ pub struct ServerConfig {
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            bind_address: "127.0.0.1:8080".parse().unwrap(),
+            bind_address: "127.0.0.1:8080".parse().expect("Attempted to use ServerConfig.default(), but field `bind_address` is not parsable in the source code"),
             region_bounds: RegionBounds {
                 min_x: -1000.0,
                 max_x: 1000.0,
@@ -565,7 +565,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register core event handler");
 
         // Emit a test event
         events
@@ -576,7 +576,7 @@ mod tests {
                 }),
             )
             .await
-            .unwrap();
+            .expect("Failed to register core event handler");
     }
 
     #[tokio::test]
@@ -591,7 +591,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register movement handler");
 
         events
             .on_client("chat", "send_message", |event: serde_json::Value| {
@@ -599,7 +599,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register chat handler");
 
         // Test routing
         events
@@ -613,7 +613,7 @@ mod tests {
                 }),
             )
             .await
-            .unwrap();
+            .expect("Failed to emit client event for movement");
 
         events
             .emit_client(
@@ -625,8 +625,8 @@ mod tests {
                 }),
             )
             .await
-            .unwrap();
-    }
+            .expect("Failed to emit client event for chat");
+        }
 
     #[tokio::test]
     async fn test_generic_client_message_routing() {
@@ -640,7 +640,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register movement handler");
 
         events
             .on_client("inventory", "use_item", |event: serde_json::Value| {
@@ -648,7 +648,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register inventory handler");
 
         events
             .on_client(
@@ -660,7 +660,7 @@ mod tests {
                 },
             )
             .await
-            .unwrap();
+            .expect("Failed to register custom event handler");
 
         // Test the new generic routing
         events
@@ -672,7 +672,7 @@ mod tests {
                 }),
             )
             .await
-            .unwrap();
+            .expect("Failed to emit client event for movement");
 
         events
             .emit_client(
@@ -684,7 +684,7 @@ mod tests {
                 }),
             )
             .await
-            .unwrap();
+            .expect("Failed to emit client event for inventory");
 
         events
             .emit_client(
@@ -695,7 +695,7 @@ mod tests {
                 }),
             )
             .await
-            .unwrap();
+            .expect("Failed to emit client event for custom plugin");
 
         println!("✅ All messages routed generically without hardcoded logic!");
     }
@@ -724,7 +724,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register core player connected handler");
 
         // This would be handled by movement plugin, not core
         events
@@ -733,7 +733,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register movement handler");
 
         println!("✨ Clean separation achieved with generic routing!");
     }

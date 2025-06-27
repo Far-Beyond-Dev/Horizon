@@ -196,7 +196,7 @@ impl CliArgs {
             .get_matches();
 
         Self {
-            config_path: PathBuf::from(matches.get_one::<String>("config").unwrap()),
+            config_path: PathBuf::from(matches.get_one::<String>("config").expect("Default config path should always be set")),
             plugin_dir: matches.get_one::<String>("plugins").map(PathBuf::from),
             bind_address: matches.get_one::<String>("bind").cloned(),
             log_level: matches.get_one::<String>("log-level").cloned(),
@@ -571,7 +571,7 @@ mod tests {
         assert!(config.validate().is_ok());
 
         // Test conversion to ServerConfig
-        let server_config = config.to_server_config().unwrap();
+        let server_config = config.to_server_config().expect("Default config should convert to ServerConfig test panic!");
         assert_eq!(server_config.max_connections, 1000);
         assert_eq!(server_config.connection_timeout, 60);
     }
@@ -627,10 +627,10 @@ mod tests {
 
         // Create a test config file
         let test_config = AppConfig::default();
-        let toml_content = toml::to_string_pretty(&test_config).unwrap();
+        let toml_content = toml::to_string_pretty(&test_config).expect("Failed to serialize default config to TOML");
         tokio::fs::write(&args.config_path, toml_content)
             .await
-            .unwrap();
+            .expect("Failed to write test config file to disk");
 
         // This would create the application but we can't easily test the full flow
         // without setting up the entire system

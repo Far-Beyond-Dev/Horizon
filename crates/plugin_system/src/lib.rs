@@ -898,7 +898,7 @@ mod tests {
         // we'll test through the internal implementation
         let players = context.players.read().await;
         assert!(players.contains_key(&player_id));
-        assert_eq!(players.get(&player_id).unwrap().name, "test_player");
+        assert_eq!(players.get(&player_id).expect("Failed to get player").name, "test_player");
         assert_eq!(players.len(), 1);
     }
 
@@ -908,7 +908,7 @@ mod tests {
         let plugin_manager = PluginManager::new(horizon_event_system, "./test_plugins", RegionId::new());
 
         // Test plugin discovery (will be empty if no plugins exist)
-        let discoveries = plugin_manager.discover_plugins().await.unwrap();
+        let discoveries = plugin_manager.discover_plugins().await.expect("Failed to discover plugins");
         assert!(discoveries.len() >= 0); // May be empty in test environment
     }
 
@@ -935,7 +935,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register plugin test event");
 
         // Test emission
         context
@@ -947,7 +947,7 @@ mod tests {
                 }),
             )
             .await
-            .unwrap();
+            .expect("Failed to emit plugin test event");
 
         // Test client event handling for plugins
         context
@@ -957,7 +957,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register client event handler");
 
         context
             .events()
@@ -969,8 +969,8 @@ mod tests {
                 }),
             )
             .await
-            .unwrap();
-    }
+            .expect("Failed to emit client event for test plugin");
+        }
 
     #[tokio::test]
     async fn test_two_phase_loading() {
@@ -978,7 +978,7 @@ mod tests {
         let plugin_manager = PluginManager::new(horizon_event_system, "./test_plugins", RegionId::new());
 
         // Test the two-phase loading process
-        let loaded_plugins = plugin_manager.load_all_plugins().await.unwrap();
+        let loaded_plugins = plugin_manager.load_all_plugins().await.expect("Failed to load plugins");
 
         // Should return empty list since no actual plugin files exist in test environment
         assert!(loaded_plugins.len() >= 0);

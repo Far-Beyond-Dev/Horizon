@@ -158,7 +158,7 @@ impl SimplePlugin for LoggerPlugin {
                 },
             )
             .await
-            .unwrap();
+            .expect("Failed to register InventorySystem event handler");
 
         println!("📝 LoggerPlugin: ✅ Event logging system activated!");
         Ok(())
@@ -274,7 +274,7 @@ pub async fn simulate_player_activity(events: Arc<EventSystem>) {
             },
         )
         .await
-        .unwrap();
+        .expect("Failed to emit chat message");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
@@ -290,7 +290,7 @@ pub async fn simulate_player_activity(events: Arc<EventSystem>) {
             },
         )
         .await
-        .unwrap();
+        .expect("Failed to emit jump event");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
 
@@ -306,7 +306,7 @@ pub async fn simulate_player_activity(events: Arc<EventSystem>) {
             },
         )
         .await
-        .unwrap();
+        .expect("Failed to emit high jump event");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(1200)).await;
 
@@ -322,7 +322,7 @@ pub async fn simulate_player_activity(events: Arc<EventSystem>) {
             },
         )
         .await
-        .unwrap();
+        .expect("Failed to emit chat message");
 
     println!("\n🎮 Player activity simulation complete!\n");
 }
@@ -349,7 +349,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register test plugin event handler");
 
         events
             .emit_plugin(
@@ -361,7 +361,7 @@ mod tests {
                 }),
             )
             .await
-            .unwrap();
+            .expect("Failed to emit test plugin event");
 
         println!("✅ Plugin communication test passed!\n");
     }
@@ -379,7 +379,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register core event handler");
 
         events
             .on_client("test", "client_event", |event: serde_json::Value| {
@@ -387,7 +387,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register client event handler");
 
         events
             .on_plugin("test", "plugin_event", |event: serde_json::Value| {
@@ -395,7 +395,7 @@ mod tests {
                 Ok(())
             })
             .await
-            .unwrap();
+            .expect("Failed to register plugin event handler");
 
         events
             .on_plugin(
@@ -407,13 +407,13 @@ mod tests {
                 },
             )
             .await
-            .unwrap();
+            .expect("Failed to register InventorySystem event handler");
 
         // Emit test events
         events
             .emit_core("test_core", &serde_json::json!({"test": "core"}))
             .await
-            .unwrap();
+            .expect("Failed to emit core event");
         events
             .emit_client(
                 "test",
@@ -421,7 +421,7 @@ mod tests {
                 &serde_json::json!({"test": "client"}),
             )
             .await
-            .unwrap();
+            .expect("Failed to emit client event");
         events
             .emit_plugin(
                 "test",
@@ -429,7 +429,7 @@ mod tests {
                 &serde_json::json!({"test": "plugin"}),
             )
             .await
-            .unwrap();
+            .expect("Failed to emit plugin event");
 
         println!("✅ Complete integration test passed!\n");
     }
