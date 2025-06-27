@@ -13,5 +13,5 @@ futures = { workspace = true }
 tokio-tungstenite = { workspace = true }
 tracing-subscriber = { workspace = true }
 game_server = { path = "../game_server" }
-event_system = { path = "../event_system" }
+horizon_event_system = { path = "../event_system" }
 plugin_system = { path = "../plugin_system" }
