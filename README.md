@@ -105,7 +105,7 @@ Edit `Cargo.toml`:
 crate-type = ["cdylib"]
 
 [dependencies]
-event_system = { path = "../event_system" }
+horizon_event_system = { path = "../horizon_event_system" }
 serde = { version = "1.0", features = ["derive"] }
 async-trait = "0.1"
 ```
@@ -113,7 +113,7 @@ async-trait = "0.1"
 Basic plugin structure:
 
 ```rust
-use event_system::*;
+use horizon_event_system::*;
 use serde::{Deserialize, Serialize};
 
 pub struct MyPlugin {
@@ -336,7 +336,7 @@ cargo clippy
 ├── crates/
 │   ├── horizon/          # Main server executable
 │   ├── game_server/      # Core server implementation
-│   ├── event_system/     # Event handling framework
+│   ├── horizon_event_system/     # Event handling framework
 │   ├── plugin_system/    # Plugin loading and management
 │   ├── plugin_greeter/   # Example plugin
 │   └── plugin_logger/    # Example plugin

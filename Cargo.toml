@@ -2,7 +2,7 @@
 members = [
     "crates/horizon",
     "crates/game_server",
-    "crates/event_system",
+    "crates/horizon_event_system",
     "crates/plugin_system",
 
     # Plugins

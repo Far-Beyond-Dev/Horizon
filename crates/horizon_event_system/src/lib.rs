@@ -688,7 +688,7 @@ pub fn current_timestamp() -> u64 {
         .as_secs()
 }
 
-pub fn create_event_system() -> Arc<EventSystem> {
+pub fn create_horizon_event_system() -> Arc<EventSystem> {
     Arc::new(EventSystem::new())
 }
 
@@ -703,7 +703,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_refined_event_api() {
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Test the new cleaner API - individual registration
         events
@@ -766,7 +766,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_bulk_registration_macro() -> Result<(), Box<dyn std::error::Error>> {
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Test the bulk registration macro
         register_handlers!(events;
@@ -822,7 +822,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_simple_on_event_macro() -> Result<(), Box<dyn std::error::Error>> {
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Test the simple on_event! macro for single registrations
         on_event!(events, client "test", "event" => |event: TestEvent| {

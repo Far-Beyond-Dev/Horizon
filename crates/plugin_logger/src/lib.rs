@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use event_system::{
+use horizon_event_system::{
     create_simple_plugin, current_timestamp, on_event, register_handlers, EventSystem, LogLevel,
     PlayerId, PluginError, Position, ServerContext, SimplePlugin,
 };
@@ -334,13 +334,13 @@ pub async fn simulate_player_activity(events: Arc<EventSystem>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use event_system::create_event_system;
+    use horizon_event_system::create_horizon_event_system;
 
     #[tokio::test]
     async fn test_plugin_communication() {
         println!("\n🧪 Testing inter-plugin communication...\n");
 
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Test that events can be emitted and received
         events
@@ -367,10 +367,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_event_system_integration() {
+    async fn test_horizon_event_system_integration() {
         println!("\n🧪 Testing complete event system integration...\n");
 
-        let events = create_event_system();
+        let events = create_horizon_event_system();
 
         // Register handlers for all event types
         events

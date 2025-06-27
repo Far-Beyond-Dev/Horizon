@@ -3,8 +3,8 @@
 //! This server handles only essential infrastructure: connections, plugin management,
 //! and message routing. All game logic is delegated to plugins.
 #[allow(unused_imports, dead_code)]
-use event_system::{
-    create_event_system, current_timestamp, DisconnectReason, EventSystem, PlayerConnectedEvent,
+use horizon_event_system::{
+    create_horizon_event_system, current_timestamp, DisconnectReason, EventSystem, PlayerConnectedEvent,
     PlayerDisconnectedEvent, PlayerId, RawClientMessageEvent, RegionBounds, RegionId,
     RegionStartedEvent,
 };
@@ -142,7 +142,7 @@ impl ConnectionManager {
 
 pub struct GameServer {
     config: ServerConfig,
-    event_system: Arc<EventSystem>,
+    horizon_event_system: Arc<EventSystem>,
     connection_manager: Arc<ConnectionManager>,
     plugin_manager: Arc<PluginManager>,
     shutdown_sender: broadcast::Sender<()>,
@@ -152,20 +152,20 @@ pub struct GameServer {
 impl GameServer {
     pub fn new(config: ServerConfig) -> Self {
         let region_id = RegionId::new();
-        let event_system = create_event_system();
+        let horizon_event_system = create_horizon_event_system();
         let connection_manager = Arc::new(ConnectionManager::new());
         let (shutdown_sender, _) = broadcast::channel(1);
 
         // Create plugin manager with the event system
         let plugin_manager = Arc::new(create_plugin_manager_with_events(
-            event_system.clone(),
+            horizon_event_system.clone(),
             &config.plugin_directory,
             region_id,
         ));
 
         Self {
             config,
-            event_system,
+            horizon_event_system,
             connection_manager,
             plugin_manager,
             shutdown_sender,
@@ -210,7 +210,7 @@ impl GameServer {
             plugin_stats.client_events_routed
         );
 
-        self.event_system
+        self.horizon_event_system
             .emit_core(
                 "region_started",
                 &RegionStartedEvent {
@@ -223,7 +223,7 @@ impl GameServer {
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
         // Emit region started event (for plugins)
-        self.event_system
+        self.horizon_event_system
             .emit_core(
                 "region_started",
                 &RegionStartedEvent {
@@ -251,14 +251,14 @@ impl GameServer {
                     match result {
                         Ok((stream, addr)) => {
                             let connection_manager = self.connection_manager.clone();
-                            let event_system = self.event_system.clone();
+                            let horizon_event_system = self.horizon_event_system.clone();
 
                             tokio::spawn(async move {
                                 if let Err(e) = handle_connection(
                                     stream,
                                     addr,
                                     connection_manager,
-                                    event_system,
+                                    horizon_event_system,
                                 ).await {
                                     error!("Connection error: {:?}", e);
                                 }
@@ -293,7 +293,7 @@ impl GameServer {
     async fn register_core_handlers(&self) -> Result<(), ServerError> {
         // Core infrastructure events only - no game logic!
 
-        self.event_system
+        self.horizon_event_system
             .on_core("player_connected", |event: PlayerConnectedEvent| {
                 info!(
                     "👋 Player {} connected from {}",
@@ -304,7 +304,7 @@ impl GameServer {
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-        self.event_system
+        self.horizon_event_system
             .on_core("player_disconnected", |event: PlayerDisconnectedEvent| {
                 info!(
                     "👋 Player {} disconnected: {:?}",
@@ -315,7 +315,7 @@ impl GameServer {
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-        self.event_system
+        self.horizon_event_system
             .on_core("region_started", |event: RegionStartedEvent| {
                 info!(
                     "🌍 Region {:?} started with bounds: {:?}",
@@ -335,8 +335,8 @@ impl GameServer {
         Ok(())
     }
 
-    pub fn get_event_system(&self) -> Arc<EventSystem> {
-        self.event_system.clone()
+    pub fn get_horizon_event_system(&self) -> Arc<EventSystem> {
+        self.horizon_event_system.clone()
     }
 }
 
@@ -348,7 +348,7 @@ async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
     connection_manager: Arc<ConnectionManager>,
-    event_system: Arc<EventSystem>,
+    horizon_event_system: Arc<EventSystem>,
 ) -> Result<(), ServerError> {
     let ws_stream = accept_async(stream)
         .await
@@ -365,7 +365,7 @@ async fn handle_connection(
         .await;
 
     // Emit core infrastructure event
-    event_system
+    horizon_event_system
         .emit_core(
             "player_connected",
             &PlayerConnectedEvent {
@@ -385,7 +385,7 @@ async fn handle_connection(
     // Incoming message task - routes raw messages to plugins
     let incoming_task = {
         let connection_manager = connection_manager.clone();
-        let event_system = event_system.clone();
+        let horizon_event_system = horizon_event_system.clone();
 
         async move {
             while let Some(msg) = ws_receiver.next().await {
@@ -396,7 +396,7 @@ async fn handle_connection(
                             &text,
                             connection_id,
                             &connection_manager,
-                            &event_system,
+                            &horizon_event_system,
                         )
                         .await
                         {
@@ -448,7 +448,7 @@ async fn handle_connection(
 
     // Emit disconnection event
     if let Some(player_id) = connection_manager.get_player_id(connection_id).await {
-        event_system
+        horizon_event_system
             .emit_core(
                 "player_disconnected",
                 &PlayerDisconnectedEvent {
@@ -471,7 +471,7 @@ async fn route_client_message(
     text: &str,
     connection_id: ConnectionId,
     connection_manager: &ConnectionManager,
-    event_system: &EventSystem,
+    horizon_event_system: &EventSystem,
 ) -> Result<(), ServerError> {
     // Parse as generic message structure
     let message: ClientMessage = serde_json::from_str(text)
@@ -496,13 +496,13 @@ async fn route_client_message(
     };
 
     // Emit to core for routing (plugins will listen to this)
-    event_system
+    horizon_event_system
         .emit_core("raw_client_message", &raw_event)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
     // Generic routing using client-specified namespace and event
-    event_system
+    horizon_event_system
         .emit_client(&message.namespace, &message.event, &message.data)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -556,7 +556,7 @@ mod tests {
     #[tokio::test]
     async fn test_core_server_creation() {
         let server = create_server();
-        let events = server.get_event_system();
+        let events = server.get_horizon_event_system();
 
         // Verify we can register core handlers
         events
@@ -582,7 +582,7 @@ mod tests {
     #[tokio::test]
     async fn test_plugin_message_routing() {
         let server = create_server();
-        let events = server.get_event_system();
+        let events = server.get_horizon_event_system();
 
         // Register handlers that plugins would register
         events
@@ -631,7 +631,7 @@ mod tests {
     #[tokio::test]
     async fn test_generic_client_message_routing() {
         let server = create_server();
-        let events = server.get_event_system();
+        let events = server.get_horizon_event_system();
 
         // Register handlers for different namespaces/events
         events
@@ -704,7 +704,7 @@ mod tests {
     #[tokio::test]
     async fn demonstrate_clean_separation() {
         let server = create_server();
-        let events = server.get_event_system();
+        let events = server.get_horizon_event_system();
 
         println!("🧹 This server only handles:");
         println!("  - WebSocket connections");

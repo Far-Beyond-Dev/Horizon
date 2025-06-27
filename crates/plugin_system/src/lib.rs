@@ -4,8 +4,8 @@
 //! with the simplified event system API.
 
 use async_trait::async_trait;
-use event_system::{
-    create_event_system, current_timestamp, EventError, EventSystem, LogLevel, PlayerId, Plugin,
+use horizon_event_system::{
+    create_horizon_event_system, current_timestamp, EventError, EventSystem, LogLevel, PlayerId, Plugin,
     PluginError, Position, RegionId, ServerContext, ServerError, SimplePlugin,
 };
 use libloading::{Library, Symbol};
@@ -23,7 +23,7 @@ use tracing::{debug, error, info, warn};
 /// Manages loaded plugins and their lifecycles with the new clean event system
 pub struct PluginManager {
     /// Event system shared across all plugins
-    event_system: Arc<EventSystem>,
+    horizon_event_system: Arc<EventSystem>,
     /// Server context shared with plugins
     server_context: Arc<ServerContextImpl>,
     /// Loaded plugins
@@ -79,14 +79,14 @@ struct PluginMetadata {
 impl PluginManager {
     /// Create a new plugin manager with the new event system
     pub fn new(
-        event_system: Arc<EventSystem>,
+        horizon_event_system: Arc<EventSystem>,
         plugin_directory: impl AsRef<Path>,
         region_id: RegionId,
     ) -> Self {
-        let server_context = Arc::new(ServerContextImpl::new(event_system.clone(), region_id));
+        let server_context = Arc::new(ServerContextImpl::new(horizon_event_system.clone(), region_id));
 
         Self {
-            event_system,
+            horizon_event_system,
             server_context,
             plugins: RwLock::new(HashMap::new()),
             plugin_directory: plugin_directory.as_ref().to_path_buf(),
@@ -257,7 +257,7 @@ impl PluginManager {
         );
 
         // Emit plugin loaded event
-        self.event_system
+        self.horizon_event_system
             .emit_core(
                 "plugin_loaded",
                 &PluginLoadedEvent {
@@ -426,7 +426,7 @@ impl PluginManager {
                     }
 
                     // Emit plugin loaded event
-                    self.event_system
+                    self.horizon_event_system
                         .emit_core(
                             "plugin_loaded",
                             &PluginLoadedEvent {
@@ -485,7 +485,7 @@ impl PluginManager {
             }
 
             // Emit plugin unloaded event using new API
-            self.event_system
+            self.horizon_event_system
                 .emit_core(
                     "plugin_unloaded",
                     &PluginUnloadedEvent {
@@ -533,11 +533,11 @@ impl PluginManager {
     pub async fn get_plugin_stats(&self) -> PluginSystemStats {
         let plugins = self.plugins.read().await;
         let event_stats = self.event_stats.read().await;
-        let event_system_stats = self.event_system.get_stats().await;
+        let horizon_event_system_stats = self.horizon_event_system.get_stats().await;
 
         PluginSystemStats {
             total_plugins: plugins.len(),
-            total_handlers: event_system_stats.total_handlers,
+            total_handlers: horizon_event_system_stats.total_handlers,
             client_events_routed: event_stats.client_events_routed,
             core_events_routed: event_stats.core_events_routed,
             plugin_events_routed: event_stats.plugin_events_routed,
@@ -573,7 +573,7 @@ impl PluginManager {
 
     /// Get total number of registered handlers
     async fn get_total_handlers(&self) -> usize {
-        self.event_system.get_stats().await.total_handlers
+        self.horizon_event_system.get_stats().await.total_handlers
     }
 
     /// Estimate plugin capabilities from file analysis
@@ -592,7 +592,7 @@ impl PluginManager {
         let stats = self.event_stats.clone();
 
         // Monitor client event routing using new API
-        self.event_system
+        self.horizon_event_system
             .on_core(
                 "__internal_client_event_routed",
                 move |_: serde_json::Value| {
@@ -622,15 +622,15 @@ impl PluginManager {
 
 /// Server context with the new clean event system
 pub struct ServerContextImpl {
-    event_system: Arc<EventSystem>,
+    horizon_event_system: Arc<EventSystem>,
     region_id: RegionId,
     players: Arc<RwLock<HashMap<PlayerId, Player>>>,
 }
 
 impl ServerContextImpl {
-    pub fn new(event_system: Arc<EventSystem>, region_id: RegionId) -> Self {
+    pub fn new(horizon_event_system: Arc<EventSystem>, region_id: RegionId) -> Self {
         Self {
-            event_system,
+            horizon_event_system,
             region_id,
             players: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -670,7 +670,7 @@ impl ServerContextImpl {
 #[async_trait]
 impl ServerContext for ServerContextImpl {
     fn events(&self) -> Arc<EventSystem> {
-        self.event_system.clone()
+        self.horizon_event_system.clone()
     }
 
     fn region_id(&self) -> RegionId {
@@ -801,17 +801,17 @@ pub fn create_plugin_manager(
     plugin_directory: impl AsRef<Path>,
     region_id: RegionId,
 ) -> PluginManager {
-    let event_system = create_event_system();
-    PluginManager::new(event_system, plugin_directory, region_id)
+    let horizon_event_system = create_horizon_event_system();
+    PluginManager::new(horizon_event_system, plugin_directory, region_id)
 }
 
 /// Create a plugin manager with a specific event system
 pub fn create_plugin_manager_with_events(
-    event_system: Arc<EventSystem>,
+    horizon_event_system: Arc<EventSystem>,
     plugin_directory: impl AsRef<Path>,
     region_id: RegionId,
 ) -> PluginManager {
-    PluginManager::new(event_system, plugin_directory, region_id)
+    PluginManager::new(horizon_event_system, plugin_directory, region_id)
 }
 
 // ============================================================================
@@ -821,7 +821,7 @@ pub fn create_plugin_manager_with_events(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use event_system::create_event_system;
+    use horizon_event_system::create_horizon_event_system;
 
     // Mock plugin for testing
     struct TestPlugin {
@@ -876,8 +876,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_manager_creation() {
-        let event_system = create_event_system();
-        let plugin_manager = PluginManager::new(event_system, "./test_plugins", RegionId::new());
+        let horizon_event_system = create_horizon_event_system();
+        let plugin_manager = PluginManager::new(horizon_event_system, "./test_plugins", RegionId::new());
 
         let loaded_plugins = plugin_manager.get_loaded_plugins().await;
         assert!(loaded_plugins.is_empty());
@@ -885,8 +885,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_server_context() {
-        let event_system = create_event_system();
-        let context = ServerContextImpl::new(event_system.clone(), RegionId::new());
+        let horizon_event_system = create_horizon_event_system();
+        let context = ServerContextImpl::new(horizon_event_system.clone(), RegionId::new());
 
         // Test adding and retrieving players
         let player = Player::new("test_player".to_string(), Position::new(0.0, 0.0, 0.0));
@@ -904,8 +904,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_discovery() {
-        let event_system = create_event_system();
-        let plugin_manager = PluginManager::new(event_system, "./test_plugins", RegionId::new());
+        let horizon_event_system = create_horizon_event_system();
+        let plugin_manager = PluginManager::new(horizon_event_system, "./test_plugins", RegionId::new());
 
         // Test plugin discovery (will be empty if no plugins exist)
         let discoveries = plugin_manager.discover_plugins().await.unwrap();
@@ -914,8 +914,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_stats() {
-        let event_system = create_event_system();
-        let plugin_manager = PluginManager::new(event_system, "./test_plugins", RegionId::new());
+        let horizon_event_system = create_horizon_event_system();
+        let plugin_manager = PluginManager::new(horizon_event_system, "./test_plugins", RegionId::new());
 
         let stats = plugin_manager.get_plugin_stats().await;
         assert_eq!(stats.total_plugins, 0); // No plugins loaded yet
@@ -924,8 +924,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_new_event_api_integration() {
-        let event_system = create_event_system();
-        let context = ServerContextImpl::new(event_system.clone(), RegionId::new());
+        let horizon_event_system = create_horizon_event_system();
+        let context = ServerContextImpl::new(horizon_event_system.clone(), RegionId::new());
 
         // Test the new clean API
         context
@@ -974,8 +974,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_two_phase_loading() {
-        let event_system = create_event_system();
-        let plugin_manager = PluginManager::new(event_system, "./test_plugins", RegionId::new());
+        let horizon_event_system = create_horizon_event_system();
+        let plugin_manager = PluginManager::new(horizon_event_system, "./test_plugins", RegionId::new());
 
         // Test the two-phase loading process
         let loaded_plugins = plugin_manager.load_all_plugins().await.unwrap();
