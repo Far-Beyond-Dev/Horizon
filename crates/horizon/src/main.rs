@@ -496,9 +496,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Display startup banner using proper logging
 fn display_banner() {
+    // Fetch version from Cargo environment variable if available
+    let version = option_env!("CARGO_PKG_VERSION").unwrap_or("UNK");
     info!("╔══════════════════════════════════════════╗");
     info!("║            🌟 HORIZON SERVER 🌟          ║");
-    info!("║          Community Edition v1.0          ║");
+    info!("║          Community Edition v{}       ║", version);
     info!("║                                          ║");
     info!("║  High-Performance Game Server            ║");
     info!("║  with Modern Plugin Architecture         ║");
