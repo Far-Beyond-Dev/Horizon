@@ -1,852 +1,134 @@
-//! Core event system focused only on essential server events
+//! # Horizon Event System
 //!
-//! This system handles only core server lifecycle and infrastructure events.
-//! Game-specific events (movement, combat, chat, etc.) are handled by plugins.
-
-use async_trait::async_trait;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::any::{Any, TypeId};
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
-use uuid::Uuid;
-use futures;
-
-// ============================================================================
-// Core Types (Minimal set)
-// ============================================================================
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct PlayerId(pub Uuid);
-
-impl PlayerId {
-    pub fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
-
-    pub fn from_str(s: &str) -> Result<Self, uuid::Error> {
-        Uuid::parse_str(s).map(Self)
-    }
-}
-
-impl Default for PlayerId {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl std::fmt::Display for PlayerId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct RegionId(pub Uuid);
-
-impl RegionId {
-    pub fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct Position {
-    pub x: f64,
-    pub y: f64,
-    pub z: f64,
-}
-
-impl Position {
-    pub fn new(x: f64, y: f64, z: f64) -> Self {
-        Self { x, y, z }
-    }
-}
-
-// ============================================================================
-// Event Traits and Core Infrastructure
-// ============================================================================
-
-pub trait Event: Send + Sync + Any + std::fmt::Debug {
-    fn type_name() -> &'static str
-    where
-        Self: Sized;
-    fn serialize(&self) -> Result<Vec<u8>, EventError>;
-    fn deserialize(data: &[u8]) -> Result<Self, EventError>
-    where
-        Self: Sized;
-    fn as_any(&self) -> &dyn Any;
-}
-
-impl<T> Event for T
-where
-    T: Serialize + DeserializeOwned + Send + Sync + Any + std::fmt::Debug + 'static,
-{
-    fn type_name() -> &'static str {
-        std::any::type_name::<T>()
-    }
-
-    fn serialize(&self) -> Result<Vec<u8>, EventError> {
-        serde_json::to_vec(self).map_err(EventError::Serialization)
-    }
-
-    fn deserialize(data: &[u8]) -> Result<Self, EventError> {
-        serde_json::from_slice(data).map_err(EventError::Deserialization)
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
-
-#[async_trait]
-pub trait EventHandler: Send + Sync {
-    async fn handle(&self, data: &[u8]) -> Result<(), EventError>;
-    fn expected_type_id(&self) -> TypeId;
-    fn handler_name(&self) -> &str;
-}
-
-pub struct TypedEventHandler<T, F>
-where
-    T: Event,
-    F: Fn(T) -> Result<(), EventError> + Send + Sync,
-{
-    handler: F,
-    name: String,
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T, F> TypedEventHandler<T, F>
-where
-    T: Event,
-    F: Fn(T) -> Result<(), EventError> + Send + Sync,
-{
-    pub fn new(name: String, handler: F) -> Self {
-        Self {
-            handler,
-            name,
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-#[async_trait]
-impl<T, F> EventHandler for TypedEventHandler<T, F>
-where
-    T: Event,
-    F: Fn(T) -> Result<(), EventError> + Send + Sync,
-{
-    async fn handle(&self, data: &[u8]) -> Result<(), EventError> {
-        let event = T::deserialize(data)?;
-        (self.handler)(event)
-    }
-
-    fn expected_type_id(&self) -> TypeId {
-        TypeId::of::<T>()
-    }
-
-    fn handler_name(&self) -> &str {
-        &self.name
-    }
-}
-
-// ============================================================================
-// Refined Event System with Cleaner API
-// ============================================================================
-
-pub struct EventSystem {
-    handlers: RwLock<HashMap<String, Vec<Arc<dyn EventHandler>>>>,
-    stats: RwLock<EventSystemStats>,
-}
-
-impl EventSystem {
-    pub fn new() -> Self {
-        Self {
-            handlers: RwLock::new(HashMap::new()),
-            stats: RwLock::new(EventSystemStats::default()),
-        }
-    }
-
-    /// Improved API: Register a core server event handler
-    pub async fn on_core<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
-    where
-        T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
-    {
-        let event_key = format!("core:{}", event_name);
-        self.register_typed_handler(event_key, event_name, handler)
-            .await
-    }
-
-    /// Improved API: Register a client event handler with namespace
-    pub async fn on_client<T, F>(
-        &self,
-        namespace: &str,
-        event_name: &str,
-        handler: F,
-    ) -> Result<(), EventError>
-    where
-        T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
-    {
-        let event_key = format!("client:{}:{}", namespace, event_name);
-        self.register_typed_handler(event_key, event_name, handler)
-            .await
-    }
-
-    /// Improved API: Register a plugin event handler
-    pub async fn on_plugin<T, F>(
-        &self,
-        plugin_name: &str,
-        event_name: &str,
-        handler: F,
-    ) -> Result<(), EventError>
-    where
-        T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
-    {
-        let event_key = format!("plugin:{}:{}", plugin_name, event_name);
-        self.register_typed_handler(event_key, event_name, handler)
-            .await
-    }
-
-    /// Internal helper for registering typed handlers
-    async fn register_typed_handler<T, F>(
-        &self,
-        event_key: String,
-        _event_name: &str,
-        handler: F,
-    ) -> Result<(), EventError>
-    where
-        T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
-    {
-        let handler_name = format!("{}::{}", event_key, T::type_name());
-        let typed_handler = TypedEventHandler::new(handler_name, handler);
-        let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
-
-        let mut handlers = self.handlers.write().await;
-        handlers
-            .entry(event_key.clone())
-            .or_insert_with(Vec::new)
-            .push(handler_arc);
-
-        let mut stats = self.stats.write().await;
-        stats.total_handlers += 1;
-
-        info!("📝 Registered handler for {}", event_key);
-        Ok(())
-    }
-
-    /// Emit a core event
-    pub async fn emit_core<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        let event_key = format!("core:{}", event_name);
-        self.emit_event(&event_key, event).await
-    }
-
-    /// Emit a client event
-    pub async fn emit_client<T>(
-        &self,
-        namespace: &str,
-        event_name: &str,
-        event: &T,
-    ) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        let event_key = format!("client:{}:{}", namespace, event_name);
-        self.emit_event(&event_key, event).await
-    }
-
-    /// Emit a plugin event
-    pub async fn emit_plugin<T>(
-        &self,
-        plugin_name: &str,
-        event_name: &str,
-        event: &T,
-    ) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        let event_key = format!("plugin:{}:{}", plugin_name, event_name);
-        self.emit_event(&event_key, event).await
-    }
-
-    /// Internal emit implementation
-    async fn emit_event<T>(&self, event_key: &str, event: &T) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        let data = event.serialize()?;
-        let handlers = self.handlers.read().await;
-
-        if let Some(event_handlers) = handlers.get(event_key) {
-            debug!(
-                "📤 Emitting {} to {} handlers",
-                event_key,
-                event_handlers.len()
-            );
-
-            for handler in event_handlers {
-                if let Err(e) = handler.handle(&data).await {
-                    error!("❌ Handler {} failed: {}", handler.handler_name(), e);
-                }
-            }
-
-            let mut stats = self.stats.write().await;
-            stats.events_emitted += 1;
-        } else {
-            warn!("⚠️ No handlers for event: {}", event_key);
-        }
-
-        Ok(())
-    }
-
-    pub async fn get_stats(&self) -> EventSystemStats {
-        let stats = self.stats.read().await;
-        stats.clone()
-    }
-}
-
-// ============================================================================
-// Core Server Events ONLY
-// ============================================================================
-
-/// Player connected to the server (core infrastructure event)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerConnectedEvent {
-    pub player_id: PlayerId,
-    pub connection_id: String,
-    pub remote_addr: String,
-    pub timestamp: u64,
-}
-
-/// Player disconnected from the server (core infrastructure event)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerDisconnectedEvent {
-    pub player_id: PlayerId,
-    pub connection_id: String,
-    pub reason: DisconnectReason,
-    pub timestamp: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DisconnectReason {
-    ClientDisconnect,
-    Timeout,
-    ServerShutdown,
-    Error(String),
-}
-
-/// Plugin loaded (core infrastructure event)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginLoadedEvent {
-    pub plugin_name: String,
-    pub version: String,
-    pub capabilities: Vec<String>,
-    pub timestamp: u64,
-}
-
-/// Plugin unloaded (core infrastructure event)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginUnloadedEvent {
-    pub plugin_name: String,
-    pub timestamp: u64,
-}
-
-/// Server region started (core infrastructure event)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegionStartedEvent {
-    pub region_id: RegionId,
-    pub bounds: RegionBounds,
-    pub timestamp: u64,
-}
-
-/// Server region stopped (core infrastructure event)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegionStoppedEvent {
-    pub region_id: RegionId,
-    pub timestamp: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegionBounds {
-    pub min_x: f64,
-    pub max_x: f64,
-    pub min_y: f64,
-    pub max_y: f64,
-    pub min_z: f64,
-    pub max_z: f64,
-}
-
-/// Raw client message received (for routing to plugins)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RawClientMessageEvent {
-    pub player_id: PlayerId,
-    pub message_type: String,
-    pub data: Vec<u8>,
-    pub timestamp: u64,
-}
-
-// ============================================================================
-// Statistics and Error Types
-// ============================================================================
-
-#[derive(Debug, Default, Clone)]
-pub struct EventSystemStats {
-    pub total_handlers: usize,
-    pub events_emitted: u64,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum EventError {
-    #[error("Serialization error: {0}")]
-    Serialization(#[from] serde_json::Error),
-    #[error("Deserialization error: {0}")]
-    Deserialization(serde_json::Error),
-    #[error("Handler not found: {0}")]
-    HandlerNotFound(String),
-    #[error("Handler execution error: {0}")]
-    HandlerExecution(String),
-}
-
-// ============================================================================
-// Plugin Development Macros and Utilities
-// ============================================================================
-
-/// Simplified plugin trait that doesn't require unsafe code
-#[async_trait]
-pub trait SimplePlugin: Send + Sync + 'static {
-    /// Plugin name
-    fn name(&self) -> &str;
-
-    /// Plugin version
-    fn version(&self) -> &str;
-
-    /// Register event handlers during pre-initialization
-    async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError>;
-
-    /// Initialize the plugin
-    async fn on_init(&mut self, _context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        Ok(()) // Default implementation
-    }
-
-    /// Shutdown the plugin
-    async fn on_shutdown(&mut self, _context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        Ok(()) // Default implementation
-    }
-}
-
-/// Macro to create a plugin with minimal boilerplate and comprehensive panic handling
-#[macro_export]
-macro_rules! create_simple_plugin {
-    ($plugin_type:ty) => {
-        use $crate::Plugin;
-        use std::panic::{catch_unwind, AssertUnwindSafe};
-
-        /// Wrapper to bridge SimplePlugin and Plugin traits with panic protection
-        struct PluginWrapper {
-            inner: $plugin_type,
-        }
-
-        impl PluginWrapper {
-            /// Helper to convert panics to PluginError
-            fn panic_to_error(panic_info: Box<dyn std::any::Any + Send>) -> PluginError {
-                let message = if let Some(s) = panic_info.downcast_ref::<&str>() {
-                    format!("Plugin panicked: {}", s)
-                } else if let Some(s) = panic_info.downcast_ref::<String>() {
-                    format!("Plugin panicked: {}", s)
-                } else {
-                    "Plugin panicked with unknown error".to_string()
-                };
-                
-                PluginError::Runtime(message)
-            }
-        }
-
-        #[async_trait]
-        impl Plugin for PluginWrapper {
-            fn name(&self) -> &str {
-                // For synchronous methods, we can use catch_unwind directly
-                match catch_unwind(AssertUnwindSafe(|| self.inner.name())) {
-                    Ok(name) => name,
-                    Err(_) => "unknown-plugin-name", // Fallback name if panic occurs
-                }
-            }
-
-            fn version(&self) -> &str {
-                match catch_unwind(AssertUnwindSafe(|| self.inner.version())) {
-                    Ok(version) => version,
-                    Err(_) => "unknown-version", // Fallback version if panic occurs
-                }
-            }
-
-            async fn pre_init(
-                &mut self,
-                context: Arc<dyn ServerContext>,
-            ) -> Result<(), PluginError> {
-                // Run directly on the current thread using the current runtime handle
-                catch_unwind(AssertUnwindSafe(|| {
-                    futures::executor::block_on(self.inner.register_handlers(context.events()))
-                }))
-                .map_err(Self::panic_to_error)?
-            }
-
-            async fn init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-                catch_unwind(AssertUnwindSafe(|| {
-                    futures::executor::block_on(self.inner.on_init(context))
-                }))
-                .map_err(Self::panic_to_error)?
-            }
-
-            async fn shutdown(
-                &mut self,
-                context: Arc<dyn ServerContext>,
-            ) -> Result<(), PluginError> {
-                catch_unwind(AssertUnwindSafe(|| {
-                    futures::executor::block_on(self.inner.on_shutdown(context))
-                }))
-                .map_err(Self::panic_to_error)?
-            }
-        }
-
-        /// Plugin creation function with panic protection - required export
-        #[no_mangle]
-        pub unsafe extern "C" fn create_plugin() -> *mut dyn Plugin {
-            // Critical: catch panics at FFI boundary to prevent UB
-            match catch_unwind(AssertUnwindSafe(|| {
-                let plugin = Box::new(PluginWrapper {
-                    inner: <$plugin_type>::new(),
-                });
-                Box::into_raw(plugin) as *mut dyn Plugin
-            })) {
-                Ok(plugin_ptr) => plugin_ptr,
-                Err(panic_info) => {
-                    // Log the panic if possible (you might want to use your logging system here)
-                    eprintln!("Plugin creation panicked: {:?}", panic_info);
-                    std::ptr::null_mut::<PluginWrapper>() as *mut dyn Plugin // Return null on panic
-                }
-            }
-        }
-
-        /// Plugin destruction function with panic protection - required export
-        #[no_mangle]
-        pub unsafe extern "C" fn destroy_plugin(plugin: *mut dyn Plugin) {
-            if plugin.is_null() {
-                return;
-            }
-
-            // Critical: catch panics at FFI boundary to prevent UB
-            let _ = catch_unwind(AssertUnwindSafe(|| {
-                let _ = Box::from_raw(plugin);
-            }));
-            // If destruction panics, we just ignore it - the memory might leak
-            // but it's better than crashing the host process
-        }
-
-        /// Optional: Initialize panic hook for better panic handling
-        /// Call this once during plugin loading if desired
-        #[allow(dead_code)]
-        fn init_plugin_panic_hook() {
-            std::panic::set_hook(Box::new(|panic_info| {
-                eprintln!("Plugin panic occurred: {}", panic_info);
-                // You could also send this to your logging system
-            }));
-        }
-    };
-}
-
-/// Convenience macro for registering multiple handlers
-#[macro_export]
-macro_rules! register_handlers {
-    // Handle client events section
-    ($events:expr; client { $($namespace:expr, $event_name:expr => $handler:expr),* $(,)? }) => {{
-        $(
-            $events.on_client($namespace, $event_name, $handler).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;;
-        )*
-        Ok(())
-    }};
-
-    // Handle plugin events section
-    ($events:expr; plugin { $($target_plugin:expr, $event_name:expr => $handler:expr),* $(,)? }) => {{
-        $(
-            $events.on_plugin($target_plugin, $event_name, $handler).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
-        )*
-        Ok(())
-    }};
-
-    // Handle core events section
-    ($events:expr; core { $($event_name:expr => $handler:expr),* $(,)? }) => {{
-        $(
-            $events.on_core($event_name, $handler).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
-        )*
-        Ok(())
-    }};
-
-    // Handle mixed events with semicolon separators
-    ($events:expr;
-     $(client { $($c_namespace:expr, $c_event_name:expr => $c_handler:expr),* $(,)? })?
-     $(plugin { $($p_target_plugin:expr, $p_event_name:expr => $p_handler:expr),* $(,)? })?
-     $(core { $($core_event_name:expr => $core_handler:expr),* $(,)? })?
-    ) => {{
-        $($(
-            $events.on_client($c_namespace, $c_event_name, $c_handler).await?;
-        )*)?
-        $($(
-            $events.on_plugin($p_target_plugin, $p_event_name, $p_handler).await?;
-        )*)?
-        $($(
-            $events.on_core($core_event_name, $core_handler).await?;
-        )*)?
-    }};
-}
-
-/// Simple macro for single handler registration (alternative to the bulk macro)
-#[macro_export]
-macro_rules! on_event {
-    ($events:expr, client $namespace:expr, $event_name:expr => $handler:expr) => {
-        $events.on_client($namespace, $event_name, $handler).await?;
-    };
-    ($events:expr, plugin $target_plugin:expr, $event_name:expr => $handler:expr) => {
-        $events
-            .on_plugin($target_plugin, $event_name, $handler)
-            .await?;
-    };
-    ($events:expr, core $event_name:expr => $handler:expr) => {
-        $events.on_core($event_name, $handler).await?;
-    };
-}
-
-// ============================================================================
-// Server Context Interface (Minimal)
-// ============================================================================
-
-#[async_trait]
-pub trait ServerContext: Send + Sync {
-    fn events(&self) -> Arc<EventSystem>;
-    fn region_id(&self) -> RegionId;
-    fn log(&self, level: LogLevel, message: &str);
-
-    /// Send raw data to a specific player
-    async fn send_to_player(&self, player_id: PlayerId, data: &[u8]) -> Result<(), ServerError>;
-
-    /// Broadcast raw data to all players
-    async fn broadcast(&self, data: &[u8]) -> Result<(), ServerError>;
-}
-
-#[async_trait]
-pub trait Plugin: Send + Sync {
-    fn name(&self) -> &str;
-    fn version(&self) -> &str;
-
-    async fn pre_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError>;
-    async fn init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError>;
-    async fn shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError>;
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum LogLevel {
-    Error,
-    Warn,
-    Info,
-    Debug,
-    Trace,
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum PluginError {
-    #[error("Plugin initialization failed: {0}")]
-    InitializationFailed(String),
-    #[error("Plugin execution error: {0}")]
-    ExecutionError(String),
-    #[error("Plugin not found: {0}")]
-    NotFound(String),
-    #[error("Plugin runtime error: {0}")]
-    Runtime(String),
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ServerError {
-    #[error("Network error: {0}")]
-    Network(String),
-    #[error("Internal error: {0}")]
-    Internal(String),
-}
-
-// ============================================================================
-// Utility Functions
-// ============================================================================
-
-pub fn current_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("Time went backwards")
-        .as_secs()
-}
-
-pub fn create_horizon_event_system() -> Arc<EventSystem> {
-    Arc::new(EventSystem::new())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[derive(Debug, Serialize, Deserialize)]
-    struct TestEvent {
-        message: String,
-    }
-
-    #[tokio::test]
-    async fn test_refined_event_api() {
-        let events = create_horizon_event_system();
-
-        // Test the new cleaner API - individual registration
-        events
-            .on_core("server_started", |event: TestEvent| {
-                println!("Core event: {}", event.message);
-                Ok(())
-            })
-            .await
-            .expect("Failed to register core event in horizon_event_system");
-
-        events
-            .on_client("movement", "player_moved", |event: TestEvent| {
-                println!("Client movement event: {}", event.message);
-                Ok(())
-            })
-            .await
-            .expect("Failed to register core event in horizon_event_system");
-
-        events
-            .on_plugin("combat", "attack", |event: TestEvent| {
-                println!("Combat plugin event: {}", event.message);
-                Ok(())
-            })
-            .await
-            .expect("Failed to register core event in horizon_event_system");
-
-        // Test emission
-        events
-            .emit_core(
-                "server_started",
-                &TestEvent {
-                    message: "Server is running".to_string(),
-                },
-            )
-            .await
-            .expect("Failed to emit core event in horizon_event_system");
-
-        events
-            .emit_client(
-                "movement",
-                "player_moved",
-                &TestEvent {
-                    message: "Player moved to new position".to_string(),
-                },
-            )
-            .await
-            .expect("Failed to emit client event in horizon_event_system");
-
-        events
-            .emit_plugin(
-                "combat",
-                "attack",
-                &TestEvent {
-                    message: "Player attacked".to_string(),
-                },
-            )
-            .await
-            .expect("Failed to emit plugin event in horizon_event_system");
-    }
-
-    #[tokio::test]
-    async fn test_bulk_registration_macro() -> Result<(), Box<dyn std::error::Error>> {
-        let events = create_horizon_event_system();
-
-        // Test the bulk registration macro
-        register_handlers!(events;
-            client {
-                "movement", "jump" => |event: TestEvent| {
-                    println!("Jump: {}", event.message);
-                    Ok(())
-                },
-                "chat", "message" => |event: TestEvent| {
-                    println!("Chat: {}", event.message);
-                    Ok(())
-                }
-            }
-            plugin {
-                "combat", "damage" => |event: TestEvent| {
-                    println!("Damage: {}", event.message);
-                    Ok(())
-                }
-            }
-            core {
-                "server_started" => |event: TestEvent| {
-                    println!("Server: {}", event.message);
-                    Ok(())
-                }
-            }
-        );
-
-        // Test they all work
-        events
-            .emit_client(
-                "movement",
-                "jump",
-                &TestEvent {
-                    message: "Player jumped!".to_string(),
-                },
-            )
-            .await
-            .expect("Failed to emit client event in horizon_event_system");
-
-        events
-            .emit_plugin(
-                "combat",
-                "damage",
-                &TestEvent {
-                    message: "Damage dealt!".to_string(),
-                },
-            )
-            .await
-            .expect("Failed to emit plugin event in horizon_event_system");
-
-        Ok(()) as Result<(), Box<dyn std::error::Error>>
-    }
-
-    #[tokio::test]
-    async fn test_simple_on_event_macro() -> Result<(), Box<dyn std::error::Error>> {
-        let events = create_horizon_event_system();
-
-        // Test the simple on_event! macro for single registrations
-        on_event!(events, client "test", "event" => |event: TestEvent| {
-            println!("Simple macro test: {}", event.message);
-            Ok(())
-        });
-
-        on_event!(events, core "test_core" => |event: TestEvent| {
-            println!("Core macro test: {}", event.message);
-            Ok(())
-        });
-
-        // Test emission
-        events
-            .emit_client(
-                "test",
-                "event",
-                &TestEvent {
-                    message: "Simple macro works!".to_string(),
-                },
-            )
-            .await
-            .expect("Failed to emit client event in horizon_event_system");
-
-        Ok(())
-    }
-}
+//! A high-performance, type-safe event system designed for game servers with plugin architecture.
+//! This system provides a clean separation between core server events and plugin-specific events,
+//! enabling modular game development while maintaining excellent performance and safety.
+//!
+//! ## Core Features
+//!
+//! - **Type Safety**: All events are strongly typed with compile-time guarantees
+//! - **Async/Await Support**: Built on Tokio for high-performance async operations
+//! - **Plugin Architecture**: Clean separation between core server and plugin events
+//! - **Namespace Management**: Organized event routing with namespaces
+//! - **Panic Safety**: Comprehensive panic handling for plugin FFI boundaries
+//! - **Serialization**: Built-in JSON serialization for network transmission
+//! - **Statistics**: Built-in performance monitoring and statistics
+//!
+//! ## Architecture Overview
+//!
+//! The event system is organized into three main categories:
+//!
+//! ### Core Events (`core:*`)
+//! Server infrastructure events like player connections, plugin lifecycle, and region management.
+//! These events are handled by the core server and are essential for basic operation.
+//!
+//! ### Client Events (`client:namespace:event`)
+//! Events originating from game clients, organized by namespace (e.g., `movement`, `chat`, `ui`).
+//! These events are typically forwarded to appropriate plugins for handling.
+//!
+//! ### Plugin Events (`plugin:plugin_name:event`)
+//! Inter-plugin communication events that allow plugins to communicate with each other
+//! without tight coupling.
+//!
+//! ## Quick Start Example
+//!
+//! ```rust
+//! use horizon_events::*;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let events = create_horizon_event_system();
+//!     
+//!     // Register a core event handler
+//!     events.on_core("server_started", |event: PlayerConnectedEvent| {
+//!         println!("Player {} connected", event.player_id);
+//!         Ok(())
+//!     }).await?;
+//!     
+//!     // Register client event handlers
+//!     events.on_client("movement", "player_moved", |event: RawClientMessageEvent| {
+//!         // Handle player movement
+//!         Ok(())
+//!     }).await?;
+//!     
+//!     // Emit events
+//!     events.emit_core("player_connected", &PlayerConnectedEvent {
+//!         player_id: PlayerId::new(),
+//!         connection_id: "conn_123".to_string(),
+//!         remote_addr: "127.0.0.1:8080".to_string(),
+//!         timestamp: current_timestamp(),
+//!     }).await?;
+//!     
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Plugin Development
+//!
+//! Create plugins using the `SimplePlugin` trait and `create_simple_plugin!` macro:
+//!
+//! ```rust
+//! use horizon_events::*;
+//!
+//! struct MyGamePlugin {
+//!     // Plugin state
+//! }
+//!
+//! impl MyGamePlugin {
+//!     fn new() -> Self {
+//!         Self {}
+//!     }
+//! }
+//!
+//! #[async_trait]
+//! impl SimplePlugin for MyGamePlugin {
+//!     fn name(&self) -> &str { "my_game_plugin" }
+//!     fn version(&self) -> &str { "1.0.0" }
+//!     
+//!     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+//!         register_handlers!(events;
+//!             client {
+//!                 "movement", "jump" => |event: RawClientMessageEvent| {
+//!                     // Handle jump
+//!                     Ok(())
+//!                 }
+//!             }
+//!             core {
+//!                 "player_connected" => |event: PlayerConnectedEvent| {
+//!                     // Welcome new player
+//!                     Ok(())
+//!                 }
+//!             }
+//!         );
+//!         Ok(())
+//!     }
+//! }
+//!
+//! create_simple_plugin!(MyGamePlugin);
+//! ```
+
+// Core modules
+pub mod types;
+pub mod events;
+pub mod system;
+pub mod plugin;
+pub mod context;
+pub mod utils;
+pub mod macros;
+
+// Re-export commonly used items for convenience
+pub use types::*;
+pub use events::{Event, EventHandler, TypedEventHandler, EventError, PlayerConnectedEvent,
+                 PlayerDisconnectedEvent, RawClientMessageEvent, RegionStartedEvent,
+                 RegionStoppedEvent};
+pub use system::{EventSystem, EventSystemStats};
+pub use plugin::{SimplePlugin, Plugin, PluginError};
+pub use context::{ServerContext, LogLevel, ServerError};
+pub use utils::{current_timestamp, create_horizon_event_system};
+
+// External dependencies that plugins commonly need
+pub use async_trait::async_trait;
+pub use std::sync::Arc;
+
+#[allow(unused_imports)] // This is actually used but only in the create plugin macro
+pub use futures;

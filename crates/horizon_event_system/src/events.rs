@@ -1,0 +1,443 @@
+//! # Event Traits and Core Events
+//!
+//! This module defines the core event infrastructure and all built-in event types
+//! for the Horizon Event System. It includes the fundamental [`Event`] trait,
+//! handler abstractions, and all server infrastructure events.
+//!
+//! ## Event Categories
+//!
+//! ### Core Events
+//! Infrastructure events that are essential for server operation:
+//! - Player connection/disconnection events
+//! - Plugin lifecycle events  
+//! - Region management events
+//!
+//! ### Client Message Events
+//! Raw messages from game clients that need to be routed to plugins for processing.
+//!
+//! ## Design Principles
+//!
+//! - **Type Safety**: All events are strongly typed with compile-time guarantees
+//! - **Serialization**: Built-in JSON serialization for network transmission
+//! - **Performance**: Efficient serialization and handler dispatch
+//! - **Extensibility**: Easy to add new event types by implementing [`Event`]
+
+use crate::types::{PlayerId, RegionId, RegionBounds, DisconnectReason};
+use async_trait::async_trait;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use std::any::{Any, TypeId};
+
+// ============================================================================
+// Event Traits and Core Infrastructure
+// ============================================================================
+
+/// Core trait that all events must implement.
+/// 
+/// This trait provides the fundamental capabilities needed for type-safe event handling:
+/// - Serialization for network transmission
+/// - Type identification for routing
+/// - Dynamic typing support for generic handlers
+/// 
+/// Most types will automatically implement this trait through the blanket implementation
+/// if they implement the required marker traits.
+/// 
+/// # Safety
+/// 
+/// Events must be Send + Sync as they may be processed across multiple threads.
+/// The Debug requirement ensures events can be logged for debugging purposes.
+pub trait Event: Send + Sync + Any + std::fmt::Debug {
+    /// Returns the type name of this event for debugging and routing.
+    /// 
+    /// This should return a stable, unique identifier for the event type.
+    fn type_name() -> &'static str
+    where
+        Self: Sized;
+    
+    /// Serializes the event to bytes for network transmission or storage.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns `Ok(Vec<u8>)` containing the serialized event data, or
+    /// `Err(EventError)` if serialization fails.
+    fn serialize(&self) -> Result<Vec<u8>, EventError>;
+    
+    /// Deserializes an event from bytes.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `data` - Byte slice containing serialized event data
+    /// 
+    /// # Returns
+    /// 
+    /// Returns `Ok(Self)` with the deserialized event, or `Err(EventError)`
+    /// if deserialization fails.
+    fn deserialize(data: &[u8]) -> Result<Self, EventError>
+    where
+        Self: Sized;
+    
+    /// Returns a reference to this event as `&dyn Any` for dynamic typing.
+    /// 
+    /// This enables runtime type checking and downcasting when needed.
+    fn as_any(&self) -> &dyn Any;
+}
+
+/// Blanket implementation of Event trait for types that meet the requirements.
+/// 
+/// Any type that implements Serialize + DeserializeOwned + Send + Sync + Any + Debug
+/// automatically gets Event implementation with JSON serialization.
+/// 
+/// This makes it very easy to create new event types - just derive the required traits:
+/// 
+/// ```rust
+/// #[derive(Debug, Serialize, Deserialize)]
+/// struct MyEvent {
+///     data: String,
+/// }
+/// // MyEvent now implements Event automatically!
+/// ```
+impl<T> Event for T
+where
+    T: Serialize + DeserializeOwned + Send + Sync + Any + std::fmt::Debug + 'static,
+{
+    fn type_name() -> &'static str {
+        std::any::type_name::<T>()
+    }
+
+    fn serialize(&self) -> Result<Vec<u8>, EventError> {
+        serde_json::to_vec(self).map_err(EventError::Serialization)
+    }
+
+    fn deserialize(data: &[u8]) -> Result<Self, EventError> {
+        serde_json::from_slice(data).map_err(EventError::Deserialization)
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+/// Handler trait for processing events asynchronously.
+/// 
+/// This trait abstracts over the type-specific event handling logic and provides
+/// a uniform interface for the event system to call handlers.
+/// 
+/// Most users will not implement this trait directly, but instead use the
+/// `TypedEventHandler` wrapper or the registration macros.
+#[async_trait]
+pub trait EventHandler: Send + Sync {
+    /// Handles an event from serialized data.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `data` - Serialized event data
+    /// 
+    /// # Returns
+    /// 
+    /// Returns `Ok(())` if the event was handled successfully, or `Err(EventError)`
+    /// if handling failed.
+    async fn handle(&self, data: &[u8]) -> Result<(), EventError>;
+    
+    /// Returns the TypeId of the event type this handler expects.
+    /// 
+    /// This is used for type checking and routing to ensure events are only
+    /// sent to compatible handlers.
+    fn expected_type_id(&self) -> TypeId;
+    
+    /// Returns a human-readable name for this handler for debugging.
+    fn handler_name(&self) -> &str;
+}
+
+/// Type-safe wrapper for event handlers.
+/// 
+/// This struct bridges between the generic `EventHandler` trait and specific
+/// event types, providing compile-time type safety while allowing runtime
+/// polymorphism.
+/// 
+/// # Type Parameters
+/// 
+/// * `T` - The event type this handler processes
+/// * `F` - The function type that handles the event
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// let handler = TypedEventHandler::new(
+///     "my_handler".to_string(),
+///     |event: MyEvent| {
+///         println!("Received: {:?}", event);
+///         Ok(())
+///     }
+/// );
+/// ```
+pub struct TypedEventHandler<T, F>
+where
+    T: Event,
+    F: Fn(T) -> Result<(), EventError> + Send + Sync,
+{
+    handler: F,
+    name: String,
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T, F> TypedEventHandler<T, F>
+where
+    T: Event,
+    F: Fn(T) -> Result<(), EventError> + Send + Sync,
+{
+    /// Creates a new typed event handler.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `name` - Human-readable name for debugging
+    /// * `handler` - Function to handle events of type T
+    pub fn new(name: String, handler: F) -> Self {
+        Self {
+            handler,
+            name,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
+#[async_trait]
+impl<T, F> EventHandler for TypedEventHandler<T, F>
+where
+    T: Event,
+    F: Fn(T) -> Result<(), EventError> + Send + Sync,
+{
+    async fn handle(&self, data: &[u8]) -> Result<(), EventError> {
+        let event = T::deserialize(data)?;
+        (self.handler)(event)
+    }
+
+    fn expected_type_id(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
+
+    fn handler_name(&self) -> &str {
+        &self.name
+    }
+}
+
+// ============================================================================
+// Core Server Events ONLY
+// ============================================================================
+
+/// Event emitted when a player connects to the server.
+/// 
+/// This is a core infrastructure event that provides essential information
+/// about new player connections. It's typically used for:
+/// - Initializing player data structures
+/// - Setting up player-specific resources
+/// - Logging connection activity
+/// - Updating player count statistics
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// events.emit_core("player_connected", &PlayerConnectedEvent {
+///     player_id: PlayerId::new(),
+///     connection_id: "conn_abc123".to_string(),
+///     remote_addr: "192.168.1.100:45678".to_string(),
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerConnectedEvent {
+    /// Unique identifier for the player
+    pub player_id: PlayerId,
+    /// Connection-specific identifier for this session
+    pub connection_id: String,
+    /// Remote address of the client connection
+    pub remote_addr: String,
+    /// Unix timestamp when the connection was established
+    pub timestamp: u64,
+}
+
+/// Event emitted when a player disconnects from the server.
+/// 
+/// This event provides information about player disconnections including
+/// the reason for disconnection. It's used for:
+/// - Cleaning up player resources
+/// - Saving player state
+/// - Logging disconnection activity
+/// - Updating player count statistics
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// events.emit_core("player_disconnected", &PlayerDisconnectedEvent {
+///     player_id: player_id,
+///     connection_id: connection_id,
+///     reason: DisconnectReason::ClientDisconnect,
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerDisconnectedEvent {
+    /// Unique identifier for the player
+    pub player_id: PlayerId,
+    /// Connection-specific identifier for the session
+    pub connection_id: String,
+    /// Reason for the disconnection
+    pub reason: DisconnectReason,
+    /// Unix timestamp when the disconnection occurred
+    pub timestamp: u64,
+}
+
+/// Event emitted when a plugin is successfully loaded.
+/// 
+/// This event signals that a plugin has been loaded into the server and
+/// is ready to process events. It includes metadata about the plugin's
+/// capabilities and version information.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// events.emit_core("plugin_loaded", &PluginLoadedEvent {
+///     plugin_name: "combat_system".to_string(),
+///     version: "2.1.0".to_string(),
+///     capabilities: vec!["damage_calculation".to_string(), "status_effects".to_string()],
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginLoadedEvent {
+    /// Name of the loaded plugin
+    pub plugin_name: String,
+    /// Version string of the plugin
+    pub version: String,
+    /// List of capabilities or features provided by this plugin
+    pub capabilities: Vec<String>,
+    /// Unix timestamp when the plugin was loaded
+    pub timestamp: u64,
+}
+
+/// Event emitted when a plugin is unloaded from the server.
+/// 
+/// This event indicates that a plugin has been cleanly unloaded and
+/// should no longer receive events or process requests.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// events.emit_core("plugin_unloaded", &PluginUnloadedEvent {
+///     plugin_name: "old_combat_system".to_string(),
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginUnloadedEvent {
+    /// Name of the unloaded plugin
+    pub plugin_name: String,
+    /// Unix timestamp when the plugin was unloaded
+    pub timestamp: u64,
+}
+
+/// Event emitted when a game region is started.
+/// 
+/// Regions are logical areas of the game world that can be managed
+/// independently. This event indicates that a region is now active
+/// and ready to accept players and process game logic.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// events.emit_core("region_started", &RegionStartedEvent {
+///     region_id: RegionId::new(),
+///     bounds: RegionBounds {
+///         min_x: -1000.0, max_x: 1000.0,
+///         min_y: 0.0, max_y: 256.0,
+///         min_z: -1000.0, max_z: 1000.0,
+///     },
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegionStartedEvent {
+    /// Unique identifier for the region
+    pub region_id: RegionId,
+    /// Spatial boundaries of the region
+    pub bounds: RegionBounds,
+    /// Unix timestamp when the region was started
+    pub timestamp: u64,
+}
+
+/// Event emitted when a game region is stopped.
+/// 
+/// This event indicates that a region is no longer active and players
+/// should be evacuated or transferred to other regions.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// events.emit_core("region_stopped", &RegionStoppedEvent {
+///     region_id: region_id,
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegionStoppedEvent {
+    /// Unique identifier for the region
+    pub region_id: RegionId,
+    /// Unix timestamp when the region was stopped
+    pub timestamp: u64,
+}
+
+/// Raw client message event for routing to plugins.
+/// 
+/// This event represents unprocessed messages received from game clients.
+/// It serves as a bridge between the core networking layer and game plugins,
+/// allowing plugins to handle different types of client messages without
+/// the core system needing to understand the message formats.
+/// 
+/// The event contains the raw binary data along with metadata about the
+/// message type and sender. Plugins can register for specific message types
+/// and deserialize the data according to their own protocols.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// // Emit a raw client message for plugin processing
+/// events.emit_client("movement", "position_update", &RawClientMessageEvent {
+///     player_id: player_id,
+///     message_type: "move".to_string(),
+///     data: serialize_movement_data(&movement)?,
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawClientMessageEvent {
+    /// ID of the player who sent the message
+    pub player_id: PlayerId,
+    /// Type identifier for the message (e.g., "move", "chat", "action")
+    pub message_type: String,
+    /// Raw binary message data
+    pub data: Vec<u8>,
+    /// Unix timestamp when the message was received
+    pub timestamp: u64,
+}
+
+// ============================================================================
+// Error Types
+// ============================================================================
+
+/// Errors that can occur during event system operations.
+/// 
+/// This enum covers all possible error conditions in the event system,
+/// from serialization failures to handler execution errors.
+#[derive(Debug, thiserror::Error)]
+pub enum EventError {
+    /// Serialization failed when converting event to bytes
+    #[error("Serialization error: {0}")]
+    Serialization(#[from] serde_json::Error),
+    /// Deserialization failed when converting bytes to event
+    #[error("Deserialization error: {0}")]
+    Deserialization(serde_json::Error),
+    /// No handler found for the specified event type
+    #[error("Handler not found: {0}")]
+    HandlerNotFound(String),
+    /// Handler execution failed during event processing
+    #[error("Handler execution error: {0}")]
+    HandlerExecution(String),
+}
