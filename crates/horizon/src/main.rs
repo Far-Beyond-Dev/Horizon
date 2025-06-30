@@ -320,13 +320,13 @@ impl Application {
         }
 
         // Setup logging
-        setup_logging(&config.logging, args.json_logs)?;
+        //setup_logging(&config.logging, args.json_logs)?;
 
         // Display banner after logging is setup
         display_banner();
 
         // Create server with new architecture
-        let server_config = config.to_server_config()?;
+        let server_config: ServerConfig = config.to_server_config()?;
         let server = GameServer::new(server_config);
 
         // Log startup information
@@ -468,7 +468,7 @@ impl Application {
 // Entry Point
 // ============================================================================
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse CLI arguments
     let args = CliArgs::parse();
