@@ -29,3 +29,8 @@ clap = { version = "4.0", features = ["derive"] }
 toml = "0.8"
 tokio-tungstenite = "0.27.0"
 rayon = "1.7.0"
+
+[profile.profiling]
+inherits = "release"
+debug = true
+strip = false
