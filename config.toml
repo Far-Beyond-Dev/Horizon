@@ -3,6 +3,7 @@ bind_address = "127.0.0.1:8080"
 max_connections = 1000
 ping_interval = 30
 connection_timeout = 60
+use_reuse_port = false 
 
 [server.region]
 min_x = -1000.0

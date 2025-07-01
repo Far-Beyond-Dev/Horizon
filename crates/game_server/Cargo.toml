@@ -13,3 +13,4 @@ tracing = { workspace = true }
 tokio-tungstenite = { workspace = true }
 horizon_event_system = { path = "../horizon_event_system" }
 plugin_system = { path = "../plugin_system" }
+socket2 = "0.5.10"

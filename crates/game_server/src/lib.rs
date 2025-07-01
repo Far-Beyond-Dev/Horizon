@@ -18,8 +18,9 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
 use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
-use tracing::{debug, error, info, warn};
-
+use tracing::{debug, error, info, warn, trace};
+use socket2::{Domain, Protocol, Socket, Type};
+use std::net::TcpListener as StdTcpListener;
 // ============================================================================
 // Minimal Server Configuration
 // ============================================================================
@@ -31,6 +32,7 @@ pub struct ServerConfig {
     pub plugin_directory: PathBuf,
     pub max_connections: usize,
     pub connection_timeout: u64,
+    pub use_reuse_port: bool,
 }
 
 impl Default for ServerConfig {
@@ -48,6 +50,7 @@ impl Default for ServerConfig {
             plugin_directory: PathBuf::from("plugins"),
             max_connections: 1000,
             connection_timeout: 60,
+            use_reuse_port: false
         }
     }
 }
@@ -236,44 +239,105 @@ impl GameServer {
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
         // Start TCP listener
-        let listener = TcpListener::bind(self.config.bind_address)
-            .await
-            .map_err(|e| ServerError::Network(format!("Failed to bind: {}", e)))?;
+        //let listener = TcpListener::bind(self.config.bind_address)
+          //  .await
+          //  .map_err(|e| ServerError::Network(format!("Failed to bind: {}", e)))?;
 
-        info!("🌐 Server listening on {}", self.config.bind_address);
+        //info!("🌐 Server listening on {}", self.config.bind_address);
+
+        // Start TCP Listener Beta
+
+        let mut listeners = Vec::new();
+        let num_acceptors = 0;
+
+        for _ in 0..num_acceptors {
+            let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
+                .map_err(|e| ServerError::Network(format!("Socket creation failed: {}", e)))?;
+            socket.set_reuse_address(true).ok();
+            if self.config.use_reuse_port {
+                #[cfg(any(
+                    target_os = "linux",
+                    target_os = "android",
+                    target_os = "macos",
+                    target_os = "freebsd",
+                    target_os = "netbsd",
+                    target_os = "openbsd"
+                ))]
+                {
+                    socket.set_reuse_port(true).map_err(|e| {
+                        ServerError::Network(format!("Failed to set SO_REUSEPORT: {}", e))
+                    })?;
+                }
+
+                #[cfg(not(any(
+                    target_os = "linux",
+                    target_os = "android",
+                    target_os = "macos",
+                    target_os = "freebsd",
+                    target_os = "netbsd",
+                    target_os = "openbsd"
+                )))]
+                {
+                    warn!("SO_REUSEPORT requested but not supported on this platform. Ignoring.");
+                }
+            }
+            socket.bind(&self.config.bind_address.into())
+                .map_err(|e| ServerError::Network(format!("Bind failed: {}", e)))?;
+
+            socket.listen(65535)
+                .map_err(|e| ServerError::Network(format!("Listen failed: {}", e)))?;
+
+            let std_listener: StdTcpListener = socket.into();
+            std_listener.set_nonblocking(true).ok();
+            
+            let listener = TcpListener::from_std(std_listener)
+            .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {}", e)))?;
+
+        listeners.push(listener);
+
+        }
 
         // Main server loop (infrastructure only)
         let mut shutdown_receiver = self.shutdown_sender.subscribe();
 
-        loop {
-            tokio::select! {
-                result = listener.accept() => {
-                    match result {
-                        Ok((stream, addr)) => {
-                            let connection_manager = self.connection_manager.clone();
-                            let horizon_event_system = self.horizon_event_system.clone();
 
-                            tokio::spawn(async move {
-                                if let Err(e) = handle_connection(
-                                    stream,
-                                    addr,
-                                    connection_manager,
-                                    horizon_event_system,
-                                ).await {
-                                    error!("Connection error: {:?}", e);
-                                }
-                            });
-                        }
-                        Err(e) => {
-                            error!("Failed to accept connection: {}", e);
+        // TODO: @haywood
+        use futures::stream::{FuturesUnordered, StreamExt as FuturesStreamExt};
+        let mut accept_futures = listeners
+            .into_iter()
+            .map(|listener| {
+                async move {
+                    loop {
+                        match listener.accept().await {
+                            Ok((stream, addr)) => {
+                                let connection_manager = self.connection_manager.clone();
+                                let horizon_event_system = self.horizon_event_system.clone();
+
+                                tokio::spawn(async move {
+                                    if let Err(e) = handle_connection(
+                                        stream,
+                                        addr,
+                                        connection_manager,
+                                        horizon_event_system,
+                                    ).await {
+                                        error!("Connection error: {:?}", e);
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                error!("Failed to accept connection: {}", e);
+                                break;
+                            }
                         }
                     }
                 }
+            })
+            .collect::<FuturesUnordered<_>>();
 
-                _ = shutdown_receiver.recv() => {
-                    info!("Shutdown signal received");
-                    break;
-                }
+        tokio::select! {
+            _ = accept_futures.next() => {} // Accept loop(s) will run until error or shutdown
+            _ = shutdown_receiver.recv() => {
+                info!("Shutdown signal received");
             }
         }
 
@@ -400,7 +464,7 @@ async fn handle_connection(
                         )
                         .await
                         {
-                            error!("❌ Message routing error: {}", e);
+                            trace!("❌ Message routing error: {}", e);
                         }
                     }
                     Ok(Message::Close(_)) => {
