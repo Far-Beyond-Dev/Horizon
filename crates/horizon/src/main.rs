@@ -39,6 +39,9 @@ pub struct ServerSettings {
     pub max_connections: usize,
     /// Network timeouts
     pub connection_timeout: u64,
+
+    #[serde(default)]
+    pub use_reuse_port: bool, // Linux only flag for reusing ports
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +89,7 @@ impl Default for AppConfig {
                 },
                 max_connections: 1000,
                 connection_timeout: 60,
+                use_reuse_port: false,
             },
             plugins: PluginSettings {
                 directory: "plugins".to_string(),
@@ -133,6 +137,7 @@ impl AppConfig {
             plugin_directory: PathBuf::from(&self.plugins.directory),
             max_connections: self.server.max_connections,
             connection_timeout: self.server.connection_timeout,
+            use_reuse_port: self.server.use_reuse_port, // Linux Only functions
         })
     }
 }
@@ -320,7 +325,7 @@ impl Application {
         }
 
         // Setup logging
-        //setup_logging(&config.logging, args.json_logs)?;
+        setup_logging(&config.logging, args.json_logs)?;
 
         // Display banner after logging is setup
         display_banner();
