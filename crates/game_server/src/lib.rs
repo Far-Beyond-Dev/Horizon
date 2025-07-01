@@ -21,6 +21,8 @@ use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
 use tracing::{debug, error, info, warn, trace};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::TcpListener as StdTcpListener;
+use num_cpus;
+
 // ============================================================================
 // Minimal Server Configuration
 // ============================================================================
@@ -246,11 +248,22 @@ impl GameServer {
         //info!("🌐 Server listening on {}", self.config.bind_address);
 
         // Start TCP Listener Beta
+        
+        let core_count = num_cpus::get();
+        let num_acceptors = if self.config.use_reuse_port {
+            core_count
+        } else {
+            1
+        };
+
+        info!(
+             "🧠 Detected {} CPU cores, using {} acceptor(s)",
+                core_count, num_acceptors
+        );
 
         let mut listeners = Vec::new();
-        let num_acceptors = 0;
 
-        for _ in 0..num_acceptors {
+        for i in 0..num_acceptors {
             let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
                 .map_err(|e| ServerError::Network(format!("Socket creation failed: {}", e)))?;
             socket.set_reuse_address(true).ok();
@@ -294,6 +307,7 @@ impl GameServer {
             .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {}", e)))?;
 
         listeners.push(listener);
+        info!("✅ Listener {} bound on {}", i, self.config.bind_address);
 
         }
 
