@@ -33,7 +33,7 @@ use uuid::Uuid;
 /// # Examples
 /// 
 /// ```rust
-/// use horizon_events::PlayerId;
+/// use horizon_event_system::PlayerId;
 /// 
 /// // Create a new random player ID
 /// let player_id = PlayerId::new();
@@ -43,6 +43,8 @@ use uuid::Uuid;
 /// 
 /// // Convert to string for logging/display
 /// println!("Player ID: {}", player_id);
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct PlayerId(pub Uuid);
@@ -70,7 +72,10 @@ impl PlayerId {
     /// # Examples
     /// 
     /// ```rust
+    /// use horizon_event_system::PlayerId;
+    /// 
     /// let player_id = PlayerId::from_str("550e8400-e29b-41d4-a716-446655440000")?;
+    /// # Ok::<(), Box<dyn std::error::Error>>(())
     /// ```
     pub fn from_str(s: &str) -> Result<Self, uuid::Error> {
         Uuid::parse_str(s).map(Self)
