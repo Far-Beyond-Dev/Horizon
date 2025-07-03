@@ -3,7 +3,7 @@
 //! This module defines the core structures for GORC replication channels,
 //! including channel configuration, replication layers, and the main GORC manager.
 
-use crate::types::{Position};
+use crate::types::{Position, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,6 +19,12 @@ pub enum CompressionType {
     Lz4,
     /// Zlib compression - smaller payload but slower
     Zlib,
+    /// Delta compression - only send changes from previous state
+    Delta,
+    /// Quantized compression - reduce precision for smaller payload
+    Quantized,
+    /// High compression - maximum compression for low-priority data
+    High,
     /// Custom game-specific compression
     Custom(u8),
 }
@@ -279,16 +285,153 @@ pub struct GorcStats {
     pub memory_usage: usize,
 }
 
+/// Builder for replication layers with fluent API
+#[derive(Debug, Clone, Default)]
+pub struct ReplicationLayers {
+    /// The layers configured for this object type
+    layers: Vec<ReplicationLayer>,
+}
+
+impl ReplicationLayers {
+    /// Creates a new empty ReplicationLayers builder
+    pub fn new() -> Self {
+        Self {
+            layers: Vec::new(),
+        }
+    }
+
+    /// Adds a replication layer to the builder
+    /// 
+    /// # Arguments
+    /// 
+    /// * `layer` - The replication layer to add
+    /// 
+    /// # Returns
+    /// 
+    /// Returns self for method chaining
+    pub fn add_layer(mut self, layer: ReplicationLayer) -> Self {
+        self.layers.push(layer);
+        self
+    }
+
+    /// Gets all layers as a vector
+    pub fn into_layers(self) -> Vec<ReplicationLayer> {
+        self.layers
+    }
+
+    /// Gets a reference to all layers
+    pub fn layers(&self) -> &[ReplicationLayer] {
+        &self.layers
+    }
+
+    /// Gets the number of layers
+    pub fn len(&self) -> usize {
+        self.layers.len()
+    }
+
+    /// Returns true if there are no layers
+    pub fn is_empty(&self) -> bool {
+        self.layers.is_empty()
+    }
+}
+
+/// Mineral types for game objects like asteroids
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MineralType {
+    Iron,
+    Copper,
+    Gold,
+    Platinum,
+    Uranium,
+    Rare(String),
+}
+
+impl Default for MineralType {
+    fn default() -> Self {
+        MineralType::Iron
+    }
+}
+
 /// Trait for objects that can be replicated through GORC
 pub trait Replication {
     /// Initialize replication layers for this object type
-    fn init_layers() -> Vec<ReplicationLayer>;
+    fn init_layers() -> ReplicationLayers;
     
     /// Get the replication priority for this object at the observer's position
-    fn get_priority(&self, observer_pos: Position) -> ReplicationPriority;
+    fn get_priority(&self, observer_pos: Vec3) -> ReplicationPriority;
     
     /// Serialize data for a specific replication layer
     fn serialize_for_layer(&self, layer: &ReplicationLayer) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+}
+
+/// Registry for managing registered GORC objects
+#[derive(Debug)]
+pub struct GorcObjectRegistry {
+    /// Map of object type names to their replication layers
+    registered_objects: Arc<RwLock<HashMap<String, Vec<ReplicationLayer>>>>,
+    /// Statistics about registered objects
+    stats: Arc<RwLock<RegistryStats>>,
+}
+
+impl GorcObjectRegistry {
+    /// Creates a new object registry
+    pub fn new() -> Self {
+        Self {
+            registered_objects: Arc::new(RwLock::new(HashMap::new())),
+            stats: Arc::new(RwLock::new(RegistryStats::default())),
+        }
+    }
+
+    /// Registers an object type with its replication layers
+    pub async fn register_object<T: Replication + 'static>(&self, object_name: String) {
+        let layers = T::init_layers().into_layers();
+        
+        {
+            let mut objects = self.registered_objects.write().await;
+            objects.insert(object_name.clone(), layers);
+        }
+
+        {
+            let mut stats = self.stats.write().await;
+            stats.registered_objects += 1;
+        }
+
+        tracing::info!("📦 Registered GORC object type: {}", object_name);
+    }
+
+    /// Gets the replication layers for a registered object type
+    pub async fn get_layers(&self, object_name: &str) -> Option<Vec<ReplicationLayer>> {
+        let objects = self.registered_objects.read().await;
+        objects.get(object_name).cloned()
+    }
+
+    /// Lists all registered object types
+    pub async fn list_objects(&self) -> Vec<String> {
+        let objects = self.registered_objects.read().await;
+        objects.keys().cloned().collect()
+    }
+
+    /// Gets registry statistics
+    pub async fn get_stats(&self) -> RegistryStats {
+        self.stats.read().await.clone()
+    }
+}
+
+impl Default for GorcObjectRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Statistics for the object registry
+#[derive(Debug, Clone, Default)]
+pub struct RegistryStats {
+    /// Number of registered object types
+    pub registered_objects: usize,
+    /// Total number of replication layers across all objects
+    pub total_layers: usize,
+    /// Average layers per object
+    pub avg_layers_per_object: f32,
 }
 
 #[cfg(test)]

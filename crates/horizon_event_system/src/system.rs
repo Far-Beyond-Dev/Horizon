@@ -403,6 +403,107 @@ impl EventSystem {
         let stats = self.stats.read().await;
         stats.clone()
     }
+
+    // ============================================================================
+    // GORC (Game Object Replication Channels) Integration
+    // ============================================================================
+
+    /// Registers a handler for GORC (Game Object Replication Channels) events.
+    /// 
+    /// GORC events are specialized events for game object replication with
+    /// support for channels and layers. This provides a clean API for listening
+    /// to object state changes at different priority levels.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `object_type` - Type of the game object (e.g., "Asteroid", "Player")
+    /// * `channel` - Replication channel (0=Critical, 1=Detailed, 2=Cosmetic, 3=Metadata)
+    /// * `event_name` - Specific event name (e.g., "position_update", "health_change")
+    /// * `handler` - Function to handle GORC events
+    /// 
+    /// # Returns
+    /// 
+    /// Returns `Ok(())` if registration succeeds, or `Err(EventError)` if it fails.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// // Listen for critical position updates on asteroids
+    /// events.on_gork("Asteroid", 0, "position_update", |event: GorcEvent| {
+    ///     // Handle asteroid position updates in critical channel
+    ///     Ok(())
+    /// }).await?;
+    /// 
+    /// // Listen for metadata updates on players
+    /// events.on_gork("Player", 3, "name_change", |event: GorcEvent| {
+    ///     // Handle player name changes in metadata channel
+    ///     Ok(())
+    /// }).await?;
+    /// ```
+    pub async fn on_gork<T, F>(
+        &self,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
+    {
+        let event_key = format!("gork:{}:{}:{}", object_type, channel, event_name);
+        self.register_typed_handler(event_key, event_name, handler)
+            .await
+    }
+
+    /// Emits a GORC (Game Object Replication Channels) event.
+    /// 
+    /// This method emits events specifically for game object replication,
+    /// allowing precise targeting of handlers based on object type, channel,
+    /// and event name.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `object_type` - Type of the game object emitting the event
+    /// * `channel` - Replication channel for the event
+    /// * `event_name` - Name of the specific event
+    /// * `event` - The event data to emit
+    /// 
+    /// # Returns
+    /// 
+    /// Returns `Ok(())` if emission succeeds, or `Err(EventError)` if serialization fails.
+    /// Individual handler failures are logged but don't cause the emission to fail.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// // Emit a critical position update for an asteroid
+    /// events.emit_gork("Asteroid", 0, "position_update", &GorcEvent {
+    ///     object_id: asteroid_id,
+    ///     data: position_data,
+    ///     timestamp: current_timestamp(),
+    /// }).await?;
+    /// 
+    /// // Emit a metadata update for a player
+    /// events.emit_gork("Player", 3, "achievement_earned", &GorcEvent {
+    ///     object_id: player_id,
+    ///     data: achievement_data,
+    ///     timestamp: current_timestamp(),
+    /// }).await?;
+    /// ```
+    pub async fn emit_gork<T>(
+        &self,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event,
+    {
+        let event_key = format!("gork:{}:{}:{}", object_type, channel, event_name);
+        self.emit_event(&event_key, event).await
+    }
 }
 
 // ============================================================================

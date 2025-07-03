@@ -123,7 +123,7 @@ pub mod gorc;
 pub use types::*;
 pub use events::{Event, EventHandler, TypedEventHandler, EventError, PlayerConnectedEvent,
                  PlayerDisconnectedEvent, RawClientMessageEvent, RegionStartedEvent,
-                 RegionStoppedEvent};
+                 RegionStoppedEvent, GorcEvent};
 pub use system::{EventSystem, EventSystemStats};
 pub use plugin::{SimplePlugin, Plugin, PluginError};
 pub use context::{ServerContext, LogLevel, ServerError};
@@ -131,9 +131,10 @@ pub use utils::{current_timestamp, create_horizon_event_system};
 
 // Re-export GORC components
 pub use gorc::{
-    ReplicationChannel, ReplicationLayer, ReplicationPriority, CompressionType, GorcManager,
-    SubscriptionManager, SubscriptionType, ProximitySubscription, RelationshipSubscription,
-    InterestSubscription, MulticastManager, MulticastGroup, SpatialPartition, SpatialQuery
+    ReplicationChannel, ReplicationLayer, ReplicationLayers, ReplicationPriority, CompressionType, 
+    GorcManager, SubscriptionManager, SubscriptionType, ProximitySubscription, RelationshipSubscription,
+    InterestSubscription, MulticastManager, MulticastGroup, SpatialPartition, SpatialQuery, 
+    MineralType, Replication, GorcObjectRegistry
 };
 
 // External dependencies that plugins commonly need

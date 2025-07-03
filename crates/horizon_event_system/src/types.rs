@@ -161,6 +161,113 @@ impl Position {
     pub fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }
     }
+
+    /// Calculates the distance to another position.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `other` - The other position to calculate distance to
+    /// 
+    /// # Returns
+    /// 
+    /// Returns the Euclidean distance between the two positions
+    pub fn distance(&self, other: Position) -> f32 {
+        let dx = self.x - other.x;
+        let dy = self.y - other.y;
+        let dz = self.z - other.z;
+        ((dx * dx + dy * dy + dz * dz) as f32).sqrt()
+    }
+}
+
+/// Represents a 3D vector with single-precision floating point components.
+/// 
+/// This type is used for game objects that need 3D positioning with single-precision
+/// for better performance in scenarios where double precision is not required.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use horizon_events::Vec3;
+/// 
+/// let velocity = Vec3::new(10.0, 0.0, -5.0);
+/// let position = Vec3::new(100.5, 64.0, -200.25);
+/// let distance = position.distance(Vec3::new(0.0, 0.0, 0.0));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Vec3 {
+    /// X coordinate (typically east-west axis)
+    pub x: f32,
+    /// Y coordinate (typically vertical axis)
+    pub y: f32,
+    /// Z coordinate (typically north-south axis)
+    pub z: f32,
+}
+
+impl Vec3 {
+    /// Creates a new Vec3 with the specified coordinates.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `x` - X coordinate
+    /// * `y` - Y coordinate  
+    /// * `z` - Z coordinate
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
+    }
+
+    /// Calculates the distance to another Vec3.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `other` - The other vector to calculate distance to
+    /// 
+    /// # Returns
+    /// 
+    /// Returns the Euclidean distance between the two vectors
+    pub fn distance(&self, other: Vec3) -> f32 {
+        let dx = self.x - other.x;
+        let dy = self.y - other.y;
+        let dz = self.z - other.z;
+        (dx * dx + dy * dy + dz * dz).sqrt()
+    }
+
+    /// Creates a zero vector (0, 0, 0).
+    pub fn zero() -> Self {
+        Self::new(0.0, 0.0, 0.0)
+    }
+
+    /// Creates a unit vector along the X axis (1, 0, 0).
+    pub fn unit_x() -> Self {
+        Self::new(1.0, 0.0, 0.0)
+    }
+
+    /// Creates a unit vector along the Y axis (0, 1, 0).
+    pub fn unit_y() -> Self {
+        Self::new(0.0, 1.0, 0.0)
+    }
+
+    /// Creates a unit vector along the Z axis (0, 0, 1).
+    pub fn unit_z() -> Self {
+        Self::new(0.0, 0.0, 1.0)
+    }
+}
+
+impl Default for Vec3 {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
+impl From<Position> for Vec3 {
+    fn from(pos: Position) -> Self {
+        Self::new(pos.x as f32, pos.y as f32, pos.z as f32)
+    }
+}
+
+impl From<Vec3> for Position {
+    fn from(vec: Vec3) -> Self {
+        Self::new(vec.x as f64, vec.y as f64, vec.z as f64)
+    }
 }
 
 /// Defines the spatial boundaries of a game region.

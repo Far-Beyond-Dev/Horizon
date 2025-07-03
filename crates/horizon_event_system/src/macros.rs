@@ -375,3 +375,69 @@ macro_rules! on_event {
         $events.on_core($event_name, $handler).await?;
     };
 }
+
+/// Macro to register an object type with the GORC system.
+/// 
+/// This macro simplifies the registration of game objects that implement
+/// the `Replication` trait with the GORC object registry. It handles
+/// the type name generation and registration process automatically.
+/// 
+/// # Usage
+/// 
+/// ```rust
+/// use horizon_events::{defObject, Replication, ReplicationLayers, ReplicationLayer, Vec3, ReplicationPriority, CompressionType};
+/// 
+/// struct Asteroid {
+///     pub radius: i32,
+///     pub position: Vec3,
+///     pub velocity: Vec3,
+///     pub health: f32,
+///     pub mineral_type: MineralType,
+/// }
+/// 
+/// impl Replication for Asteroid {
+///     fn init_layers() -> ReplicationLayers {
+///         ReplicationLayers::new()
+///             .add_layer(ReplicationLayer {
+///                 channel: 0,
+///                 radius: 50.0,
+///                 frequency: 30.0,
+///                 properties: vec!["position".to_string(), "velocity".to_string(), "health".to_string()],
+///                 compression: CompressionType::Delta,
+///                 priority: ReplicationPriority::Critical,
+///             })
+///             // ... more layers
+///     }
+///     
+///     // ... other trait methods
+/// }
+/// 
+/// defObject!(Asteroid);
+/// ```
+/// 
+/// This generates registration functions and handles the object lifecycle
+/// for integration with the GORC system.
+#[macro_export]
+macro_rules! defObject {
+    ($object_type:ty) => {
+        /// Register this object type with a GORC object registry
+        impl $object_type {
+            pub async fn register_with_gorc(
+                registry: std::sync::Arc<$crate::gorc::GorcObjectRegistry>
+            ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+                registry.register_object::<$object_type>(stringify!($object_type).to_string()).await;
+                Ok(())
+            }
+            
+            /// Get the type name of this object for GORC registration
+            pub fn get_object_type_name() -> &'static str {
+                stringify!($object_type)
+            }
+            
+            /// Helper function to create replication layers for this object type
+            pub fn create_replication_layers() -> $crate::gorc::ReplicationLayers {
+                <$object_type as $crate::gorc::Replication>::init_layers()
+            }
+        }
+    };
+}

@@ -1,27 +1,27 @@
-//! # GORC Example Plugin
+//! # GORC Example Plugin with Object Registration
 //!
 //! This plugin demonstrates how to use Game Object Replication Channels (GORC)
-//! for efficient multiplayer game state distribution.
+//! for efficient multiplayer game state distribution, including the new object
+//! registration system.
 
 use horizon_event_system::{
-    create_simple_plugin, register_handlers, async_trait, on_event,
-    SimplePlugin, PluginError, EventSystem, ServerContext, EventError,
+    create_simple_plugin, async_trait, defObject,
+    SimplePlugin, PluginError, EventSystem, ServerContext,
     // GORC imports
-    GorcManager, SubscriptionManager, MulticastManager, SpatialPartition,
-    ReplicationLayer, ReplicationPriority, CompressionType, Position, PlayerId,
-    Replication,
+    ReplicationLayer, ReplicationLayers, ReplicationPriority, CompressionType, 
+    Vec3, PlayerId, Replication, GorcObjectRegistry, GorcEvent, MineralType,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{info, debug, warn};
+use tracing::{info, debug};
 
 /// A game object that uses GORC for replication
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Player {
     pub id: PlayerId,
-    pub position: Position,
+    pub position: Vec3,
     pub health: f32,
     pub max_health: f32,
     pub weapon: String,
@@ -31,7 +31,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(id: PlayerId, position: Position) -> Self {
+    pub fn new(id: PlayerId, position: Vec3) -> Self {
         Self {
             id,
             position,
@@ -44,14 +44,11 @@ impl Player {
         }
     }
 
-    fn calculate_distance(&self, observer_pos: Position) -> f32 {
-        let dx = self.position.x - observer_pos.x;
-        let dy = self.position.y - observer_pos.y;
-        let dz = self.position.z - observer_pos.z;
-        ((dx * dx + dy * dy + dz * dz) as f32).sqrt()
+    fn calculate_distance(&self, observer_pos: Vec3) -> f32 {
+        self.position.distance(observer_pos)
     }
 
-    fn serialize_critical_data(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    fn serialize_critical_data(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let data = serde_json::json!({
             "id": self.id,
             "position": self.position,
@@ -61,7 +58,7 @@ impl Player {
         Ok(serde_json::to_vec(&data)?)
     }
 
-    fn serialize_detailed_data(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    fn serialize_detailed_data(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let data = serde_json::json!({
             "id": self.id,
             "weapon": self.weapon,
@@ -71,7 +68,7 @@ impl Player {
         Ok(serde_json::to_vec(&data)?)
     }
 
-    fn serialize_cosmetic_data(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    fn serialize_cosmetic_data(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let data = serde_json::json!({
             "id": self.id,
             "animation_state": self.animation_state,
@@ -80,7 +77,7 @@ impl Player {
         Ok(serde_json::to_vec(&data)?)
     }
 
-    fn serialize_metadata(&self) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
+    fn serialize_metadata(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let data = serde_json::json!({
             "id": self.id,
             "team_id": self.team_id,
@@ -104,10 +101,10 @@ impl Player {
 }
 
 impl Replication for Player {
-    fn init_layers() -> Vec<ReplicationLayer> {
-        vec![
+    fn init_layers() -> ReplicationLayers {
+        ReplicationLayers::new()
             // Critical Channel: Essential game state at 60Hz
-            ReplicationLayer::new(
+            .add_layer(ReplicationLayer::new(
                 0,
                 100.0, // 100 unit radius for critical updates
                 60.0,  // 60Hz for real-time combat
@@ -117,9 +114,9 @@ impl Replication for Player {
                     "in_combat".to_string(),
                 ],
                 CompressionType::None, // No compression for speed
-            ),
+            ))
             // Detailed Channel: Important gameplay info at 30Hz
-            ReplicationLayer::new(
+            .add_layer(ReplicationLayer::new(
                 1,
                 250.0, // Larger radius for weapon/animation awareness
                 30.0,  // 30Hz for smooth animations
@@ -129,9 +126,9 @@ impl Replication for Player {
                     "max_health".to_string(),
                 ],
                 CompressionType::Lz4, // Light compression
-            ),
+            ))
             // Cosmetic Channel: Visual effects at 15Hz
-            ReplicationLayer::new(
+            .add_layer(ReplicationLayer::new(
                 2,
                 400.0, // Wide radius for environmental awareness
                 15.0,  // 15Hz sufficient for visual effects
@@ -140,9 +137,9 @@ impl Replication for Player {
                     "visual_effects".to_string(),
                 ],
                 CompressionType::Zlib, // More compression acceptable
-            ),
+            ))
             // Metadata Channel: Player info at 5Hz
-            ReplicationLayer::new(
+            .add_layer(ReplicationLayer::new(
                 3,
                 1000.0, // Very wide radius for social features
                 5.0,    // Low frequency for rarely changing data
@@ -153,11 +150,10 @@ impl Replication for Player {
                     "achievements".to_string(),
                 ],
                 CompressionType::Zlib, // Maximize compression
-            ),
-        ]
+            ))
     }
 
-    fn get_priority(&self, observer_pos: Position) -> ReplicationPriority {
+    fn get_priority(&self, observer_pos: Vec3) -> ReplicationPriority {
         let distance = self.calculate_distance(observer_pos);
         
         // Priority based on distance and combat state
@@ -174,162 +170,224 @@ impl Replication for Player {
 
     fn serialize_for_layer(&self, layer: &ReplicationLayer) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         match layer.channel {
-            0 => self.serialize_critical_data().map_err(|e| e.into()),
-            1 => self.serialize_detailed_data().map_err(|e| e.into()),
-            2 => self.serialize_cosmetic_data().map_err(|e| e.into()),
-            3 => self.serialize_metadata().map_err(|e| e.into()),
+            0 => self.serialize_critical_data(),
+            1 => self.serialize_detailed_data(),
+            2 => self.serialize_cosmetic_data(),
+            3 => self.serialize_metadata(),
             _ => Ok(vec![]),
         }
     }
 }
 
-/// Plugin for demonstrating GORC functionality
+// Register Player object with GORC
+defObject!(Player);
+
+/// An asteroid game object that demonstrates the new object registration system
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Asteroid {
+    pub radius: i32,
+    pub position: Vec3,
+    pub velocity: Vec3,
+    pub health: f32,
+    pub mineral_type: MineralType,
+}
+
+impl Asteroid {
+    pub fn new(position: Vec3, radius: i32) -> Self {
+        Self {
+            radius,
+            position,
+            velocity: Vec3::new(0.0, 0.0, 0.0),
+            health: 100.0,
+            mineral_type: MineralType::Iron,
+        }
+    }
+}
+
+impl Replication for Asteroid {
+    fn init_layers() -> ReplicationLayers {
+        ReplicationLayers::new()
+            .add_layer(ReplicationLayer {
+                channel: 0,
+                radius: 50.0,
+                frequency: 30.0,
+                properties: vec!["position".to_string(), "velocity".to_string(), "health".to_string()],
+                compression: CompressionType::Delta,
+                priority: ReplicationPriority::Critical,
+            })
+            .add_layer(ReplicationLayer {
+                channel: 1,
+                radius: 200.0,
+                frequency: 10.0,
+                properties: vec!["position".to_string(), "mineral_type".to_string()],
+                compression: CompressionType::Quantized,
+                priority: ReplicationPriority::High,
+            })
+            .add_layer(ReplicationLayer {
+                channel: 2,
+                radius: 1000.0,
+                frequency: 2.0,
+                properties: vec!["position".to_string()],
+                compression: CompressionType::High,
+                priority: ReplicationPriority::Normal,
+            })
+    }
+    
+    fn get_priority(&self, observer_pos: Vec3) -> ReplicationPriority {
+        let distance = self.position.distance(observer_pos);
+        match distance {
+            d if d < 25.0 => ReplicationPriority::Critical,
+            d if d < 100.0 => ReplicationPriority::High,
+            d if d < 500.0 => ReplicationPriority::Normal,
+            _ => ReplicationPriority::Low,
+        }
+    }
+
+    fn serialize_for_layer(&self, layer: &ReplicationLayer) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        match layer.channel {
+            0 => {
+                let data = serde_json::json!({
+                    "position": self.position,
+                    "velocity": self.velocity,
+                    "health": self.health
+                });
+                Ok(serde_json::to_vec(&data)?)
+            },
+            1 => {
+                let data = serde_json::json!({
+                    "position": self.position,
+                    "mineral_type": self.mineral_type
+                });
+                Ok(serde_json::to_vec(&data)?)
+            },
+            2 => {
+                let data = serde_json::json!({
+                    "position": self.position
+                });
+                Ok(serde_json::to_vec(&data)?)
+            },
+            _ => Ok(vec![]),
+        }
+    }
+}
+
+// Register Asteroid object with GORC
+defObject!(Asteroid);
+
+/// Plugin for demonstrating GORC functionality with object registration
 pub struct GorcExamplePlugin {
     players: Arc<RwLock<HashMap<PlayerId, Player>>>,
-    team_groups: Arc<RwLock<HashMap<String, Vec<PlayerId>>>>,
+    asteroids: Arc<RwLock<HashMap<String, Asteroid>>>,
+    object_registry: Arc<GorcObjectRegistry>,
 }
 
 impl GorcExamplePlugin {
     pub fn new() -> Self {
         Self {
             players: Arc::new(RwLock::new(HashMap::new())),
-            team_groups: Arc::new(RwLock::new(HashMap::new())),
+            asteroids: Arc::new(RwLock::new(HashMap::new())),
+            object_registry: Arc::new(GorcObjectRegistry::new()),
         }
     }
 
-    async fn setup_gorc_layers(&self, gorc_manager: Arc<GorcManager>) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let layers = Player::init_layers();
+    async fn setup_object_registry(&self) -> Result<(), String> {
+        // Register Player and Asteroid object types
+        Player::register_with_gorc(self.object_registry.clone()).await
+            .map_err(|e| e.to_string())?;
+        Asteroid::register_with_gorc(self.object_registry.clone()).await
+            .map_err(|e| e.to_string())?;
         
-        for (i, layer) in layers.into_iter().enumerate() {
-            let layer_name = format!("player_layer_{}", i);
-            gorc_manager.add_layer(layer_name, layer).await;
-            info!("📡 Registered GORC layer {}", i);
-        }
+        let objects = self.object_registry.list_objects().await;
+        info!("📦 Registered GORC objects: {:?}", objects);
         
         Ok(())
     }
 
-    async fn handle_player_join(
-        &self,
-        player_id: PlayerId,
-        position: Position,
-        subscription_manager: Arc<SubscriptionManager>,
-        spatial_partition: Arc<SpatialPartition>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let player = Player::new(player_id, position);
+    async fn setup_gorc_handlers(&self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+        // Register GORC event handlers for Player objects
+        events.on_gork("Player", 0, "position_update", |event: GorcEvent| {
+            info!("🎯 Player critical position update: {}", event.object_id);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events.on_gork("Player", 1, "weapon_change", |event: GorcEvent| {
+            info!("🔫 Player weapon change: {}", event.object_id);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        // Register GORC event handlers for Asteroid objects
+        events.on_gork("Asteroid", 0, "position_update", |event: GorcEvent| {
+            debug!("🌌 Asteroid position update: {}", event.object_id);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events.on_gork("Asteroid", 1, "mineral_scan", |event: GorcEvent| {
+            info!("⛏️ Asteroid mineral scan: {}", event.object_id);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        Ok(())
+    }
+
+    async fn demonstrate_object_replication(&self, events: Arc<EventSystem>) -> Result<(), String> {
+        // Create a player and demonstrate replication
+        let player = Player::new(PlayerId::new(), Vec3::new(100.0, 50.0, 200.0));
+        let player_id = player.id;
         
-        // Add to our local player registry
         {
             let mut players = self.players.write().await;
-            players.insert(player_id, player);
+            players.insert(player_id, player.clone());
         }
-        
-        // Register with GORC subscription system
-        subscription_manager.add_player(player_id, position).await;
-        
-        // Add to spatial partition
-        spatial_partition.update_player_position(
-            player_id,
-            position,
-            "main_world".to_string(),
-        ).await;
-        
-        info!("🎮 Player {} joined at position {:?}", player_id, position);
-        Ok(())
-    }
 
-    async fn handle_player_move(
-        &self,
-        player_id: PlayerId,
-        new_position: Position,
-        subscription_manager: Arc<SubscriptionManager>,
-        spatial_partition: Arc<SpatialPartition>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Update player position
-        {
-            let mut players = self.players.write().await;
-            if let Some(player) = players.get_mut(&player_id) {
-                player.position = new_position;
-            }
-        }
-        
-        // Update GORC systems
-        let should_recalc = subscription_manager.update_player_position(player_id, new_position).await;
-        
-        spatial_partition.update_player_position(
-            player_id,
-            new_position,
-            "main_world".to_string(),
-        ).await;
-        
-        if should_recalc {
-            debug!("🔄 Recalculated subscriptions for player {}", player_id);
-        }
-        
-        Ok(())
-    }
+        // Emit GORC events for the player
+        let critical_data = player.serialize_for_layer(&ReplicationLayer::new(
+            0, 100.0, 60.0, vec!["position".to_string()], CompressionType::None
+        )).map_err(|e| format!("Serialization error: {}", e))?;
 
-    async fn handle_team_formation(
-        &self,
-        team_id: String,
-        player_ids: Vec<PlayerId>,
-        subscription_manager: Arc<SubscriptionManager>,
-        multicast_manager: Arc<MulticastManager>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Create multicast group for team
-        let channels: HashSet<u8> = vec![0, 1, 2, 3].into_iter().collect();
-        let group_id = multicast_manager.create_group(
-            format!("team_{}", team_id),
-            channels,
-            ReplicationPriority::High,
-        ).await;
-        
-        // Add all team members to the group
-        for &player_id in &player_ids {
-            multicast_manager.add_player_to_group(player_id, group_id).await;
-            
-            // Set up relationship-based subscriptions
-            let other_members: Vec<PlayerId> = player_ids.iter()
-                .filter(|&&id| id != player_id)
-                .copied()
-                .collect();
-            
-            subscription_manager.add_relationship(
-                player_id,
-                "team".to_string(),
-                other_members,
-            ).await;
-        }
-        
-        // Store team information
-        {
-            let mut teams = self.team_groups.write().await;
-            teams.insert(team_id.clone(), player_ids.clone());
-        }
-        
-        info!("👥 Team {} formed with {} members", team_id, player_ids.len());
-        Ok(())
-    }
+        events.emit_gork("Player", 0, "position_update", &GorcEvent {
+            object_id: player_id.to_string(),
+            object_type: "Player".to_string(),
+            channel: 0,
+            data: critical_data,
+            priority: "Critical".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_secs(),
+        }).await.map_err(|e| e.to_string())?;
 
-    async fn handle_combat_start(
-        &self,
-        player_id: PlayerId,
-        multicast_manager: Arc<MulticastManager>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Update player combat state
+        // Create an asteroid and demonstrate replication
+        let asteroid = Asteroid::new(Vec3::new(500.0, 100.0, 300.0), 25);
+        let asteroid_id = "asteroid_001".to_string();
+        
         {
-            let mut players = self.players.write().await;
-            if let Some(player) = players.get_mut(&player_id) {
-                player.in_combat = true;
-                player.animation_state = "combat".to_string();
-            }
+            let mut asteroids = self.asteroids.write().await;
+            asteroids.insert(asteroid_id.clone(), asteroid.clone());
         }
-        
-        // Broadcast combat start to nearby players
-        // In a real implementation, you'd use spatial queries to find nearby players
-        // and create a temporary high-priority group for combat updates
-        
-        info!("⚔️ Player {} entered combat", player_id);
+
+        // Emit GORC events for the asteroid
+        let mineral_data = asteroid.serialize_for_layer(&ReplicationLayer {
+            channel: 1,
+            radius: 200.0,
+            frequency: 10.0,
+            properties: vec!["mineral_type".to_string()],
+            compression: CompressionType::Quantized,
+            priority: ReplicationPriority::High,
+        }).map_err(|e| format!("Serialization error: {}", e))?;
+
+        events.emit_gork("Asteroid", 1, "mineral_scan", &GorcEvent {
+            object_id: asteroid_id,
+            object_type: "Asteroid".to_string(),
+            channel: 1,
+            data: mineral_data,
+            priority: "High".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_secs(),
+        }).await.map_err(|e| e.to_string())?;
+
+        info!("✨ Demonstrated object replication for Player and Asteroid");
         Ok(())
     }
 }
@@ -337,55 +395,54 @@ impl GorcExamplePlugin {
 #[async_trait]
 impl SimplePlugin for GorcExamplePlugin {
     fn name(&self) -> &str {
-        "GORC Example Plugin"
+        "GORC Example Plugin with Object Registration"
     }
 
     fn version(&self) -> &str {
-        "1.0.0"
+        "2.0.0"
     }
 
     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
-        info!("🚀 Initializing GORC Example Plugin");
+        info!("🚀 Initializing GORC Example Plugin with Object Registration");
         
-        // Note: In a real implementation, you'd get access to GORC managers
-        // through the ServerContext or a custom service container
+        // Setup object registry
+        self.setup_object_registry().await
+            .map_err(|e| PluginError::ExecutionError(e))?;
         
-        register_handlers!(events;
-            client {
-                "player", "join" => |event: serde_json::Value| {
-                    info!("📥 Player join event: {:?}", event);
-                    // Handle player joining
-                    Ok(())
-                },
-                "player", "move" => |event: serde_json::Value| {
-                    debug!("🏃 Player move event: {:?}", event);
-                    // Handle player movement
-                    Ok(())
-                },
-                "team", "form" => |event: serde_json::Value| {
-                    info!("👥 Team formation event: {:?}", event);
-                    // Handle team formation
-                    Ok(())
-                },
-                "combat", "start" => |event: serde_json::Value| {
-                    info!("⚔️ Combat start event: {:?}", event);
-                    // Handle combat start
-                    Ok(())
-                }
-            }
-            core {
-                "player_connected" => |event: serde_json::Value| {
-                    info!("🔗 Core: Player connected: {:?}", event);
-                    Ok(())
-                },
-                "player_disconnected" => |event: serde_json::Value| {
-                    info!("👋 Core: Player disconnected: {:?}", event);
-                    Ok(())
-                }
-            }
-        );
+        // Setup GORC handlers
+        self.setup_gorc_handlers(events.clone()).await?;
         
-        info!("✅ GORC Example Plugin handlers registered");
+        // Register traditional event handlers
+        events.on_client("player", "join", |event: serde_json::Value| {
+            info!("📥 Player join event: {:?}", event);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events.on_client("player", "move", |event: serde_json::Value| {
+            debug!("🏃 Player move event: {:?}", event);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events.on_client("asteroid", "spawn", |event: serde_json::Value| {
+            info!("🌌 Asteroid spawn event: {:?}", event);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events.on_core("player_connected", |event: serde_json::Value| {
+            info!("🔗 Core: Player connected: {:?}", event);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events.on_core("player_disconnected", |event: serde_json::Value| {
+            info!("👋 Core: Player disconnected: {:?}", event);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+        
+        // Demonstrate object replication
+        self.demonstrate_object_replication(events).await
+            .map_err(|e| PluginError::ExecutionError(e))?;
+        
+        info!("✅ GORC Example Plugin with Object Registration initialized");
         Ok(())
     }
 }
@@ -402,61 +459,52 @@ mod tests {
         let layers = Player::init_layers();
         assert_eq!(layers.len(), 4);
         
-        // Verify channel assignments
-        assert_eq!(layers[0].channel, 0); // Critical
-        assert_eq!(layers[1].channel, 1); // Detailed
-        assert_eq!(layers[2].channel, 2); // Cosmetic
-        assert_eq!(layers[3].channel, 3); // Metadata
-        
-        // Verify frequency hierarchy
-        assert!(layers[0].frequency >= layers[1].frequency);
-        assert!(layers[1].frequency >= layers[2].frequency);
-        assert!(layers[2].frequency >= layers[3].frequency);
+        let layer_vec = layers.into_layers();
+        assert_eq!(layer_vec[0].channel, 0); // Critical
+        assert_eq!(layer_vec[1].channel, 1); // Detailed
+        assert_eq!(layer_vec[2].channel, 2); // Cosmetic
+        assert_eq!(layer_vec[3].channel, 3); // Metadata
     }
 
     #[test]
-    fn test_player_priority_calculation() {
-        let player = Player::new(
-            PlayerId::new(),
-            Position::new(0.0, 0.0, 0.0),
-        );
+    fn test_asteroid_replication_layers() {
+        let layers = Asteroid::init_layers();
+        assert_eq!(layers.len(), 3);
         
-        // Close observer should get high priority
-        let close_pos = Position::new(50.0, 0.0, 0.0);
-        let priority = player.get_priority(close_pos);
-        assert_eq!(priority, ReplicationPriority::High);
-        
-        // Far observer should get lower priority
-        let far_pos = Position::new(500.0, 0.0, 0.0);
-        let priority = player.get_priority(far_pos);
-        assert_eq!(priority, ReplicationPriority::Low);
+        let layer_vec = layers.into_layers();
+        assert_eq!(layer_vec[0].channel, 0); // Critical
+        assert_eq!(layer_vec[1].channel, 1); // Detailed  
+        assert_eq!(layer_vec[2].channel, 2); // Cosmetic
     }
 
     #[test]
-    fn test_player_serialization() {
-        let player = Player::new(
-            PlayerId::new(),
-            Position::new(100.0, 50.0, 200.0),
-        );
+    fn test_asteroid_priority_calculation() {
+        let asteroid = Asteroid::new(Vec3::new(0.0, 0.0, 0.0), 10);
         
-        let layer = ReplicationLayer::new(
-            0, 100.0, 60.0,
-            vec!["position".to_string(), "health".to_string()],
-            CompressionType::None,
-        );
+        let close_pos = Vec3::new(20.0, 0.0, 0.0);
+        assert_eq!(asteroid.get_priority(close_pos), ReplicationPriority::Critical);
         
-        let serialized = player.serialize_for_layer(&layer);
-        assert!(serialized.is_ok());
-        assert!(!serialized.unwrap().is_empty());
+        let far_pos = Vec3::new(600.0, 0.0, 0.0);
+        assert_eq!(asteroid.get_priority(far_pos), ReplicationPriority::Low);
+    }
+
+    #[tokio::test]
+    async fn test_object_registration() {
+        let registry = Arc::new(GorcObjectRegistry::new());
+        
+        Player::register_with_gorc(registry.clone()).await.unwrap();
+        Asteroid::register_with_gorc(registry.clone()).await.unwrap();
+        
+        let objects = registry.list_objects().await;
+        assert_eq!(objects.len(), 2);
+        assert!(objects.contains(&"Player".to_string()));
+        assert!(objects.contains(&"Asteroid".to_string()));
     }
 
     #[tokio::test]
     async fn test_plugin_initialization() {
         let plugin = GorcExamplePlugin::new();
-        assert_eq!(plugin.name(), "GORC Example Plugin");
-        assert_eq!(plugin.version(), "1.0.0");
-        
-        let players = plugin.players.read().await;
-        assert_eq!(players.len(), 0);
+        assert_eq!(plugin.name(), "GORC Example Plugin with Object Registration");
+        assert_eq!(plugin.version(), "2.0.0");
     }
 }

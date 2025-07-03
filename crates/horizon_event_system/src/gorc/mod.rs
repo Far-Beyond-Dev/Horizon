@@ -32,8 +32,8 @@ pub mod multicast;
 pub mod spatial;
 
 pub use channels::{
-    ReplicationChannel, ReplicationLayer, ReplicationPriority, 
-    CompressionType, GorcManager
+    ReplicationChannel, ReplicationLayer, ReplicationLayers, ReplicationPriority, 
+    CompressionType, GorcManager, MineralType, Replication, GorcObjectRegistry
 };
 pub use subscription::{
     SubscriptionManager, SubscriptionType, ProximitySubscription,

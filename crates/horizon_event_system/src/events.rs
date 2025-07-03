@@ -418,6 +418,42 @@ pub struct RawClientMessageEvent {
     pub timestamp: u64,
 }
 
+/// GORC (Game Object Replication Channels) event for object state replication.
+/// 
+/// This event represents a change in game object state that needs to be
+/// replicated to interested observers through the GORC system. It contains
+/// the object identifier, serialized state data, and metadata about the
+/// replication context.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// // Emit a GORC event for asteroid position update
+/// events.emit_gork("Asteroid", 0, "position_update", &GorcEvent {
+///     object_id: asteroid_id.to_string(),
+///     object_type: "Asteroid".to_string(),
+///     channel: 0,
+///     data: serialize_position_data(&asteroid.position)?,
+///     priority: ReplicationPriority::Critical,
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GorcEvent {
+    /// Unique identifier for the object being replicated
+    pub object_id: String,
+    /// Type of the object (e.g., "Asteroid", "Player", "Ship")
+    pub object_type: String,
+    /// Replication channel (0=Critical, 1=Detailed, 2=Cosmetic, 3=Metadata)
+    pub channel: u8,
+    /// Serialized object state data for this update
+    pub data: Vec<u8>,
+    /// Priority level for this replication update
+    pub priority: String, // We'll use String to avoid circular dependency
+    /// Unix timestamp when the event was created
+    pub timestamp: u64,
+}
+
 // ============================================================================
 // Error Types
 // ============================================================================
