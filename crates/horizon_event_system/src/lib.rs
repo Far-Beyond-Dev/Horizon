@@ -33,14 +33,14 @@
 //! ## Quick Start Example
 //!
 //! ```rust
-//! use horizon_events::*;
+//! use horizon_event_system::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let events = create_horizon_event_system();
 //!     
 //!     // Register a core event handler
-//!     events.on_core("server_started", |event: PlayerConnectedEvent| {
+//!     events.on_core("player_connected", |event: PlayerConnectedEvent| {
 //!         println!("Player {} connected", event.player_id);
 //!         Ok(())
 //!     }).await?;
@@ -68,7 +68,7 @@
 //! Create plugins using the `SimplePlugin` trait and `create_simple_plugin!` macro:
 //!
 //! ```rust
-//! use horizon_events::*;
+//! use horizon_event_system::*;
 //!
 //! struct MyGamePlugin {
 //!     // Plugin state

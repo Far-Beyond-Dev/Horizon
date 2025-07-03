@@ -55,18 +55,28 @@ use tracing::{debug, error, info, warn};
 /// # Examples
 /// 
 /// ```rust
-/// let events = EventSystem::new();
+/// use horizon_event_system::*;
 /// 
-/// // Register handlers
-/// events.on_core("server_started", |event: ServerStartedEvent| {
-///     println!("Server started!");
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let events = create_horizon_event_system();
+/// 
+///     // Register handlers
+///     events.on_core("player_connected", |event: PlayerConnectedEvent| {
+///         println!("Player connected!");
+///         Ok(())
+///     }).await?;
+/// 
+///     // Emit events
+///     events.emit_core("player_connected", &PlayerConnectedEvent {
+///         player_id: PlayerId::new(),
+///         connection_id: "conn_123".to_string(),
+///         remote_addr: "127.0.0.1:8080".to_string(),
+///         timestamp: current_timestamp(),
+///     }).await?;
+///     
 ///     Ok(())
-/// }).await?;
-/// 
-/// // Emit events
-/// events.emit_core("server_started", &ServerStartedEvent {
-///     timestamp: current_timestamp(),
-/// }).await?;
+/// }
 /// ```
 pub struct EventSystem {
     /// Map of event keys to their registered handlers

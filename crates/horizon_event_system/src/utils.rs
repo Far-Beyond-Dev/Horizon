@@ -37,6 +37,12 @@ use std::sync::Arc;
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::{PlayerConnectedEvent, PlayerId, current_timestamp};
+/// 
+/// let player_id = PlayerId::new();
+/// let conn_id = "conn_123".to_string();
+/// let addr = "127.0.0.1:8080".to_string();
+/// 
 /// let event = PlayerConnectedEvent {
 ///     player_id: player_id,
 ///     connection_id: conn_id,
@@ -67,16 +73,20 @@ pub fn current_timestamp() -> u64 {
 /// # Examples
 /// 
 /// ```rust
-/// let events = create_horizon_event_system();
+/// use horizon_event_system::*;
 /// 
-/// // Register some handlers
-/// events.on_core("server_started", |event: ServerStartedEvent| {
-///     println!("Server online!");
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let events = create_horizon_event_system();
+/// 
+///     // Register some handlers
+///     events.on_core("player_connected", |event: PlayerConnectedEvent| {
+///         println!("Server online!");
+///         Ok(())
+///     }).await?;
+/// 
 ///     Ok(())
-/// }).await?;
-/// 
-/// // Use in plugin context
-/// let context = MyServerContext::new(events.clone());
+/// }
 /// ```
 /// 
 /// # Returns
