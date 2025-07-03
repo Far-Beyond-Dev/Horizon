@@ -110,7 +110,7 @@ impl std::fmt::Display for PlayerId {
 /// # Examples
 /// 
 /// ```rust
-/// use horizon_events::RegionId;
+/// use horizon_event_system::RegionId;
 /// 
 /// let region_id = RegionId::new();
 /// println!("Region: {}", region_id.0);
@@ -140,7 +140,7 @@ impl Default for RegionId {
 /// # Examples
 /// 
 /// ```rust
-/// use horizon_events::Position;
+/// use horizon_event_system::Position;
 /// 
 /// let spawn_point = Position::new(0.0, 0.0, 0.0);
 /// let player_pos = Position::new(100.5, 64.0, -200.25);
@@ -192,7 +192,7 @@ impl Position {
 /// # Examples
 /// 
 /// ```rust
-/// use horizon_events::Vec3;
+/// use horizon_event_system::Vec3;
 /// 
 /// let velocity = Vec3::new(10.0, 0.0, -5.0);
 /// let position = Vec3::new(100.5, 64.0, -200.25);
@@ -287,6 +287,8 @@ impl From<Vec3> for Position {
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::RegionBounds;
+/// 
 /// let region_bounds = RegionBounds {
 ///     min_x: -500.0, max_x: 500.0,    // 1km wide
 ///     min_y: 0.0, max_y: 128.0,       // 128 units tall
