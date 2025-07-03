@@ -305,23 +305,23 @@ impl GorcExamplePlugin {
 
     async fn setup_gorc_handlers(&self, events: Arc<EventSystem>) -> Result<(), PluginError> {
         // Register GORC event handlers for Player objects
-        events.on_gork("Player", 0, "position_update", |event: GorcEvent| {
+        events.on_gorc("Player", 0, "position_update", |event: GorcEvent| {
             info!("🎯 Player critical position update: {}", event.object_id);
             Ok(())
         }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        events.on_gork("Player", 1, "weapon_change", |event: GorcEvent| {
+        events.on_gorc("Player", 1, "weapon_change", |event: GorcEvent| {
             info!("🔫 Player weapon change: {}", event.object_id);
             Ok(())
         }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         // Register GORC event handlers for Asteroid objects
-        events.on_gork("Asteroid", 0, "position_update", |event: GorcEvent| {
+        events.on_gorc("Asteroid", 0, "position_update", |event: GorcEvent| {
             debug!("🌌 Asteroid position update: {}", event.object_id);
             Ok(())
         }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        events.on_gork("Asteroid", 1, "mineral_scan", |event: GorcEvent| {
+        events.on_gorc("Asteroid", 1, "mineral_scan", |event: GorcEvent| {
             info!("⛏️ Asteroid mineral scan: {}", event.object_id);
             Ok(())
         }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
@@ -344,7 +344,7 @@ impl GorcExamplePlugin {
             0, 100.0, 60.0, vec!["position".to_string()], CompressionType::None
         )).map_err(|e| format!("Serialization error: {}", e))?;
 
-        events.emit_gork("Player", 0, "position_update", &GorcEvent {
+        events.emit_gorc("Player", 0, "position_update", &GorcEvent {
             object_id: player_id.to_string(),
             object_type: "Player".to_string(),
             channel: 0,
@@ -375,7 +375,7 @@ impl GorcExamplePlugin {
             priority: ReplicationPriority::High,
         }).map_err(|e| format!("Serialization error: {}", e))?;
 
-        events.emit_gork("Asteroid", 1, "mineral_scan", &GorcEvent {
+        events.emit_gorc("Asteroid", 1, "mineral_scan", &GorcEvent {
             object_id: asteroid_id,
             object_type: "Asteroid".to_string(),
             channel: 1,

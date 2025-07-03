@@ -188,9 +188,10 @@ impl GorcManager {
         manager
     }
 
+    // TODO: This will be deprecated in favor of the dynamic channel system
     /// Initializes the four default GORC channels
     fn initialize_default_channels(&mut self) {
-        let _default_channels = vec![
+        let _default_channels: Vec<(i32, &'static str, &'static str, (f64, f64))> = vec![
             (
                 0,
                 "Critical",

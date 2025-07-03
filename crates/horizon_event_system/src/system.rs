@@ -515,20 +515,20 @@ impl EventSystem {
     /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// #     let events = create_horizon_event_system();
     /// // Listen for critical position updates on asteroids
-    /// events.on_gork("Asteroid", 0, "position_update", |event: GorcEvent| {
+    /// events.on_gorc("Asteroid", 0, "position_update", |event: GorcEvent| {
     ///     // Handle asteroid position updates in critical channel
     ///     Ok(())
     /// }).await?;
     /// 
     /// // Listen for metadata updates on players
-    /// events.on_gork("Player", 3, "name_change", |event: GorcEvent| {
+    /// events.on_gorc("Player", 3, "name_change", |event: GorcEvent| {
     ///     // Handle player name changes in metadata channel
     ///     Ok(())
     /// }).await?;
     /// #     Ok(())
     /// # }
     /// ```
-    pub async fn on_gork<T, F>(
+    pub async fn on_gorc<T, F>(
         &self,
         object_type: &str,
         channel: u8,
@@ -575,7 +575,7 @@ impl EventSystem {
     /// #     let position_data = serde_json::json!({"x": 100, "y": 200, "z": 300});
     /// #     let achievement_data = serde_json::json!({"type": "first_kill", "points": 100});
     /// // Emit a critical position update for an asteroid
-    /// events.emit_gork("Asteroid", 0, "position_update", &GorcEvent {
+    /// events.emit_gorc("Asteroid", 0, "position_update", &GorcEvent {
     ///     object_id: asteroid_id,
     ///     object_type: "Asteroid".to_string(),
     ///     channel: 0,
@@ -585,7 +585,7 @@ impl EventSystem {
     /// }).await?;
     /// 
     /// // Emit a metadata update for a player
-    /// events.emit_gork("Player", 3, "achievement_earned", &GorcEvent {
+    /// events.emit_gorc("Player", 3, "achievement_earned", &GorcEvent {
     ///     object_id: player_id,
     ///     object_type: "Player".to_string(),
     ///     channel: 3,
@@ -596,7 +596,7 @@ impl EventSystem {
     /// #     Ok(())
     /// # }
     /// ```
-    pub async fn emit_gork<T>(
+    pub async fn emit_gorc<T>(
         &self,
         object_type: &str,
         channel: u8,

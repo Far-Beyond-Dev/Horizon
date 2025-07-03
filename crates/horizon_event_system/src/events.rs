@@ -488,7 +488,7 @@ pub struct RawClientMessageEvent {
 /// #     let events = horizon_event_system::create_horizon_event_system();
 /// #     let asteroid_id = "asteroid_123";
 /// // Emit a GORC event for asteroid position update
-/// events.emit_gork("Asteroid", 0, "position_update", &GorcEvent {
+/// events.emit_gorc("Asteroid", 0, "position_update", &GorcEvent {
 ///     object_id: asteroid_id.to_string(),
 ///     object_type: "Asteroid".to_string(),
 ///     channel: 0,

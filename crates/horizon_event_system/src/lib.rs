@@ -108,33 +108,34 @@
 //! ```
 
 // Core modules
-pub mod types;
-pub mod events;
-pub mod system;
-pub mod plugin;
 pub mod context;
-pub mod utils;
+pub mod events;
 pub mod macros;
+pub mod plugin;
+pub mod system;
+pub mod types;
+pub mod utils;
 
 // GORC (Game Object Replication Channels) module
 pub mod gorc;
 
 // Re-export commonly used items for convenience
-pub use types::*;
-pub use events::{Event, EventHandler, TypedEventHandler, EventError, PlayerConnectedEvent,
-                 PlayerDisconnectedEvent, RawClientMessageEvent, RegionStartedEvent,
-                 RegionStoppedEvent, GorcEvent};
+pub use context::{LogLevel, ServerContext, ServerError};
+pub use events::{
+    Event, EventError, EventHandler, GorcEvent, PlayerConnectedEvent, PlayerDisconnectedEvent,
+    RawClientMessageEvent, RegionStartedEvent, RegionStoppedEvent, TypedEventHandler,
+};
+pub use plugin::{Plugin, PluginError, SimplePlugin};
 pub use system::{EventSystem, EventSystemStats};
-pub use plugin::{SimplePlugin, Plugin, PluginError};
-pub use context::{ServerContext, LogLevel, ServerError};
-pub use utils::{current_timestamp, create_horizon_event_system};
+pub use types::*;
+pub use utils::{create_horizon_event_system, current_timestamp};
 
 // Re-export GORC components
 pub use gorc::{
-    ReplicationChannel, ReplicationLayer, ReplicationLayers, ReplicationPriority, CompressionType, 
-    GorcManager, SubscriptionManager, SubscriptionType, ProximitySubscription, RelationshipSubscription,
-    InterestSubscription, MulticastManager, MulticastGroup, SpatialPartition, SpatialQuery, 
-    MineralType, Replication, GorcObjectRegistry
+    CompressionType, GorcManager, GorcObjectRegistry, InterestSubscription, MineralType,
+    MulticastGroup, MulticastManager, ProximitySubscription, RelationshipSubscription, Replication,
+    ReplicationChannel, ReplicationLayer, ReplicationLayers, ReplicationPriority, SpatialPartition,
+    SpatialQuery, SubscriptionManager, SubscriptionType,
 };
 
 // External dependencies that plugins commonly need

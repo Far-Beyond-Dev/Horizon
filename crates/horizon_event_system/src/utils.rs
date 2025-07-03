@@ -34,23 +34,6 @@ use std::sync::Arc;
 /// Panics if the system clock is set to a time before the Unix epoch
 /// (January 1, 1970). This should never happen in practice on modern systems.
 /// 
-/// # Examples
-/// 
-/// ```rust
-/// use horizon_event_system::{PlayerConnectedEvent, PlayerId, current_timestamp};
-/// 
-/// let player_id = PlayerId::new();
-/// let conn_id = "conn_123".to_string();
-/// let addr = "127.0.0.1:8080".to_string();
-/// 
-/// let event = PlayerConnectedEvent {
-///     player_id: player_id,
-///     connection_id: conn_id,
-///     remote_addr: addr,
-///     timestamp: current_timestamp(),
-/// };
-/// ```
-/// 
 /// # Returns
 /// 
 /// Current time as seconds since Unix epoch (1970-01-01 00:00:00 UTC).
@@ -69,25 +52,6 @@ pub fn current_timestamp() -> u64 {
 /// 
 /// The returned event system is fully initialized and ready to accept
 /// handler registrations and event emissions.
-/// 
-/// # Examples
-/// 
-/// ```rust
-/// use horizon_event_system::*;
-/// 
-/// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let events = create_horizon_event_system();
-/// 
-///     // Register some handlers
-///     events.on_core("player_connected", |event: PlayerConnectedEvent| {
-///         println!("Server online!");
-///         Ok(())
-///     }).await?;
-/// 
-///     Ok(())
-/// }
-/// ```
 /// 
 /// # Returns
 /// 
