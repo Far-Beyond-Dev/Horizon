@@ -17,6 +17,7 @@ A high-performance, plugin-driven game server built in Rust with type-safe event
 - **Hot Reloading** - Update plugins without server restarts
 - **Event-Driven Architecture** - Clean separation between core infrastructure and game logic
 - **WebSocket Support** - Real-time communication with connected clients
+- **Game Object Replication Channels (GORC)** - Advanced multiplayer state distribution system
 - **Memory Safe** - Leverages Rust's ownership system for stability
 - **Cross-Platform** - Runs on Windows, Linux, and macOS
 - **Docker Ready** - Containerized deployment support
@@ -345,8 +346,48 @@ cargo clippy
 └── docker-compose.yml   # Container orchestration
 ```
 
+## Game Object Replication Channels (GORC)
+
+Horizon includes a sophisticated replication system for multiplayer games called GORC. This system provides fine-grained control over what information reaches which players and at what frequency.
+
+### GORC Features
+
+- **4 Replication Channels**: Critical (30-60Hz), Detailed (15-30Hz), Cosmetic (5-15Hz), Metadata (1-5Hz)
+- **Dynamic Subscriptions**: Proximity-based, relationship-based, and interest-based
+- **Multicast Groups**: Efficient distribution to player groups
+- **LOD System**: Level-of-detail with hysteresis for smooth transitions
+- **Spatial Partitioning**: Quadtree-based spatial indexing for performance
+
+### Quick GORC Example
+
+```rust
+use horizon_event_system::{GorcManager, SubscriptionManager, Position, PlayerId};
+
+// Access GORC from game server
+let server = GameServer::new(config);
+let gorc = server.get_gorc_manager();
+let subscriptions = server.get_subscription_manager();
+
+// Add player to replication system
+let player_id = PlayerId::new();
+let position = Position::new(100.0, 50.0, 200.0);
+subscriptions.add_player(player_id, position).await;
+
+// Create team-based multicast group
+let multicast = server.get_multicast_manager();
+let channels = vec![0, 1, 2, 3].into_iter().collect();
+let group_id = multicast.create_group(
+    "team_alpha".to_string(),
+    channels,
+    ReplicationPriority::High,
+).await;
+```
+
+For detailed GORC documentation, see [GORC_DOCUMENTATION.md](GORC_DOCUMENTATION.md).
+
 ## Roadmap
 
+- [x] **Game Object Replication Channels (GORC)** - Advanced multiplayer state distribution
 - [ ] Clustering and horizontal scaling
 - [ ] More official plugins (combat, inventory, economy)
 - [ ] Performance monitoring dashboard
