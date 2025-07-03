@@ -77,6 +77,14 @@ impl PlayerId {
     }
 }
 
+impl std::str::FromStr for PlayerId {
+    type Err = uuid::Error;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_str(s)
+    }
+}
+
 impl Default for PlayerId {
     fn default() -> Self {
         Self::new()
@@ -109,6 +117,12 @@ impl RegionId {
     /// Creates a new random region ID using UUID v4.
     pub fn new() -> Self {
         Self(Uuid::new_v4())
+    }
+}
+
+impl Default for RegionId {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

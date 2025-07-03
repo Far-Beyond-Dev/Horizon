@@ -7,8 +7,7 @@ use clap::{Arg, Command};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::signal;
-use toml;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 use horizon_event_system::RegionBounds;
@@ -321,7 +320,7 @@ impl Application {
 
         // Validate configuration
         if let Err(e) = config.validate() {
-            return Err(format!("Configuration validation failed: {}", e).into());
+            return Err(format!("Configuration validation failed: {e}").into());
         }
 
         // Setup logging
@@ -487,7 +486,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
         Err(e) => {
-            eprintln!("❌ Failed to start application: {:?}", e);
+            eprintln!("❌ Failed to start application: {e:?}");
             std::process::exit(1);
         }
     }
@@ -531,7 +530,7 @@ impl AppConfig {
         {
             return Err(format!(
                 "Invalid bind address: {}",
-                self.server.bind_address
+                &self.server.bind_address
             ));
         }
 
@@ -555,8 +554,8 @@ impl AppConfig {
         let valid_levels = ["trace", "debug", "info", "warn", "error"];
         if !valid_levels.contains(&self.logging.level.as_str()) {
             return Err(format!(
-                "Invalid log level: {}. Must be one of: {:?}",
-                self.logging.level, valid_levels
+                "Invalid log level: {}. Must be one of: {valid_levels:?}",
+                &self.logging.level
             ));
         }
 

@@ -18,12 +18,15 @@
 //! - **Memory Safety**: Correct allocation/deallocation patterns
 //! - **Error Conversion**: Structured error handling across boundaries
 
-use crate::plugin::{Plugin, PluginError, SimplePlugin};
-use crate::context::ServerContext;
-use crate::events::EventError;
-use std::sync::Arc;
-#[allow(unused_imports)] // This is actually used but only in the create plugin macro
-use futures;
+#[allow(unused_imports)] // These imports are used only in macro expansions
+use {
+    crate::plugin::{Plugin, PluginError, SimplePlugin},
+    crate::context::ServerContext,
+    crate::events::EventError,
+    std::sync::Arc,
+    async_trait::async_trait,
+    futures,
+};
 
 // ============================================================================
 // Plugin Development Macros and Utilities

@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use chrono::prelude::*;
 use horizon_event_system::{
-    create_simple_plugin, current_timestamp, on_event, register_handlers, EventSystem, LogLevel,
+    create_simple_plugin, current_timestamp, register_handlers, EventSystem, LogLevel,
     PlayerId, PluginError, Position, ServerContext, SimplePlugin,
 };
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,12 @@ impl GreeterPlugin {
             name: "greeter".to_string(),
             welcome_count: 0,
         }
+    }
+}
+
+impl Default for GreeterPlugin {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

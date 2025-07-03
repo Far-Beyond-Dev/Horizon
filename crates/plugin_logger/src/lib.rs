@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use horizon_event_system::{
-    create_simple_plugin, current_timestamp, on_event, register_handlers, EventSystem, LogLevel,
+    create_simple_plugin, current_timestamp, EventSystem, LogLevel,
     PlayerId, PluginError, Position, ServerContext, SimplePlugin,
 };
 use serde::{Deserialize, Serialize};
@@ -36,6 +36,12 @@ impl LoggerPlugin {
             events_logged: 0,
             start_time: std::time::SystemTime::now(),
         }
+    }
+}
+
+impl Default for LoggerPlugin {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
