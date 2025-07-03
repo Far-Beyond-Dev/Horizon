@@ -116,6 +116,9 @@ pub mod context;
 pub mod utils;
 pub mod macros;
 
+// GORC (Game Object Replication Channels) module
+pub mod gorc;
+
 // Re-export commonly used items for convenience
 pub use types::*;
 pub use events::{Event, EventHandler, TypedEventHandler, EventError, PlayerConnectedEvent,
@@ -125,6 +128,13 @@ pub use system::{EventSystem, EventSystemStats};
 pub use plugin::{SimplePlugin, Plugin, PluginError};
 pub use context::{ServerContext, LogLevel, ServerError};
 pub use utils::{current_timestamp, create_horizon_event_system};
+
+// Re-export GORC components
+pub use gorc::{
+    ReplicationChannel, ReplicationLayer, ReplicationPriority, CompressionType, GorcManager,
+    SubscriptionManager, SubscriptionType, ProximitySubscription, RelationshipSubscription,
+    InterestSubscription, MulticastManager, MulticastGroup, SpatialPartition, SpatialQuery
+};
 
 // External dependencies that plugins commonly need
 pub use async_trait::async_trait;
