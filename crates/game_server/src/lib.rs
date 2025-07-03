@@ -1,7 +1,10 @@
-//! Refactored game server focused on core infrastructure only
+//! # Minimal Game Server - Clean Core Infrastructure
+//!
+//! A refactored game server focused on core infrastructure only
 //!
 //! This server handles only essential infrastructure: connections, plugin management,
 //! and message routing. All game logic is delegated to plugins.
+
 #[allow(unused_imports, dead_code)]
 use horizon_event_system::{
     create_horizon_event_system, current_timestamp, DisconnectReason, EventSystem, PlayerConnectedEvent,
@@ -17,11 +20,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{broadcast, RwLock};
-use tokio_tungstenite::{accept_async, tungstenite::Message, WebSocketStream};
+use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, info, warn, trace};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::TcpListener as StdTcpListener;
-use num_cpus;
 
 // ============================================================================
 // Minimal Server Configuration
@@ -265,7 +267,7 @@ impl GameServer {
 
         for i in 0..num_acceptors {
             let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
-                .map_err(|e| ServerError::Network(format!("Socket creation failed: {}", e)))?;
+                .map_err(|e| ServerError::Network(format!("Socket creation failed: {e}")))?;
             socket.set_reuse_address(true).ok();
             if self.config.use_reuse_port {
                 #[cfg(any(
@@ -278,7 +280,7 @@ impl GameServer {
                 ))]
                 {
                     socket.set_reuse_port(true).map_err(|e| {
-                        ServerError::Network(format!("Failed to set SO_REUSEPORT: {}", e))
+                        ServerError::Network(format!("Failed to set SO_REUSEPORT: {e}"))
                     })?;
                 }
 
@@ -295,16 +297,16 @@ impl GameServer {
                 }
             }
             socket.bind(&self.config.bind_address.into())
-                .map_err(|e| ServerError::Network(format!("Bind failed: {}", e)))?;
+                .map_err(|e| ServerError::Network(format!("Bind failed: {e}")))?;
 
             socket.listen(65535)
-                .map_err(|e| ServerError::Network(format!("Listen failed: {}", e)))?;
+                .map_err(|e| ServerError::Network(format!("Listen failed: {e}")))?;
 
             let std_listener: StdTcpListener = socket.into();
             std_listener.set_nonblocking(true).ok();
             
             let listener = TcpListener::from_std(std_listener)
-            .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {}", e)))?;
+            .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {e}")))?;
 
         listeners.push(listener);
         info!("✅ Listener {} bound on {}", i, self.config.bind_address);
@@ -430,7 +432,7 @@ async fn handle_connection(
 ) -> Result<(), ServerError> {
     let ws_stream = accept_async(stream)
         .await
-        .map_err(|e| ServerError::Network(format!("WebSocket handshake failed: {}", e)))?;
+        .map_err(|e| ServerError::Network(format!("WebSocket handshake failed: {e}")))?;
 
     let (ws_sender, mut ws_receiver) = ws_stream.split();
     let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
@@ -553,7 +555,7 @@ async fn route_client_message(
 ) -> Result<(), ServerError> {
     // Parse as generic message structure
     let message: ClientMessage = serde_json::from_str(text)
-        .map_err(|e| ServerError::Network(format!("Invalid JSON: {}", e)))?;
+        .map_err(|e| ServerError::Network(format!("Invalid JSON: {e}")))?;
 
     let player_id = connection_manager
         .get_player_id(connection_id)
@@ -568,7 +570,7 @@ async fn route_client_message(
     // Create raw message event for plugins to handle
     let raw_event = RawClientMessageEvent {
         player_id,
-        message_type: format!("{}:{}", message.namespace, message.event),
+        message_type: format!("{}:{}", &message.namespace, &message.event),
         data: message.data.to_string().into_bytes(),
         timestamp: current_timestamp(),
     };

@@ -111,7 +111,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
     {
-        let event_key = format!("core:{}", event_name);
+        let event_key = format!("core:{event_name}");
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
@@ -154,7 +154,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
     {
-        let event_key = format!("client:{}:{}", namespace, event_name);
+        let event_key = format!("client:{namespace}:{event_name}");
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
@@ -200,7 +200,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
     {
-        let event_key = format!("plugin:{}:{}", plugin_name, event_name);
+        let event_key = format!("plugin:{plugin_name}:{event_name}");
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
@@ -268,7 +268,7 @@ impl EventSystem {
     where
         T: Event,
     {
-        let event_key = format!("core:{}", event_name);
+        let event_key = format!("core:{event_name}");
         self.emit_event(&event_key, event).await
     }
 
@@ -304,7 +304,7 @@ impl EventSystem {
     where
         T: Event,
     {
-        let event_key = format!("client:{}:{}", namespace, event_name);
+        let event_key = format!("client:{namespace}:{event_name}");
         self.emit_event(&event_key, event).await
     }
 
@@ -340,7 +340,7 @@ impl EventSystem {
     where
         T: Event,
     {
-        let event_key = format!("plugin:{}:{}", plugin_name, event_name);
+        let event_key = format!("plugin:{plugin_name}:{event_name}");
         self.emit_event(&event_key, event).await
     }
 
@@ -368,6 +368,9 @@ impl EventSystem {
                 event_handlers.len()
             );
 
+            // We will not use par_iter here because we want to ensure that all events are
+            // executed as quickly as possible and cannot tolerate any delays from setting up
+            // parallel execution.
             for handler in event_handlers {
                 if let Err(e) = handler.handle(&data).await {
                     error!("❌ Handler {} failed: {}", handler.handler_name(), e);
@@ -424,4 +427,10 @@ pub struct EventSystemStats {
     pub total_handlers: usize,
     /// Total number of events emitted since system start
     pub events_emitted: u64,
+}
+
+impl Default for EventSystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
