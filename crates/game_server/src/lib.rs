@@ -10,6 +10,8 @@ use horizon_event_system::{
     create_horizon_event_system, current_timestamp, DisconnectReason, EventSystem, PlayerConnectedEvent,
     PlayerDisconnectedEvent, PlayerId, RawClientMessageEvent, RegionBounds, RegionId,
     RegionStartedEvent,
+    // GORC imports
+    GorcManager, SubscriptionManager, MulticastManager, SpatialPartition, Position,
 };
 use futures::{SinkExt, StreamExt};
 use plugin_system::{create_plugin_manager_with_events, PluginManager};
@@ -154,6 +156,11 @@ pub struct GameServer {
     plugin_manager: Arc<PluginManager>,
     shutdown_sender: broadcast::Sender<()>,
     region_id: RegionId,
+    // GORC components
+    gorc_manager: Arc<GorcManager>,
+    subscription_manager: Arc<SubscriptionManager>,
+    multicast_manager: Arc<MulticastManager>,
+    spatial_partition: Arc<SpatialPartition>,
 }
 
 impl GameServer {
@@ -170,6 +177,12 @@ impl GameServer {
             region_id,
         ));
 
+        // Initialize GORC components
+        let gorc_manager = Arc::new(GorcManager::new());
+        let subscription_manager = Arc::new(SubscriptionManager::new());
+        let multicast_manager = Arc::new(MulticastManager::new());
+        let spatial_partition = Arc::new(SpatialPartition::new());
+
         Self {
             config,
             horizon_event_system,
@@ -177,6 +190,10 @@ impl GameServer {
             plugin_manager,
             shutdown_sender,
             region_id,
+            gorc_manager,
+            subscription_manager,
+            multicast_manager,
+            spatial_partition,
         }
     }
 
@@ -417,6 +434,26 @@ impl GameServer {
 
     pub fn get_horizon_event_system(&self) -> Arc<EventSystem> {
         self.horizon_event_system.clone()
+    }
+
+    /// Gets the GORC manager for replication channel management
+    pub fn get_gorc_manager(&self) -> Arc<GorcManager> {
+        self.gorc_manager.clone()
+    }
+
+    /// Gets the subscription manager for dynamic subscription handling
+    pub fn get_subscription_manager(&self) -> Arc<SubscriptionManager> {
+        self.subscription_manager.clone()
+    }
+
+    /// Gets the multicast manager for efficient group communication
+    pub fn get_multicast_manager(&self) -> Arc<MulticastManager> {
+        self.multicast_manager.clone()
+    }
+
+    /// Gets the spatial partition for spatial queries and region management
+    pub fn get_spatial_partition(&self) -> Arc<SpatialPartition> {
+        self.spatial_partition.clone()
     }
 }
 
@@ -816,5 +853,54 @@ mod tests {
             .expect("Failed to register movement handler");
 
         println!("✨ Clean separation achieved with generic routing!");
+    }
+
+    #[tokio::test]
+    async fn test_gorc_integration() {
+        let server = create_server();
+        
+        // Test GORC component accessibility
+        let gorc_manager = server.get_gorc_manager();
+        let subscription_manager = server.get_subscription_manager();
+        let multicast_manager = server.get_multicast_manager();
+        let spatial_partition = server.get_spatial_partition();
+        
+        // Test basic GORC functionality
+        let stats = gorc_manager.get_stats().await;
+        assert_eq!(stats.total_subscriptions, 0);
+        
+        // Test spatial partition
+        spatial_partition.add_region(
+            "test_region".to_string(),
+            RegionBounds {
+                min_x: 0.0, max_x: 1000.0,
+                min_y: 0.0, max_y: 1000.0,
+                min_z: 0.0, max_z: 1000.0,
+            },
+        ).await;
+        
+        // Test subscription management
+        let player_id = PlayerId::new();
+        let position = Position::new(100.0, 100.0, 100.0);
+        subscription_manager.add_player(player_id, position).await;
+        
+        // Test multicast group creation
+        use std::collections::HashSet;
+        let channels: HashSet<u8> = vec![0, 1].into_iter().collect();
+        let group_id = multicast_manager.create_group(
+            "test_group".to_string(),
+            channels,
+            horizon_event_system::ReplicationPriority::Normal,
+        ).await;
+        
+        // Add player to multicast group
+        let added = multicast_manager.add_player_to_group(player_id, group_id).await;
+        assert!(added);
+        
+        println!("✅ GORC integration test passed!");
+        println!("  - GORC Manager: Initialized with default channels");
+        println!("  - Subscription Manager: Player subscription system ready");
+        println!("  - Multicast Manager: Group creation and player management working");
+        println!("  - Spatial Partition: Region management and spatial queries available");
     }
 }

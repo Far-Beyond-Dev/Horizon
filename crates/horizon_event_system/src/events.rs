@@ -235,12 +235,19 @@ where
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::{PlayerConnectedEvent, PlayerId, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
 /// events.emit_core("player_connected", &PlayerConnectedEvent {
 ///     player_id: PlayerId::new(),
 ///     connection_id: "conn_abc123".to_string(),
 ///     remote_addr: "192.168.1.100:45678".to_string(),
 ///     timestamp: current_timestamp(),
 /// }).await?;
+/// #     Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerConnectedEvent {
@@ -266,12 +273,21 @@ pub struct PlayerConnectedEvent {
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::{PlayerDisconnectedEvent, PlayerId, DisconnectReason, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
+/// #     let player_id = PlayerId::new();
+/// #     let connection_id = "conn_123".to_string();
 /// events.emit_core("player_disconnected", &PlayerDisconnectedEvent {
 ///     player_id: player_id,
 ///     connection_id: connection_id,
 ///     reason: DisconnectReason::ClientDisconnect,
 ///     timestamp: current_timestamp(),
 /// }).await?;
+/// #     Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerDisconnectedEvent {
@@ -294,12 +310,19 @@ pub struct PlayerDisconnectedEvent {
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::{PluginLoadedEvent, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
 /// events.emit_core("plugin_loaded", &PluginLoadedEvent {
 ///     plugin_name: "combat_system".to_string(),
 ///     version: "2.1.0".to_string(),
 ///     capabilities: vec!["damage_calculation".to_string(), "status_effects".to_string()],
 ///     timestamp: current_timestamp(),
 /// }).await?;
+/// #     Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginLoadedEvent {
@@ -321,10 +344,17 @@ pub struct PluginLoadedEvent {
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::{PluginUnloadedEvent, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
 /// events.emit_core("plugin_unloaded", &PluginUnloadedEvent {
 ///     plugin_name: "old_combat_system".to_string(),
 ///     timestamp: current_timestamp(),
 /// }).await?;
+/// #     Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginUnloadedEvent {
@@ -343,6 +373,11 @@ pub struct PluginUnloadedEvent {
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::{RegionStartedEvent, RegionId, RegionBounds, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
 /// events.emit_core("region_started", &RegionStartedEvent {
 ///     region_id: RegionId::new(),
 ///     bounds: RegionBounds {
@@ -352,6 +387,8 @@ pub struct PluginUnloadedEvent {
 ///     },
 ///     timestamp: current_timestamp(),
 /// }).await?;
+/// #     Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegionStartedEvent {
@@ -371,10 +408,18 @@ pub struct RegionStartedEvent {
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::{RegionStoppedEvent, RegionId, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
+/// #     let region_id = RegionId::new();
 /// events.emit_core("region_stopped", &RegionStoppedEvent {
 ///     region_id: region_id,
 ///     timestamp: current_timestamp(),
 /// }).await?;
+/// #     Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegionStoppedEvent {
@@ -398,13 +443,21 @@ pub struct RegionStoppedEvent {
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::{RawClientMessageEvent, PlayerId, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
+/// #     let player_id = PlayerId::new();
 /// // Emit a raw client message for plugin processing
 /// events.emit_client("movement", "position_update", &RawClientMessageEvent {
 ///     player_id: player_id,
 ///     message_type: "move".to_string(),
-///     data: serialize_movement_data(&movement)?,
+///     data: serde_json::json!({"x": 100, "y": 200}),
 ///     timestamp: current_timestamp(),
 /// }).await?;
+/// #     Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawClientMessageEvent {
@@ -415,6 +468,50 @@ pub struct RawClientMessageEvent {
     /// Raw binary message data
     pub data: Vec<u8>,
     /// Unix timestamp when the message was received
+    pub timestamp: u64,
+}
+
+/// GORC (Game Object Replication Channels) event for object state replication.
+/// 
+/// This event represents a change in game object state that needs to be
+/// replicated to interested observers through the GORC system. It contains
+/// the object identifier, serialized state data, and metadata about the
+/// replication context.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use horizon_event_system::{GorcEvent, ReplicationPriority, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
+/// #     let asteroid_id = "asteroid_123";
+/// // Emit a GORC event for asteroid position update
+/// events.emit_gorc("Asteroid", 0, "position_update", &GorcEvent {
+///     object_id: asteroid_id.to_string(),
+///     object_type: "Asteroid".to_string(),
+///     channel: 0,
+///     data: serde_json::json!({"x": 100.0, "y": 200.0, "z": 300.0}),
+///     priority: ReplicationPriority::Critical,
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// #     Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GorcEvent {
+    /// Unique identifier for the object being replicated
+    pub object_id: String,
+    /// Type of the object (e.g., "Asteroid", "Player", "Ship")
+    pub object_type: String,
+    /// Replication channel (0=Critical, 1=Detailed, 2=Cosmetic, 3=Metadata)
+    pub channel: u8,
+    /// Serialized object state data for this update
+    pub data: Vec<u8>,
+    /// Priority level for this replication update
+    pub priority: String, // We'll use String to avoid circular dependency
+    /// Unix timestamp when the event was created
     pub timestamp: u64,
 }
 

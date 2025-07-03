@@ -9,6 +9,9 @@ members = [
     # Plugins
     "crates/plugin_greeter",
     "crates/plugin_logger",
+    
+    # Examples
+    "examples/gorc_example_plugin",
 ]
 
 [workspace.dependencies]

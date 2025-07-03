@@ -51,18 +51,35 @@ use std::sync::Arc;
 /// # Examples
 /// 
 /// ```rust
-/// async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-///     // Access event system
-///     let events = context.events();
-///     
-///     // Log plugin initialization
-///     context.log(LogLevel::Info, "Combat plugin initialized");
-///     
-///     // Get current region
-///     let region_id = context.region_id();
-///     
-///     Ok(())
-/// }
+/// use horizon_event_system::{ServerContext, LogLevel, PluginError};
+/// use std::sync::Arc;
+/// 
+/// # async fn example_plugin_init() -> Result<(), PluginError> {
+/// # use horizon_event_system::{create_horizon_event_system, RegionId};
+/// # let context: Arc<dyn ServerContext> = Arc::new(TestServerContext::new());
+/// 
+/// // Access event system
+/// let events = context.events();
+/// 
+/// // Log plugin initialization
+/// context.log(LogLevel::Info, "Combat plugin initialized");
+/// 
+/// // Get current region
+/// let region_id = context.region_id();
+/// 
+/// Ok(())
+/// # }
+/// 
+/// # struct TestServerContext { events: std::sync::Arc<horizon_event_system::EventSystem> }
+/// # impl TestServerContext {
+/// #     fn new() -> Self { Self { events: horizon_event_system::create_horizon_event_system() } }
+/// # }
+/// # #[horizon_event_system::async_trait]
+/// # impl ServerContext for TestServerContext {
+/// #     fn events(&self) -> std::sync::Arc<horizon_event_system::EventSystem> { self.events.clone() }
+/// #     fn log(&self, _level: LogLevel, _msg: &str) {}
+/// #     fn region_id(&self) -> horizon_event_system::RegionId { horizon_event_system::RegionId::new() }
+/// # }
 /// ```
 #[async_trait]
 pub trait ServerContext: Send + Sync {
@@ -143,6 +160,13 @@ pub trait ServerContext: Send + Sync {
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::LogLevel;
+/// 
+/// # struct TestContext;
+/// # impl TestContext {
+/// #     fn log(&self, level: LogLevel, msg: &str) {}
+/// # }
+/// # let context = TestContext;
 /// context.log(LogLevel::Info, "Combat plugin initialized successfully");
 /// context.log(LogLevel::Warn, "Player inventory is nearly full");
 /// context.log(LogLevel::Error, "Failed to load combat configuration");

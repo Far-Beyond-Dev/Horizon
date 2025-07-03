@@ -55,18 +55,28 @@ use tracing::{debug, error, info, warn};
 /// # Examples
 /// 
 /// ```rust
-/// let events = EventSystem::new();
+/// use horizon_event_system::*;
 /// 
-/// // Register handlers
-/// events.on_core("server_started", |event: ServerStartedEvent| {
-///     println!("Server started!");
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let events = create_horizon_event_system();
+/// 
+///     // Register handlers
+///     events.on_core("player_connected", |event: PlayerConnectedEvent| {
+///         println!("Player connected!");
+///         Ok(())
+///     }).await?;
+/// 
+///     // Emit events
+///     events.emit_core("player_connected", &PlayerConnectedEvent {
+///         player_id: PlayerId::new(),
+///         connection_id: "conn_123".to_string(),
+///         remote_addr: "127.0.0.1:8080".to_string(),
+///         timestamp: current_timestamp(),
+///     }).await?;
+///     
 ///     Ok(())
-/// }).await?;
-/// 
-/// // Emit events
-/// events.emit_core("server_started", &ServerStartedEvent {
-///     timestamp: current_timestamp(),
-/// }).await?;
+/// }
 /// ```
 pub struct EventSystem {
     /// Map of event keys to their registered handlers
@@ -101,10 +111,17 @@ impl EventSystem {
     /// # Examples
     /// 
     /// ```rust
+    /// use horizon_event_system::*;
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     let events = create_horizon_event_system();
     /// events.on_core("player_connected", |event: PlayerConnectedEvent| {
     ///     println!("Player {} connected from {}", event.player_id, event.remote_addr);
     ///     Ok(())
     /// }).await?;
+    /// #     Ok(())
+    /// # }
     /// ```
     pub async fn on_core<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
     where
@@ -134,6 +151,11 @@ impl EventSystem {
     /// # Examples
     /// 
     /// ```rust
+    /// use horizon_event_system::*;
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     let events = create_horizon_event_system();
     /// events.on_client("movement", "player_moved", |event: RawClientMessageEvent| {
     ///     // Parse and validate movement data
     ///     Ok(())
@@ -143,6 +165,8 @@ impl EventSystem {
     ///     // Process chat message
     ///     Ok(())
     /// }).await?;
+    /// #     Ok(())
+    /// # }
     /// ```
     pub async fn on_client<T, F>(
         &self,
@@ -178,6 +202,20 @@ impl EventSystem {
     /// # Examples
     /// 
     /// ```rust
+    /// use horizon_event_system::*;
+    /// use serde::{Serialize, Deserialize};
+    /// 
+    /// #[derive(Serialize, Deserialize, Clone, Debug)]
+    /// struct ItemEquippedEvent { item_id: String }
+    /// impl Event for ItemEquippedEvent {}
+    /// 
+    /// #[derive(Serialize, Deserialize, Clone, Debug)]
+    /// struct EnemyDefeatedEvent { enemy_id: String }
+    /// impl Event for EnemyDefeatedEvent {}
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     let events = create_horizon_event_system();
     /// // Combat plugin listening for inventory events
     /// events.on_plugin("inventory", "item_equipped", |event: ItemEquippedEvent| {
     ///     // Update combat stats when items are equipped
@@ -189,6 +227,8 @@ impl EventSystem {
     ///     // Progress quest objectives
     ///     Ok(())
     /// }).await?;
+    /// #     Ok(())
+    /// # }
     /// ```
     pub async fn on_plugin<T, F>(
         &self,
@@ -257,12 +297,22 @@ impl EventSystem {
     /// # Examples
     /// 
     /// ```rust
+    /// use horizon_event_system::*;
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     let events = create_horizon_event_system();
+    /// #     let player_id = PlayerId::new();
+    /// #     let conn_id = "conn_123".to_string();
+    /// #     let addr = "127.0.0.1:8080".to_string();
     /// events.emit_core("player_connected", &PlayerConnectedEvent {
     ///     player_id: player_id,
     ///     connection_id: conn_id,
     ///     remote_addr: addr,
     ///     timestamp: current_timestamp(),
     /// }).await?;
+    /// #     Ok(())
+    /// # }
     /// ```
     pub async fn emit_core<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
     where
@@ -288,12 +338,21 @@ impl EventSystem {
     /// # Examples
     /// 
     /// ```rust
+    /// use horizon_event_system::*;
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     let events = create_horizon_event_system();
+    /// #     let player_id = PlayerId::new();
+    /// #     let movement_data = serde_json::json!({"x": 100, "y": 200});
     /// events.emit_client("movement", "player_moved", &RawClientMessageEvent {
     ///     player_id: player_id,
     ///     message_type: "move".to_string(),
     ///     data: movement_data,
     ///     timestamp: current_timestamp(),
     /// }).await?;
+    /// #     Ok(())
+    /// # }
     /// ```
     pub async fn emit_client<T>(
         &self,
@@ -324,12 +383,27 @@ impl EventSystem {
     /// # Examples
     /// 
     /// ```rust
+    /// use horizon_event_system::*;
+    /// use serde::{Serialize, Deserialize};
+    /// 
+    /// #[derive(Serialize, Deserialize, Clone, Debug)]
+    /// struct DamageDealtEvent { attacker: String, target: String, damage: u32, timestamp: u64 }
+    /// impl Event for DamageDealtEvent {}
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     let events = create_horizon_event_system();
+    /// #     let attacker_id = "player1".to_string();
+    /// #     let target_id = "enemy1".to_string();
+    /// #     let damage_amount = 50;
     /// events.emit_plugin("combat", "damage_dealt", &DamageDealtEvent {
     ///     attacker: attacker_id,
     ///     target: target_id,
     ///     damage: damage_amount,
     ///     timestamp: current_timestamp(),
     /// }).await?;
+    /// #     Ok(())
+    /// # }
     /// ```
     pub async fn emit_plugin<T>(
         &self,
@@ -396,12 +470,144 @@ impl EventSystem {
     /// # Examples
     /// 
     /// ```rust
+    /// use horizon_event_system::*;
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     let events = create_horizon_event_system();
     /// let stats = events.get_stats().await;
     /// println!("Handlers: {}, Events: {}", stats.total_handlers, stats.events_emitted);
+    /// #     Ok(())
+    /// # }
     /// ```
     pub async fn get_stats(&self) -> EventSystemStats {
         let stats = self.stats.read().await;
         stats.clone()
+    }
+
+    // ============================================================================
+    // GORC (Game Object Replication Channels) Integration
+    // ============================================================================
+
+    /// Registers a handler for GORC (Game Object Replication Channels) events.
+    /// 
+    /// GORC events are specialized events for game object replication with
+    /// support for channels and layers. This provides a clean API for listening
+    /// to object state changes at different priority levels.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `object_type` - Type of the game object (e.g., "Asteroid", "Player")
+    /// * `channel` - Replication channel (0=Critical, 1=Detailed, 2=Cosmetic, 3=Metadata)
+    /// * `event_name` - Specific event name (e.g., "position_update", "health_change")
+    /// * `handler` - Function to handle GORC events
+    /// 
+    /// # Returns
+    /// 
+    /// Returns `Ok(())` if registration succeeds, or `Err(EventError)` if it fails.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// use horizon_event_system::*;
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     let events = create_horizon_event_system();
+    /// // Listen for critical position updates on asteroids
+    /// events.on_gorc("Asteroid", 0, "position_update", |event: GorcEvent| {
+    ///     // Handle asteroid position updates in critical channel
+    ///     Ok(())
+    /// }).await?;
+    /// 
+    /// // Listen for metadata updates on players
+    /// events.on_gorc("Player", 3, "name_change", |event: GorcEvent| {
+    ///     // Handle player name changes in metadata channel
+    ///     Ok(())
+    /// }).await?;
+    /// #     Ok(())
+    /// # }
+    /// ```
+    pub async fn on_gorc<T, F>(
+        &self,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
+    {
+        let event_key = format!("gork:{}:{}:{}", object_type, channel, event_name);
+        self.register_typed_handler(event_key, event_name, handler)
+            .await
+    }
+
+    /// Emits a GORC (Game Object Replication Channels) event.
+    /// 
+    /// This method emits events specifically for game object replication,
+    /// allowing precise targeting of handlers based on object type, channel,
+    /// and event name.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `object_type` - Type of the game object emitting the event
+    /// * `channel` - Replication channel for the event
+    /// * `event_name` - Name of the specific event
+    /// * `event` - The event data to emit
+    /// 
+    /// # Returns
+    /// 
+    /// Returns `Ok(())` if emission succeeds, or `Err(EventError)` if serialization fails.
+    /// Individual handler failures are logged but don't cause the emission to fail.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// use horizon_event_system::*;
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    /// #     let events = create_horizon_event_system();
+    /// #     let asteroid_id = "asteroid_123".to_string();
+    /// #     let player_id = "player_456".to_string();
+    /// #     let position_data = serde_json::json!({"x": 100, "y": 200, "z": 300});
+    /// #     let achievement_data = serde_json::json!({"type": "first_kill", "points": 100});
+    /// // Emit a critical position update for an asteroid
+    /// events.emit_gorc("Asteroid", 0, "position_update", &GorcEvent {
+    ///     object_id: asteroid_id,
+    ///     object_type: "Asteroid".to_string(),
+    ///     channel: 0,
+    ///     data: position_data,
+    ///     priority: ReplicationPriority::Critical,
+    ///     timestamp: current_timestamp(),
+    /// }).await?;
+    /// 
+    /// // Emit a metadata update for a player
+    /// events.emit_gorc("Player", 3, "achievement_earned", &GorcEvent {
+    ///     object_id: player_id,
+    ///     object_type: "Player".to_string(),
+    ///     channel: 3,
+    ///     data: achievement_data,
+    ///     priority: ReplicationPriority::Low,
+    ///     timestamp: current_timestamp(),
+    /// }).await?;
+    /// #     Ok(())
+    /// # }
+    /// ```
+    pub async fn emit_gorc<T>(
+        &self,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event,
+    {
+        let event_key = format!("gork:{}:{}:{}", object_type, channel, event_name);
+        self.emit_event(&event_key, event).await
     }
 }
 
@@ -417,9 +623,16 @@ impl EventSystem {
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::*;
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = create_horizon_event_system();
 /// let stats = events.get_stats().await;
 /// println!("Event system has {} handlers and has processed {} events", 
 ///          stats.total_handlers, stats.events_emitted);
+/// #     Ok(())
+/// # }
 /// ```
 #[derive(Debug, Default, Clone)]
 pub struct EventSystemStats {

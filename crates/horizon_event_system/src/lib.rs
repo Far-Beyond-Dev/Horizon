@@ -33,14 +33,14 @@
 //! ## Quick Start Example
 //!
 //! ```rust
-//! use horizon_events::*;
+//! use horizon_event_system::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let events = create_horizon_event_system();
 //!     
 //!     // Register a core event handler
-//!     events.on_core("server_started", |event: PlayerConnectedEvent| {
+//!     events.on_core("player_connected", |event: PlayerConnectedEvent| {
 //!         println!("Player {} connected", event.player_id);
 //!         Ok(())
 //!     }).await?;
@@ -68,7 +68,7 @@
 //! Create plugins using the `SimplePlugin` trait and `create_simple_plugin!` macro:
 //!
 //! ```rust
-//! use horizon_events::*;
+//! use horizon_event_system::*;
 //!
 //! struct MyGamePlugin {
 //!     // Plugin state
@@ -108,23 +108,35 @@
 //! ```
 
 // Core modules
-pub mod types;
-pub mod events;
-pub mod system;
-pub mod plugin;
 pub mod context;
-pub mod utils;
+pub mod events;
 pub mod macros;
+pub mod plugin;
+pub mod system;
+pub mod types;
+pub mod utils;
+
+// GORC (Game Object Replication Channels) module
+pub mod gorc;
 
 // Re-export commonly used items for convenience
-pub use types::*;
-pub use events::{Event, EventHandler, TypedEventHandler, EventError, PlayerConnectedEvent,
-                 PlayerDisconnectedEvent, RawClientMessageEvent, RegionStartedEvent,
-                 RegionStoppedEvent};
+pub use context::{LogLevel, ServerContext, ServerError};
+pub use events::{
+    Event, EventError, EventHandler, GorcEvent, PlayerConnectedEvent, PlayerDisconnectedEvent,
+    RawClientMessageEvent, RegionStartedEvent, RegionStoppedEvent, TypedEventHandler,
+};
+pub use plugin::{Plugin, PluginError, SimplePlugin};
 pub use system::{EventSystem, EventSystemStats};
-pub use plugin::{SimplePlugin, Plugin, PluginError};
-pub use context::{ServerContext, LogLevel, ServerError};
-pub use utils::{current_timestamp, create_horizon_event_system};
+pub use types::*;
+pub use utils::{create_horizon_event_system, current_timestamp};
+
+// Re-export GORC components
+pub use gorc::{
+    CompressionType, GorcManager, GorcObjectRegistry, InterestSubscription, MineralType,
+    MulticastGroup, MulticastManager, ProximitySubscription, RelationshipSubscription, Replication,
+    ReplicationChannel, ReplicationLayer, ReplicationLayers, ReplicationPriority, SpatialPartition,
+    SpatialQuery, SubscriptionManager, SubscriptionType,
+};
 
 // External dependencies that plugins commonly need
 pub use async_trait::async_trait;
