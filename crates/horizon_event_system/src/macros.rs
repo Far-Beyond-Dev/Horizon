@@ -51,6 +51,8 @@ use {
 /// Simply call this macro with your plugin type after implementing `SimplePlugin`:
 /// 
 /// ```rust
+/// use horizon_event_system::*;
+/// 
 /// struct MyPlugin {
 ///     // Plugin fields
 /// }
@@ -63,7 +65,12 @@ use {
 /// 
 /// #[async_trait]
 /// impl SimplePlugin for MyPlugin {
-///     // Implementation
+///     fn name(&self) -> &str { "my_plugin" }
+///     fn version(&self) -> &str { "1.0.0" }
+///     
+///     async fn register_handlers(&mut self, _events: Arc<EventSystem>) -> Result<(), PluginError> {
+///         Ok(())
+///     }
 /// }
 /// 
 /// create_simple_plugin!(MyPlugin);
@@ -385,8 +392,10 @@ macro_rules! on_event {
 /// # Usage
 /// 
 /// ```rust
-/// use horizon_events::{defObject, Replication, ReplicationLayers, ReplicationLayer, Vec3, ReplicationPriority, CompressionType};
+/// use horizon_event_system::{defObject, Replication, ReplicationLayers, ReplicationLayer, Vec3, ReplicationPriority, CompressionType, MineralType};
+/// use serde::{Serialize, Deserialize};
 /// 
+/// #[derive(Clone, Debug, Serialize, Deserialize)]
 /// struct Asteroid {
 ///     pub radius: i32,
 ///     pub position: Vec3,
@@ -404,12 +413,12 @@ macro_rules! on_event {
 ///                 frequency: 30.0,
 ///                 properties: vec!["position".to_string(), "velocity".to_string(), "health".to_string()],
 ///                 compression: CompressionType::Delta,
-///                 priority: ReplicationPriority::Critical,
 ///             })
-///             // ... more layers
 ///     }
 ///     
-///     // ... other trait methods
+///     fn get_priority(&self, _observer_pos: Vec3) -> ReplicationPriority {
+///         ReplicationPriority::Medium
+///     }
 /// }
 /// 
 /// defObject!(Asteroid);
