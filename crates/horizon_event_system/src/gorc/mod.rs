@@ -6,9 +6,9 @@
 //!
 //! ## Channel Architecture
 //!
-//! GORC organizes replication into four distinct channels:
+//! GORC organizes replication into any number of distinct channels which can be registered at class initialization, Example:
 //! - **Channel 0 (Critical)**: Essential game state (position, health, collision) at 30-60Hz
-//! - **Channel 1 (Detailed)**: Important non-critical info (animations, weapons) at 15-30Hz  
+//! - **Channel 1 (Detailed)**: Important non-critical info (animations, weapons) at 15-30Hz
 //! - **Channel 2 (Cosmetic)**: Visual enhancements (particles, effects) at 5-15Hz
 //! - **Channel 3 (Metadata)**: Informational data (names, achievements) at 1-5Hz
 //!
