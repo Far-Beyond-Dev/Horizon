@@ -48,3 +48,4 @@ dhat-heap.json
 *.iws
 .vs/
 *.dll
+/crates/stars_beyond

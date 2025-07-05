@@ -6,10 +6,8 @@
 
 use horizon_event_system::{
     create_simple_plugin, async_trait, defObject,
-    SimplePlugin, PluginError, EventSystem, ServerContext,
-    // GORC imports
-    ReplicationLayer, ReplicationLayers, ReplicationPriority, CompressionType, 
-    Vec3, PlayerId, Replication, GorcObjectRegistry, GorcEvent, MineralType,
+    SimplePlugin, PluginError, EventSystem, ReplicationLayer, ReplicationLayers, ReplicationPriority, CompressionType, 
+    Vec3, PlayerId, Replication, GorcObjectRegistry, GorcEvent, MineralType, ServerContext,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

@@ -28,6 +28,7 @@
 use crate::system::EventSystem;
 use crate::types::{PlayerId, RegionId};
 use async_trait::async_trait;
+use std::fmt::Debug;
 use std::sync::Arc;
 
 // ============================================================================
@@ -82,7 +83,7 @@ use std::sync::Arc;
 /// # }
 /// ```
 #[async_trait]
-pub trait ServerContext: Send + Sync {
+pub trait ServerContext: Send + Sync + Debug {
     /// Returns a reference to the event system.
     /// 
     /// This provides access to the same event system used by the core server,

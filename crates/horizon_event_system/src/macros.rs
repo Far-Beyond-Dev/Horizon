@@ -21,12 +21,12 @@
 #[allow(unused_imports)] // These imports are used only in macro expansions
 use {
     crate::plugin::{Plugin, PluginError, SimplePlugin},
-    crate::context::ServerContext,
     crate::events::EventError,
     std::sync::Arc,
     async_trait::async_trait,
     futures,
 };
+
 
 // ============================================================================
 // Plugin Development Macros and Utilities
@@ -85,6 +85,7 @@ use {
 macro_rules! create_simple_plugin {
     ($plugin_type:ty) => {
         use $crate::Plugin;
+
         use std::panic::{catch_unwind, AssertUnwindSafe};
 
         /// Wrapper to bridge SimplePlugin and Plugin traits with panic protection.

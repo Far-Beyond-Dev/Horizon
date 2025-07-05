@@ -619,6 +619,7 @@ impl PluginManager {
 // ============================================================================
 
 /// Server context with the new clean event system
+#[derive(Debug)]
 pub struct ServerContextImpl {
     horizon_event_system: Arc<EventSystem>,
     region_id: RegionId,

@@ -23,11 +23,12 @@
 //! - Failure isolation: one handler failure doesn't affect others
 //! - Built-in statistics for monitoring and debugging
 
-use crate::events::{Event, EventHandler, TypedEventHandler, EventError};
+use crate::{events::{Event, EventError, EventHandler, TypedEventHandler}, CompleteGorcSystem, GorcManager};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+use serde::{Deserialize, Serialize};
 
 // ============================================================================
 // Refined Event System with Cleaner API
@@ -78,11 +79,14 @@ use tracing::{debug, error, info, warn};
 ///     Ok(())
 /// }
 /// ```
+#[derive(Debug)]
 pub struct EventSystem {
     /// Map of event keys to their registered handlers
     handlers: RwLock<HashMap<String, Vec<Arc<dyn EventHandler>>>>,
     /// System statistics for monitoring
     stats: RwLock<EventSystemStats>,
+    /// GORC integration for object replication events
+    gorc: Option<RwLock<CompleteGorcSystem>>,
 }
 
 impl EventSystem {
@@ -91,6 +95,16 @@ impl EventSystem {
         Self {
             handlers: RwLock::new(HashMap::new()),
             stats: RwLock::new(EventSystemStats::default()),
+            gorc: None,
+        }
+    }
+
+    /// With GORC integration, allowing the event system to handle
+    pub fn with_gorc(gorc: CompleteGorcSystem) -> Self {
+        Self {
+            handlers: RwLock::new(HashMap::new()),
+            stats: RwLock::new(EventSystemStats::default()),
+            gorc: Some(RwLock::new(gorc)),
         }
     }
 
@@ -634,7 +648,7 @@ impl EventSystem {
 /// #     Ok(())
 /// # }
 /// ```
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct EventSystemStats {
     /// Total number of registered event handlers
     pub total_handlers: usize,

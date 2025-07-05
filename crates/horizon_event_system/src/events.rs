@@ -24,8 +24,8 @@
 
 use crate::types::{PlayerId, RegionId, RegionBounds, DisconnectReason};
 use async_trait::async_trait;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use std::any::{Any, TypeId};
+use serde::{de::{self, DeserializeOwned}, Deserialize, Serialize};
+use std::{any::{Any, TypeId}, fmt::Debug};
 
 // ============================================================================
 // Event Traits and Core Infrastructure
@@ -124,7 +124,7 @@ where
 /// Most users will not implement this trait directly, but instead use the
 /// `TypedEventHandler` wrapper or the registration macros.
 #[async_trait]
-pub trait EventHandler: Send + Sync {
+pub trait EventHandler: Send + Sync + Debug {
     /// Handles an event from serialized data.
     /// 
     /// # Arguments
@@ -177,6 +177,18 @@ where
     handler: F,
     name: String,
     _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T, F> std::fmt::Debug for TypedEventHandler<T, F>
+where
+    T: Event,
+    F: Fn(T) -> Result<(), EventError> + Send + Sync,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TypedEventHandler")
+            .field("name", &self.name)
+            .finish()
+    }
 }
 
 impl<T, F> TypedEventHandler<T, F>
