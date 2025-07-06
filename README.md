@@ -389,9 +389,8 @@ For detailed GORC documentation, see [GORC_DOCUMENTATION.md](GORC_DOCUMENTATION.
 
 - [x] **Game Object Replication Channels (GORC)** - Advanced multiplayer state distribution
 - [ ] Clustering and horizontal scaling
-- [ ] More official plugins (combat, inventory, economy)
-- [ ] Performance monitoring dashboard
-- [ ] WebAssembly plugin support
+- [x] More official plugins
+- [x] Performance monitoring dashboard
 
 ## Contributing
 

@@ -503,6 +503,11 @@ impl EventSystem {
     // GORC (Game Object Replication Channels) Integration
     // ============================================================================
 
+    // TODO: @tristanpoland @haywoodspartan We need to implement the GORC listeners
+    // such that they can properly handle an instance of an object by reference.
+    // Events should be able to be emitted for a specific object instance, and the
+    // handlers should be able to handle that instance directly.
+
     /// Registers a handler for GORC (Game Object Replication Channels) events.
     /// 
     /// GORC events are specialized events for game object replication with
@@ -553,10 +558,12 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
     {
-        let event_key = format!("gork:{}:{}:{}", object_type, channel, event_name);
+        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
+
+    // TODO: @tristanpoland @haywoodspartan We need to implement the GORC listeners such that they can properly handle an instance of an object by reference. Events should be able to be emitted for a specific object instance, and the handlers should be able to handle that instance directly.
 
     /// Emits a GORC (Game Object Replication Channels) event.
     /// 
@@ -620,7 +627,7 @@ impl EventSystem {
     where
         T: Event,
     {
-        let event_key = format!("gork:{}:{}:{}", object_type, channel, event_name);
+        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
         self.emit_event(&event_key, event).await
     }
 }
