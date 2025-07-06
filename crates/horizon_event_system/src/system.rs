@@ -504,7 +504,7 @@ impl EventSystem {
     // ============================================================================
 
 
-    // TODO: @tristanpoland @haywoodspartan We need to implement the GORC listeners such that they can properly handle an instance of an object by reference.
+    // TODO: @tristanpoland @haywoodspartan We need to implement the GORC listeners such that they can properly handle an instance of an object by reference. Events should be able to be emitted for a specific object instance, and the handlers should be able to handle that instance directly.
 
     /// Registers a handler for GORC (Game Object Replication Channels) events.
     /// 
@@ -560,6 +560,8 @@ impl EventSystem {
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
+
+    // TODO: @tristanpoland @haywoodspartan We need to implement the GORC listeners such that they can properly handle an instance of an object by reference. Events should be able to be emitted for a specific object instance, and the handlers should be able to handle that instance directly.
 
     /// Emits a GORC (Game Object Replication Channels) event.
     /// 
