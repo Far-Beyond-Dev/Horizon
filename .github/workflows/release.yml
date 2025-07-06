@@ -231,10 +231,6 @@ jobs:
           - target: armv7-unknown-linux-musleabihf
             asset_suffix: -linux-armv7-static
             openssl_arch: armhf
-          - target: wasm32-unknown-unknown
-            asset_suffix: .wasm
-            extension: .wasm
-            no_openssl: true
 
     steps:
       - uses: actions/checkout@v3
