@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/app/target/ \
     else \
       cargo build --release --package horizon; \
     fi && \
-    cp ./target/release/horizon /bin/server
+    cp ./target/release/horizon /app/server
 
 ################################################################################
 # Create a new stage for running the application.
@@ -42,20 +42,31 @@ RUN apk add --no-cache ca-certificates
 
 # Create a non-privileged user that the app will run under.
 ARG UID=10001
-RUN adduser \
---disabled-password \
---gecos "" \
---home "/nonexistent" \
---shell "/sbin/nologin" \
---no-create-home \
---uid "${UID}" \
-appuser
+RUN addgroup -g ${UID} appgroup && \
+    adduser \
+    --disabled-password \
+    --gecos "" \
+    --home "/nonexistent" \
+    --shell "/sbin/nologin" \
+    --no-create-home \
+    --uid "${UID}" \
+    -G appgroup \
+    appuser
+
+
+# Create app directory and set permissions
+RUN mkdir -p /app && chown appuser:appgroup /app
 
 # Copy plugins directory if it exists
-RUN if [ -d /app/plugins ]; then cp -r /app/plugins /bin/plugins; fi
+COPY plugins/ /app/plugins/
+RUN chown -R appuser:appgroup /app/plugins || true
+
+# Copy config.toml if it exists, otherwise create an empty one
+COPY config.toml /app/config.toml
+RUN chown appuser:appgroup /app/config.toml && chmod 600 /app/config.toml || touch /app/config.toml && chown appuser:appgroup /app/config.toml && chmod 600 /app/config.toml
 
 # Copy the executable from the "build" stage.
-COPY --from=build /bin/server /bin/
+COPY --from=build /app/server /app/server
 
 # Switch to non-privileged user
 USER appuser
@@ -63,4 +74,5 @@ USER appuser
 # Expose the port that the application listens on.
 EXPOSE 8080
 
-ENTRYPOINT [ "/bin/server" ]
+WORKDIR /app
+ENTRYPOINT [ "/app/server" ]

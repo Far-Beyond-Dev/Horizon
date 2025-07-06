@@ -299,7 +299,10 @@ impl Application {
     /// Create new application with the refactored system
     pub async fn new(args: CliArgs) -> Result<Self, Box<dyn std::error::Error>> {
         // Load configuration first (before logging setup)
+        info!("🔧 Loading configuration from: {}", args.config_path.display());
         let mut config = AppConfig::load_from_file(&args.config_path).await?;
+        
+        info!("✅ Configuration loaded successfully from {}", args.config_path.display());
 
         // Apply CLI overrides
         if let Some(plugin_dir) = args.plugin_dir {
@@ -321,10 +324,9 @@ impl Application {
         // Validate configuration
         if let Err(e) = config.validate() {
             return Err(format!("Configuration validation failed: {e}").into());
+        } else {
+            info!("✅ Configuration loaded and validated successfully");
         }
-
-        // Setup logging
-        setup_logging(&config.logging, args.json_logs)?;
 
         // Display banner after logging is setup
         display_banner();
@@ -476,6 +478,15 @@ impl Application {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse CLI arguments
     let args = CliArgs::parse();
+
+    // Load configuration first to get logging settings
+    let config = AppConfig::load_from_file(&args.config_path).await.unwrap_or_default();
+
+    // Setup logging before anything else
+    if let Err(e) = setup_logging(&config.logging, args.json_logs) {
+        eprintln!("❌ Failed to setup logging: {e}");
+        std::process::exit(1);
+    }
 
     // Create and run application
     match Application::new(args).await {
