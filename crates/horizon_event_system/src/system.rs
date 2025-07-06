@@ -503,8 +503,10 @@ impl EventSystem {
     // GORC (Game Object Replication Channels) Integration
     // ============================================================================
 
-
-    // TODO: @tristanpoland @haywoodspartan We need to implement the GORC listeners such that they can properly handle an instance of an object by reference. Events should be able to be emitted for a specific object instance, and the handlers should be able to handle that instance directly.
+    // TODO: @tristanpoland @haywoodspartan We need to implement the GORC listeners
+    // such that they can properly handle an instance of an object by reference.
+    // Events should be able to be emitted for a specific object instance, and the
+    // handlers should be able to handle that instance directly.
 
     /// Registers a handler for GORC (Game Object Replication Channels) events.
     /// 
