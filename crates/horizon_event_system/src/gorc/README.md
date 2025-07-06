@@ -1,1151 +1,812 @@
-# GORC (Game Object Replication Channels) Documentation
+# GORC (Game Object Replication Channels)
 
-## Table of Contents
+GORC is an advanced replication system for multiplayer games that provides intelligent, zone-based object state distribution. Rather than broadcasting all object updates to all players, GORC creates dynamic subscription zones around each object instance, ensuring players receive exactly the information they need with optimal network efficiency.
 
-1. [Overview](#overview)
-2. [Channel Architecture](#channel-architecture)
-   - [Static Channel Implementation](#static-channel-implementation)
-3. [Core Components and Data Structures](#core-components-and-data-structures)
-   - [ReplicationLayer](#replicationlayer)
-   - [ReplicationChannel Management](#replicationchannel-management)
-   - [Compression and Priority Systems](#compression-and-priority-systems)
-4. [Object Registration and Replication Implementation](#object-registration-and-replication-implementation)
-   - [Implementing the Replication Trait](#implementing-the-replication-trait)
-   - [Object Registry and Management](#object-registry-and-management)
-5. [Subscription Management System](#subscription-management-system)
-   - [Proximity-Based Subscriptions](#proximity-based-subscriptions)
-   - [Relationship-Based Subscriptions](#relationship-based-subscriptions)
-   - [Interest-Based Subscriptions](#interest-based-subscriptions)
-   - [Integrated Subscription Coordination](#integrated-subscription-coordination)
-6. [Multicast Distribution and LOD Management](#multicast-distribution-and-lod-management)
-   - [Multicast Group Architecture](#multicast-group-architecture)
-   - [Level of Detail (LOD) Room System](#level-of-detail-lod-room-system)
-7. [Spatial Partitioning and Query Systems](#spatial-partitioning-and-query-systems)
-   - [QuadTree Spatial Indexing](#quadtree-spatial-indexing)
-   - [Advanced Spatial Queries](#advanced-spatial-queries)
-   - [Multi-Region Spatial Management](#multi-region-spatial-management)
-8. [Event System Integration](#event-system-integration)
-   - [GORC Event Processing](#gorc-event-processing)
-   - [Event Emission and Distribution](#event-emission-and-distribution)
-   - [Plugin Integration Patterns](#plugin-integration-patterns)
-9. [Performance Monitoring and Statistics](#performance-monitoring-and-statistics)
-   - [Channel-Level Statistics](#channel-level-statistics)
-   - [Global GORC System Statistics](#global-gorc-system-statistics)
-   - [Subscription System Performance](#subscription-system-performance)
-   - [Spatial Partitioning Performance](#spatial-partitioning-performance)
-10. [Configuration and Optimization Strategies](#configuration-and-optimization-strategies)
-    - [Channel Configuration Strategies](#channel-configuration-strategies)
-    - [Subscription Optimization Patterns](#subscription-optimization-patterns)
-    - [Spatial Partitioning Tuning](#spatial-partitioning-tuning)
-11. [Implementation Notes and Current Limitations](#implementation-notes-and-current-limitations)
-    - [Static Channel System](#static-channel-system)
-    - [Compression System Implementation Status](#compression-system-implementation-status)
-    - [Event System Integration Patterns](#event-system-integration-patterns)
-12. [Best Practices and Recommendations](#best-practices-and-recommendations)
-    - [Channel Assignment Strategy](#channel-assignment-strategy)
-    - [Subscription Pattern Optimization](#subscription-pattern-optimization)
-    - [Performance Monitoring Integration](#performance-monitoring-integration)
+## The Problem GORC Solves
 
-## Overview
+Traditional multiplayer game servers face a fundamental challenge: how to keep thousands of players synchronized with a complex, ever-changing game world without overwhelming the network or degrading performance. Most solutions fall into two problematic extremes.
 
-GORC is an advanced replication system designed for managing complex multiplayer game state distribution in high-performance game servers. The system provides fine-grained control over what information reaches which players and at what frequency through a sophisticated multi-channel architecture. Unlike traditional replication systems that treat all data equally, GORC recognizes that different types of game information have varying importance levels and update requirements, allowing developers to optimize network usage while maintaining responsive gameplay.
+The naive approach broadcasts everything to everyone. When a player moves, every other player on the server receives an update, regardless of whether they're nearby or even care about that player. This quickly becomes untenable as player counts grow—a server with 1000 players would generate nearly a million position updates per second just for basic movement.
 
-The core philosophy behind GORC is that not all game data needs to be transmitted at the same frequency or with the same priority. Critical gameplay information like player positions and health should be transmitted frequently and with high priority, while cosmetic effects and metadata can be transmitted less frequently without impacting gameplay quality. This approach dramatically reduces network bandwidth requirements while ensuring that players receive the most important information as quickly as possible.
+The overly restrictive approach limits information flow so aggressively that players miss important events. A distant explosion might not reach players who could see its effects, or a player might not receive updates about an enemy until they're close enough to collide.
 
-## Channel Architecture
-
-GORC organizes replication into four distinct channels, each designed for different types of game data with specific characteristics and requirements. This static channel system provides a well-defined framework that game developers can rely on for consistent performance characteristics.
+GORC solves this by implementing intelligent, contextual replication. Each game object creates multiple concentric zones, each carrying different types of information at different frequencies. Critical gameplay data travels through small, high-frequency zones, while atmospheric information spreads through larger, lower-frequency zones. Players automatically subscribe and unsubscribe from these zones as they move through the world.
 
 ```mermaid
 graph TD
-    A[GORC Event System] --> B[Channel 0: Critical]
-    A --> C[Channel 1: Detailed]
-    A --> D[Channel 2: Cosmetic]
-    A --> E[Channel 3: Metadata]
+    A[Game Object] --> B[Zone 0: Critical<br/>50m radius, 30Hz]
+    A --> C[Zone 1: Detailed<br/>150m radius, 15Hz]  
+    A --> D[Zone 2: Cosmetic<br/>300m radius, 10Hz]
+    A --> E[Zone 3: Metadata<br/>1000m radius, 2Hz]
     
-    B --> B1[Position Updates<br/>Health Changes<br/>Collision Events]
-    C --> C1[Animations<br/>Weapon States<br/>Interactions]
-    D --> D1[Particle Effects<br/>Visual Enhancements<br/>Sound Effects]
-    E --> E1[Player Names<br/>Achievements<br/>Statistics]
+    F[Player 25m away] --> B
+    F --> C
+    F --> D
+    F --> E
     
-    B1 --> F[30-60Hz Updates]
-    C1 --> G[15-30Hz Updates]
-    D1 --> H[5-15Hz Updates]
-    E1 --> I[1-5Hz Updates]
+    G[Player 100m away] --> C
+    G --> D
+    G --> E
+    
+    H[Player 500m away] --> E
 ```
 
-**Channel 0 (Critical)** handles the most essential game state information that directly impacts gameplay mechanics. This includes player positions, health values, collision events, and other data that must be delivered immediately to maintain fair and responsive gameplay. The channel operates at 30-60Hz to ensure minimal latency for critical updates. Any delays or packet loss in this channel directly affect the player experience, so it receives the highest network priority and uses the most aggressive retry mechanisms.
+## Core Concepts
 
-**Channel 1 (Detailed)** manages important non-critical information that enhances the gameplay experience but doesn't require instant delivery. This includes character animations, weapon state changes, and player interactions. Operating at 15-30Hz, this channel provides smooth visual feedback while being more tolerant of occasional delays. The channel uses moderate compression to balance update frequency with bandwidth efficiency.
+### Object Instances and Zones
 
-**Channel 2 (Cosmetic)** focuses on visual enhancements that improve immersion but don't affect gameplay mechanics. Particle effects, environmental animations, and decorative elements are transmitted through this channel at 5-15Hz. Since these updates are primarily aesthetic, the system can safely drop packets or delay updates when network conditions are poor without impacting core gameplay.
-
-**Channel 3 (Metadata)** handles informational data that changes infrequently but provides context and social features. Player names, achievement notifications, leaderboard updates, and other persistent information flow through this channel at 1-5Hz. The low frequency allows for higher compression ratios and more complex data structures without affecting real-time performance.
-
-### Static Channel Implementation
-
-The current implementation uses a static channel approach where the four channels are predefined with fixed characteristics. This design provides predictable performance and simplifies client-side processing since all clients understand the same channel structure. The static nature allows for aggressive optimizations in the networking layer, as the system can pre-allocate buffers and optimize packet structures for each channel type.
+In GORC, every replicated object in your game world becomes an independent instance with its own set of replication zones. These aren't static regions of the map—they're dynamic, object-centric areas that move with each object and respond to the object's current state and importance.
 
 ```rust
 use horizon_event_system::*;
 
-// Static channel configuration - these are built into the system
-let critical_layer = ReplicationLayer::new(
-    0,                                    // Channel 0 (Critical)
-    100.0,                               // 100 unit radius
-    60.0,                                // 60Hz frequency
-    vec!["position".to_string(), "health".to_string()], // Properties to replicate
-    CompressionType::Delta,              // Use delta compression for efficiency
-);
-
-let detailed_layer = ReplicationLayer::new(
-    1,                                    // Channel 1 (Detailed)  
-    250.0,                               // 250 unit radius
-    30.0,                                // 30Hz frequency
-    vec!["animation".to_string(), "weapon_state".to_string()],
-    CompressionType::Lz4,                // Balanced compression
-);
-```
-
-The static approach also enables sophisticated client prediction and interpolation systems, as clients can reliably expect certain types of data to arrive with predictable timing characteristics. This predictability is crucial for maintaining smooth gameplay in networked environments where latency and packet loss are inevitable factors.
-
-## Core Components and Data Structures
-
-### ReplicationLayer
-
-The ReplicationLayer represents the fundamental unit of the GORC system, defining how specific properties of game objects are replicated across the network. Each layer encapsulates not just what data to send, but how often to send it, how far it should travel, and what compression techniques to apply. This granular control allows developers to fine-tune network performance for different aspects of their game objects.
-
-```rust
-let position_layer = ReplicationLayer::new(
-    0,                                    // Critical channel for immediate delivery
-    50.0,                                // 50 unit radius - only nearby players receive updates
-    30.0,                                // 30Hz update frequency for smooth movement
-    vec!["position".to_string(), "velocity".to_string(), "health".to_string()],
-    CompressionType::Delta,              // Only send changes from previous state
-);
-
-// Access layer properties
-let update_interval = position_layer.update_interval(); // Duration between updates
-let priority = position_layer.priority;                 // ReplicationPriority::Critical
-```
-
-The layer system allows for sophisticated optimization strategies. For example, a player character might have multiple layers: a critical layer for position and health that updates frequently with a small radius, a detailed layer for animations that updates moderately with a medium radius, and a metadata layer for the player's name and guild that updates rarely but with a large radius. This multi-layer approach ensures that each type of information is distributed with appropriate efficiency and priority.
-
-### ReplicationChannel Management
-
-ReplicationChannel provides the infrastructure for managing groups of related replication layers, tracking performance statistics, and coordinating update scheduling. Each channel maintains its own state and can be configured independently to match the requirements of different game scenarios.
-
-```rust
-let mut critical_channel = ReplicationChannel::new(
-    0,                                   // Channel ID
-    "Critical".to_string(),              // Human-readable name
-    "Essential game state for immediate gameplay decisions".to_string(),
-    (30.0, 60.0),                       // Frequency range (min 30Hz, max 60Hz)
-);
-
-critical_channel.add_layer(position_layer);
-
-// Check if channel is ready for next update cycle
-if critical_channel.is_ready_for_update() {
-    // Process pending updates for this channel
-    critical_channel.mark_updated();    // Record the update in statistics
-}
-```
-
-The channel system includes built-in flow control mechanisms to prevent network congestion. When network conditions degrade, channels can automatically reduce their update frequencies within their configured ranges, prioritizing critical channels over cosmetic ones. This adaptive behavior helps maintain playability even under adverse network conditions.
-
-### Compression and Priority Systems
-
-GORC implements multiple compression strategies to optimize bandwidth usage for different types of data. The compression system recognizes that different game data has different characteristics and chooses appropriate algorithms accordingly.
-
-```rust
-pub enum CompressionType {
-    None,           // No compression - fastest processing, largest packets
-    Lz4,           // Fast compression with good ratio - ideal for general use
-    Zlib,          // Higher compression ratio but slower - good for large payloads
-    Delta,         // Send only changes from previous state - excellent for position data
-    Quantized,     // Reduce precision to save space - useful for approximate data
-    High,          // Maximum compression for bandwidth-limited scenarios
-    Custom(u8),    // Game-specific compression algorithms
-}
-
-pub enum ReplicationPriority {
-    Critical = 0,  // Must be delivered immediately - bypasses queues
-    High = 1,      // Important data with elevated priority
-    Normal = 2,    // Standard priority for most game data
-    Low = 3,       // Can be delayed or dropped under pressure
-}
-```
-
-The delta compression system is particularly sophisticated, maintaining state snapshots for each client connection and computing minimal difference packets. This approach is especially effective for position data, where small movements can be encoded in just a few bytes rather than transmitting complete coordinate sets. The quantized compression reduces floating-point precision for data where perfect accuracy isn't required, such as cosmetic particle positions.
-
-## Object Registration and Replication Implementation
-
-### Implementing the Replication Trait
-
-Game objects become part of the GORC system by implementing the Replication trait, which defines how the object should be divided into replication layers and how it should prioritize updates based on observer distance. This design allows each object type to have completely customized replication behavior while still integrating seamlessly with the overall system.
-
-```rust
-use horizon_event_system::*;
-use serde::{Serialize, Deserialize};
-
+// Define a game object that participates in GORC
 #[derive(Clone, Debug, Serialize, Deserialize)]
-struct Asteroid {
-    pub radius: i32,
-    pub position: Vec3,
-    pub velocity: Vec3, 
-    pub health: f32,
-    pub mineral_type: MineralType,
-    pub rotation_speed: f32,
+struct SpaceShip {
+    position: Vec3,
+    velocity: Vec3,
+    health: f32,
+    shield_energy: f32,
+    pilot_name: String,
+    ship_class: ShipClass,
+    cargo: Vec<CargoItem>,
 }
 
-impl Replication for Asteroid {
-    fn init_layers() -> ReplicationLayers {
-        ReplicationLayers::new()
-            // Critical layer for collision-relevant data
-            .add_layer(ReplicationLayer::new(
-                0,                       // Critical channel
-                50.0,                    // Close range only
-                30.0,                    // High frequency
+impl GorcObject for SpaceShip {
+    fn type_name(&self) -> &'static str { "SpaceShip" }
+    
+    fn position(&self) -> Vec3 { self.position }
+    
+    fn get_layers(&self) -> Vec<ReplicationLayer> {
+        vec![
+            // Critical zone: Combat-relevant data for nearby players
+            ReplicationLayer::new(0, 75.0, 20.0, 
                 vec!["position".to_string(), "velocity".to_string(), "health".to_string()],
-                CompressionType::Delta,  // Efficient for frequently changing data
-            ))
-            // Detailed layer for visual feedback
-            .add_layer(ReplicationLayer::new(
-                1,                       // Detailed channel
-                150.0,                   // Medium range
-                15.0,                    // Moderate frequency
-                vec!["position".to_string(), "rotation_speed".to_string()],
-                CompressionType::Lz4,    // Good general-purpose compression
-            ))
-            // Metadata layer for strategic information
-            .add_layer(ReplicationLayer::new(
-                3,                       // Metadata channel
-                1000.0,                  // Long range for strategic planning
-                5.0,                     // Low frequency
-                vec!["mineral_type".to_string(), "radius".to_string()],
-                CompressionType::High,   // Maximum compression for infrequent data
-            ))
+                CompressionType::Delta),
+            
+            // Detailed zone: Enhanced information for intermediate distances  
+            ReplicationLayer::new(1, 200.0, 10.0,
+                vec!["shield_energy".to_string(), "ship_class".to_string()],
+                CompressionType::Lz4),
+            
+            // Metadata zone: Strategic information for long-range planning
+            ReplicationLayer::new(3, 2000.0, 2.0,
+                vec!["pilot_name".to_string()],
+                CompressionType::High),
+        ]
     }
     
     fn get_priority(&self, observer_pos: Vec3) -> ReplicationPriority {
         let distance = self.position.distance(observer_pos);
-        
-        // Dynamic priority based on relevance to observer
-        if distance < 50.0 {
-            ReplicationPriority::Critical  // Close asteroids affect immediate gameplay
-        } else if distance < 150.0 {
-            ReplicationPriority::High      // Medium distance - important for planning
-        } else if distance < 500.0 {
-            ReplicationPriority::Normal    // Far but visible - normal updates
-        } else {
-            ReplicationPriority::Low       // Very distant - minimal updates needed
+        match distance {
+            d if d < 100.0 => ReplicationPriority::Critical,
+            d if d < 500.0 => ReplicationPriority::High,
+            d if d < 2000.0 => ReplicationPriority::Normal,
+            _ => ReplicationPriority::Low,
         }
     }
     
     fn serialize_for_layer(&self, layer: &ReplicationLayer) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let mut data = serde_json::Map::new();
         
-        // Only serialize properties relevant to this layer
         for property in &layer.properties {
             match property.as_str() {
-                "position" => {
-                    data.insert("position".to_string(), serde_json::to_value(&self.position)?);
-                }
-                "velocity" => {
-                    data.insert("velocity".to_string(), serde_json::to_value(&self.velocity)?);
-                }
-                "health" => {
-                    data.insert("health".to_string(), serde_json::to_value(self.health)?);
-                }
-                "mineral_type" => {
-                    data.insert("mineral_type".to_string(), serde_json::to_value(&self.mineral_type)?);
-                }
-                "rotation_speed" => {
-                    data.insert("rotation_speed".to_string(), serde_json::to_value(self.rotation_speed)?);
-                }
-                "radius" => {
-                    data.insert("radius".to_string(), serde_json::to_value(self.radius)?);
-                }
-                _ => {} // Ignore unknown properties
-            }
+                "position" => data.insert("position".to_string(), serde_json::to_value(&self.position)?),
+                "velocity" => data.insert("velocity".to_string(), serde_json::to_value(&self.velocity)?),
+                "health" => data.insert("health".to_string(), serde_json::to_value(self.health)?),
+                "shield_energy" => data.insert("shield_energy".to_string(), serde_json::to_value(self.shield_energy)?),
+                "pilot_name" => data.insert("pilot_name".to_string(), serde_json::to_value(&self.pilot_name)?),
+                "ship_class" => data.insert("ship_class".to_string(), serde_json::to_value(&self.ship_class)?),
+                _ => None,
+            };
         }
         
         Ok(serde_json::to_vec(&data)?)
     }
+    
+    fn update_position(&mut self, new_position: Vec3) {
+        self.position = new_position;
+    }
+    
+    fn as_any(&self) -> &dyn Any { self }
+    fn as_any_mut(&mut self) -> &mut dyn Any { self }
+    fn clone_object(&self) -> Box<dyn GorcObject> { Box::new(self.clone()) }
 }
-
-// Register the object type with GORC system
-defObject!(Asteroid);
 ```
 
-The layered approach allows the same object to participate in multiple replication streams simultaneously. An asteroid might send position updates to nearby players at 30Hz through the critical channel, while sending mineral type information to all players in a large radius at 5Hz through the metadata channel. This flexibility enables rich, detailed game worlds without overwhelming the network infrastructure.
+Each object defines its own replication strategy through layers. A massive capital ship might have enormous zones that reach across entire star systems, while a small fighter's zones might only extend a few kilometers. The system automatically handles the complexity of managing thousands of these dynamic zones simultaneously.
 
-### Object Registry and Management
+### Channel-Based Information Flow
 
-The GorcObjectRegistry provides centralized management of all registered object types, maintaining their replication layer configurations and providing runtime access to this information. This system enables dynamic plugin loading where new object types can be registered at runtime without recompiling the core server.
+GORC organizes information into four distinct channels, each optimized for different types of data and update patterns:
+
+**Channel 0 (Critical)** carries information that directly affects gameplay decisions and must be delivered immediately. Position updates, health changes, and collision states flow through this channel at high frequency with minimal latency. When a player fires a weapon or takes damage, other nearby players receive this information through Channel 0 within milliseconds.
+
+**Channel 1 (Detailed)** handles important but non-critical information that enhances the gameplay experience. Animation states, weapon readiness indicators, and shield fluctuations travel through this channel at moderate frequency. This information helps players understand what's happening around them without overwhelming them with data.
+
+**Channel 2 (Cosmetic)** focuses on visual and atmospheric effects that improve immersion but don't affect gameplay mechanics. Particle effects, visual enhancements, and decorative animations flow through this channel at lower frequency. When bandwidth is limited, the system can safely drop or delay these updates without impacting core gameplay.
+
+**Channel 3 (Metadata)** carries informational data that changes infrequently but provides important context. Player names, faction affiliations, ship specifications, and achievement notifications use this channel. The low frequency allows for higher compression ratios and more complex data structures.
+
+### Dynamic Subscription Management
+
+The heart of GORC's efficiency lies in its dynamic subscription system. Rather than requiring developers to manually manage who receives what information, GORC automatically calculates subscriptions based on spatial relationships, social connections, and player interests.
 
 ```rust
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let registry = Arc::new(GorcObjectRegistry::new());
+    // Create a complete GORC system
+    let server_context = Arc::new(MyServerContext::new());
+    let (events, mut gorc_system) = create_complete_horizon_system(server_context)?;
     
-    // Register object types - can be done dynamically as plugins load
-    Asteroid::register_with_gorc(registry.clone()).await?;
+    // Register a spaceship
+    let ship = SpaceShip {
+        position: Vec3::new(1000.0, 500.0, 2000.0),
+        velocity: Vec3::new(15.0, 0.0, -8.0),
+        health: 100.0,
+        shield_energy: 75.0,
+        pilot_name: "Captain Reynolds".to_string(),
+        ship_class: ShipClass::Firefly,
+        cargo: vec![],
+    };
     
-    // Query registration information
-    let object_types = registry.list_objects().await;
-    println!("Registered GORC object types: {:?}", object_types);
+    let ship_id = gorc_system.register_object(ship, Vec3::new(1000.0, 500.0, 2000.0)).await;
     
-    // Access layer configuration for runtime optimization
-    if let Some(layers) = registry.get_layers("Asteroid").await {
-        println!("Asteroid uses {} replication layers", layers.len());
-        for (i, layer) in layers.iter().enumerate() {
-            println!("Layer {}: Channel {}, {}Hz, {} properties", 
-                i, layer.channel, layer.frequency, layer.properties.len());
-        }
-    }
+    // Add players at different distances
+    let close_player = PlayerId::new();
+    let distant_player = PlayerId::new();
     
-    // Monitor registry statistics
-    let stats = registry.get_stats().await;
-    println!("Registry managing {} object types with {} total layers",
-        stats.registered_objects, stats.total_layers);
+    gorc_system.add_player(close_player, Vec3::new(1050.0, 500.0, 2000.0)).await;   // 50m away
+    gorc_system.add_player(distant_player, Vec3::new(2000.0, 500.0, 2000.0)).await; // 1000m away
+    
+    // The system automatically determines subscriptions:
+    // - close_player receives all channels (0, 1, 3) - within all zones
+    // - distant_player receives only channel 3 (metadata) - only within metadata zone
+    
+    // Process one tick of replication
+    gorc_system.tick().await?;
     
     Ok(())
 }
 ```
 
-The registry system supports hot-swapping of object configurations, allowing developers to tune replication parameters without server restarts. This capability is invaluable during development and live operations, where network conditions and player behavior patterns may require replication adjustments.
+The subscription system continuously adapts as players move through the world. When the close player moves away from the ship, they'll automatically unsubscribe from the critical and detailed channels but remain subscribed to metadata. This happens smoothly with hysteresis to prevent rapid flickering when players move along zone boundaries.
 
-## Subscription Management System
+## Setting Up GORC
 
-GORC implements a sophisticated subscription management system that determines which players should receive updates about which objects. Rather than broadcasting all information to all players, the system intelligently filters updates based on multiple criteria to minimize bandwidth usage while ensuring players receive relevant information.
-
-### Proximity-Based Subscriptions
-
-The foundation of the subscription system is proximity-based filtering, which ensures players primarily receive updates about nearby objects that directly affect their gameplay experience. This system uses configurable radius settings for each replication channel, allowing critical information to travel shorter distances with higher frequency while less important information can travel further with lower frequency.
+Getting started with GORC involves creating the system components and registering your game objects. The system is designed to integrate seamlessly with the Horizon Event System while providing its own specialized replication capabilities.
 
 ```rust
-let mut proximity_sub = ProximitySubscription::new(Position::new(0.0, 0.0, 0.0));
+use horizon_event_system::*;
 
-// Different channels have different effective ranges
-// Channel 0 (Critical): 100 units - immediate gameplay area
-// Channel 1 (Detailed): 250 units - visual feedback area  
-// Channel 2 (Cosmetic): 500 units - atmospheric effects area
-// Channel 3 (Metadata): 1000 units - strategic information area
-
-// Update player position with movement threshold
-if proximity_sub.update_position(Position::new(15.0, 5.0, 0.0)) {
-    println!("Moved beyond threshold, recalculating subscriptions");
-    // This triggers subscription updates for all relevant objects
-}
-
-// Check subscription ranges for different channels
-let target_position = Position::new(80.0, 0.0, 0.0);
-if proximity_sub.is_in_range(target_position, 0) {
-    println!("Target is within critical channel range");
-}
-if proximity_sub.is_in_range(target_position, 1) {
-    println!("Target is within detailed channel range");
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Create server context (your implementation)
+    let server_context = Arc::new(GameServerContext::new());
+    
+    // Create the complete GORC system with all components
+    let (events, mut gorc_system) = create_complete_horizon_system(server_context)?;
+    
+    // The event system now has GORC integration
+    events.on_gorc_instance("SpaceShip", 0, "position_update", 
+        |event: GorcEvent, instance: &mut ObjectInstance| {
+            if let Some(ship) = instance.get_object_mut::<SpaceShip>() {
+                println!("Ship {} moved to {:?}", event.object_id, ship.position());
+                // Update local game state, trigger effects, etc.
+            }
+            Ok(())
+        }
+    ).await?;
+    
+    // Register objects and start the game loop
+    let ship_id = gorc_system.register_object(my_ship, initial_position).await;
+    
+    loop {
+        // Process GORC replication
+        gorc_system.tick().await?;
+        
+        // Handle game logic, player input, etc.
+        
+        tokio::time::sleep(tokio::time::Duration::from_millis(16)).await; // ~60 FPS
+    }
 }
 ```
 
-The proximity system includes intelligent hysteresis to prevent subscription thrashing when players move along the boundaries of subscription ranges. Rather than immediately subscribing and unsubscribing as players cross exact distance thresholds, the system uses slightly different ranges for subscription and unsubscription, creating stable subscription patterns even with constant movement.
+The integration between GORC and the event system creates a powerful combination. Traditional events handle discrete occurrences like player actions or system notifications, while GORC handles continuous state synchronization of game objects. Together, they provide comprehensive communication infrastructure for complex multiplayer games.
 
-### Relationship-Based Subscriptions
+## Advanced Object Patterns
 
-Beyond simple distance-based filtering, GORC supports relationship-based subscriptions that ensure players receive enhanced information about teammates, guild members, friends, and other socially connected players regardless of distance. This system recognizes that multiplayer games are fundamentally social experiences where player relationships should influence information flow.
+GORC supports sophisticated object hierarchies and relationships that reflect the complexity of real game worlds. Different object types can have completely different replication strategies while still working together seamlessly.
 
-```rust
-// Team relationships get enhanced priority across all channels
-let mut team_sub = RelationshipSubscription::new("team".to_string());
-team_sub.add_player(teammate1_id);
-team_sub.add_player(teammate2_id);
+### Environmental Objects
 
-// Team members receive critical updates at extended range
-let team_priority = team_sub.get_channel_priority(0); // Critical channel
-assert_eq!(team_priority, ReplicationPriority::Critical);
-
-// Guild relationships provide moderate enhancements
-let mut guild_sub = RelationshipSubscription::new("guild".to_string());
-guild_sub.add_player(guild_member_id);
-let guild_priority = guild_sub.get_channel_priority(3); // Metadata channel
-assert_eq!(guild_priority, ReplicationPriority::Normal);
-
-// Friend relationships enhance social features
-let mut friend_sub = RelationshipSubscription::new("friend".to_string());
-friend_sub.add_player(friend_id);
-// Friends get enhanced metadata updates for social features
-let friend_meta_priority = friend_sub.get_channel_priority(3);
-assert_eq!(friend_meta_priority, ReplicationPriority::High);
-```
-
-The relationship system supports hierarchical priority structures where team relationships override guild relationships, which in turn override friend relationships. This ensures that the most important social connections receive the highest priority when network bandwidth is limited.
-
-### Interest-Based Subscriptions
-
-The most sophisticated aspect of the subscription system is interest-based filtering, which tracks player behavior patterns to predict what information they're most likely to need. This system learns from player actions and focus patterns to proactively subscribe to relevant information streams.
+Large environmental objects like space stations or asteroid fields need different replication strategies than dynamic objects like ships:
 
 ```rust
-let mut interest_sub = InterestSubscription::new();
-
-// Track explicit interest in specific objects
-interest_sub.record_interest("weapon_plasma_rifle".to_string(), InterestLevel::High);
-interest_sub.record_interest("asteroid_mining_zone".to_string(), InterestLevel::Medium);
-
-// Track focus area - where the player is looking or moving toward
-interest_sub.update_focus(Position::new(200.0, 100.0, 50.0), 75.0);
-
-// Record activity patterns for predictive subscriptions
-interest_sub.record_activity("mining".to_string(), Duration::from_secs(300)); // 5 minute mining session
-interest_sub.record_activity("combat".to_string(), Duration::from_secs(45));  // 45 second combat
-
-// Query interest levels for subscription decisions
-let weapon_interest = interest_sub.get_interest_level("weapon_plasma_rifle");
-if weapon_interest == InterestLevel::High {
-    // Subscribe to detailed weapon state updates
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct SpaceStation {
+    position: Vec3, // Stations don't move, but position is still needed for zone calculation
+    shield_status: ShieldStatus,
+    docking_bays: Vec<DockingBay>,
+    population: u32,
+    faction: Faction,
+    services: Vec<Service>,
 }
 
-// Check if objects are in the player's focus area
-if interest_sub.is_in_focus(Position::new(190.0, 110.0, 45.0)) {
-    // Object is in focus - increase subscription priority
+impl GorcObject for SpaceStation {
+    fn get_layers(&self) -> Vec<ReplicationLayer> {
+        vec![
+            // Critical: Docking and shield information for approaching ships
+            ReplicationLayer::new(0, 500.0, 5.0,
+                vec!["shield_status".to_string(), "docking_bays".to_string()],
+                CompressionType::Lz4),
+            
+            // Metadata: Station information for long-range navigation and planning
+            ReplicationLayer::new(3, 10000.0, 0.5,
+                vec!["population".to_string(), "faction".to_string(), "services".to_string()],
+                CompressionType::High),
+        ]
+    }
+    
+    fn get_priority(&self, observer_pos: Vec3) -> ReplicationPriority {
+        let distance = self.position.distance(observer_pos);
+        // Stations are always important for navigation
+        match distance {
+            d if d < 1000.0 => ReplicationPriority::High,
+            d if d < 5000.0 => ReplicationPriority::Normal,
+            _ => ReplicationPriority::Low,
+        }
+    }
+    
+    // ... other implementations
 }
 ```
 
-The interest system builds behavioral profiles over time, learning that players who spend significant time mining are likely interested in asteroid composition updates, while players who frequently engage in combat need enhanced weapon and shield state information. This predictive capability allows the system to preemptively subscribe to information streams before the player explicitly needs them.
+Space stations use very different zone configurations than ships. They have larger zones because they're important for navigation across vast distances, but they update less frequently because their state changes slowly. The critical zone focuses on docking information that approaching ships need, while the metadata zone provides navigation and planning information across huge distances.
 
-### Integrated Subscription Coordination
+### Dynamic Object Scaling
 
-The SubscriptionManager coordinates all three subscription types to create a unified, intelligent filtering system that maximizes the relevance of transmitted information while respecting bandwidth constraints.
+GORC objects can dynamically adjust their replication strategies based on their current state. A ship that's docked might have very different replication needs than one engaged in combat:
 
 ```rust
-let manager = SubscriptionManager::new();
+impl GorcObject for SpaceShip {
+    fn get_layers(&self) -> Vec<ReplicationLayer> {
+        let base_layers = if self.is_docked() {
+            // Docked ships need minimal replication
+            vec![
+                ReplicationLayer::new(3, 1000.0, 1.0,
+                    vec!["pilot_name".to_string(), "ship_class".to_string()],
+                    CompressionType::High),
+            ]
+        } else if self.is_in_combat() {
+            // Combat ships need frequent, detailed updates
+            vec![
+                ReplicationLayer::new(0, 150.0, 30.0,
+                    vec!["position".to_string(), "velocity".to_string(), "health".to_string(), "shield_energy".to_string()],
+                    CompressionType::Delta),
+                ReplicationLayer::new(1, 400.0, 15.0,
+                    vec!["weapon_status".to_string(), "target_id".to_string()],
+                    CompressionType::Lz4),
+                ReplicationLayer::new(3, 2000.0, 2.0,
+                    vec!["pilot_name".to_string(), "faction".to_string()],
+                    CompressionType::High),
+            ]
+        } else {
+            // Standard cruising configuration
+            vec![
+                ReplicationLayer::new(0, 75.0, 20.0,
+                    vec!["position".to_string(), "velocity".to_string(), "health".to_string()],
+                    CompressionType::Delta),
+                ReplicationLayer::new(1, 200.0, 10.0,
+                    vec!["ship_class".to_string()],
+                    CompressionType::Lz4),
+                ReplicationLayer::new(3, 2000.0, 2.0,
+                    vec!["pilot_name".to_string()],
+                    CompressionType::High),
+            ]
+        };
+        
+        base_layers
+    }
+    
+    fn is_docked(&self) -> bool {
+        // Check if ship is currently docked at a station
+        self.docking_status == DockingStatus::Docked
+    }
+    
+    fn is_in_combat(&self) -> bool {
+        // Check if ship is actively engaged in combat
+        self.last_combat_action.map(|time| time.elapsed() < Duration::from_secs(30)).unwrap_or(false)
+    }
+}
+```
 
-// Add players to the subscription system
-manager.add_player(player_id, Position::new(100.0, 100.0, 0.0)).await;
+This dynamic scaling ensures that network resources are used efficiently. Docked ships consume minimal bandwidth, while ships in active combat receive the detailed, high-frequency updates needed for responsive gameplay.
 
-// Establish social relationships
-manager.add_relationship(
+## Network Optimization and Performance
+
+GORC includes sophisticated network optimization features that automatically adapt to changing conditions and player distributions. The system continuously monitors performance and adjusts its behavior to maintain optimal player experience.
+
+### Intelligent Batching and Compression
+
+Rather than sending individual updates for each object change, GORC batches related updates together and applies appropriate compression based on the data type and network conditions:
+
+```rust
+// GORC automatically batches updates for efficient transmission
+let network_config = NetworkConfig {
+    max_bandwidth_per_player: 512 * 1024, // 512 KB/s per player
+    max_batch_size: 25,                   // Up to 25 updates per batch
+    max_batch_age_ms: 16,                 // Force send after 16ms (~60 FPS)
+    compression_enabled: true,
+    compression_threshold: 128,           // Compress payloads larger than 128 bytes
+    target_frequencies: {
+        let mut freq = HashMap::new();
+        freq.insert(0, 30.0); // Critical - 30Hz
+        freq.insert(1, 15.0); // Detailed - 15Hz
+        freq.insert(2, 10.0); // Cosmetic - 10Hz
+        freq.insert(3, 2.0);  // Metadata - 2Hz
+        freq
+    },
+    // ... other configuration
+};
+```
+
+The batching system groups updates by player and priority, ensuring that critical updates are never delayed by lower-priority data. Compression algorithms are chosen based on the data characteristics—position data uses delta compression to send only changes, while complex metadata uses general-purpose compression for maximum efficiency.
+
+### Adaptive Quality Scaling
+
+When network conditions degrade or player counts increase beyond expected levels, GORC can automatically reduce quality to maintain responsiveness:
+
+```rust
+// Monitor system performance and adapt automatically
+let performance_report = gorc_system.get_performance_report().await;
+
+if performance_report.network_utilization > 0.8 {
+    println!("High network utilization detected: {:.1}%", 
+             performance_report.network_utilization * 100.0);
+    
+    // GORC automatically reduces update frequencies and applies more aggressive compression
+    // Channels scale down gracefully: 30Hz -> 20Hz -> 15Hz -> 10Hz
+    // Critical channels are protected and scale down last
+}
+
+if !performance_report.is_healthy() {
+    println!("System health issues detected:");
+    for issue in &performance_report.issues {
+        println!("  - {}", issue);
+    }
+    
+    // Get actionable recommendations
+    for recommendation in performance_report.get_recommendations() {
+        println!("Recommendation: {}", recommendation);
+    }
+}
+```
+
+The adaptive system preserves gameplay quality by reducing cosmetic and metadata updates before touching critical gameplay information. Players might see fewer particle effects or less frequent name updates, but position synchronization and combat data remain responsive.
+
+## Spatial Intelligence and Awareness
+
+GORC's spatial management system goes beyond simple distance calculations to provide sophisticated awareness of player relationships and movement patterns. The system builds spatial intelligence that helps predict what information players will need before they explicitly need it.
+
+### Multi-Layered Spatial Indexing
+
+The spatial partitioning system uses adaptive quadtrees that automatically adjust their granularity based on player density and object distribution:
+
+```mermaid
+graph TD
+    A[Spatial Partition Manager] --> B[Dense Combat Zone<br/>High Resolution Quadtree]
+    A --> C[Sparse Exploration Area<br/>Low Resolution Quadtree]
+    A --> D[Social Hub<br/>Player-Optimized Quadtree]
+    
+    B --> B1[Players 1-20<br/>Frequent Updates]
+    C --> C1[Players 21-25<br/>Standard Updates]
+    D --> D1[Players 26-50<br/>Social Updates]
+    
+    E[Cross-Region Queries] --> A
+    F[Proximity Calculations] --> A
+    G[Subscription Management] --> A
+```
+
+In areas with many players fighting, the quadtree subdivides aggressively to enable fast proximity queries. In empty space, large quadtree nodes reduce memory overhead and query complexity. Social areas like stations use specialized indexing optimized for the high player interaction rates typical in these locations.
+
+### Predictive Subscription Management
+
+The system learns from player movement patterns to predict future subscription needs:
+
+```rust
+// GORC tracks player movement to predict future subscriptions
+let subscription_manager = SubscriptionManager::new();
+
+// Add players with movement tracking
+subscription_manager.add_player(player_id, initial_position).await;
+
+// As players move, the system learns their patterns
+subscription_manager.update_player_position(player_id, new_position).await;
+
+// The system can predict likely future positions and pre-subscribe to relevant zones
+// This reduces the latency when players move into new areas
+```
+
+When a player has been moving steadily in one direction, GORC can begin subscribing them to zones they're likely to enter soon. This predictive capability reduces the perceived latency of information delivery as players explore new areas.
+
+### Social Relationship Integration
+
+GORC understands that multiplayer games are fundamentally social experiences, and incorporates social relationships into its replication decisions:
+
+```rust
+// Enhanced subscriptions based on social relationships
+subscription_manager.add_relationship(
     player_id,
     "team".to_string(),
     vec![teammate1_id, teammate2_id, teammate3_id],
 ).await;
 
-// Update interest tracking
-manager.update_interest(player_id, "asteroid_belt_alpha".to_string(), InterestLevel::High).await;
+// Team members receive enhanced updates regardless of distance
+// This ensures team coordination remains effective even when spread across large areas
 
-// Get combined subscription priority considering all factors
-let combined_priority = manager.get_subscription_priority(
-    subscriber_id,    // Who wants the information
-    target_player_id, // Who the information is about
-    1,               // Channel 1 (Detailed)
-).await;
-
-// The priority combines proximity, relationship, and interest factors
-match combined_priority {
-    ReplicationPriority::Critical => {
-        // Send immediately with highest network priority
-    }
-    ReplicationPriority::High => {
-        // Send with elevated priority, minimal delay
-    }
-    ReplicationPriority::Normal => {
-        // Send with standard scheduling
-    }
-    ReplicationPriority::Low => {
-        // Send when bandwidth is available, may be delayed
-    }
-}
-```
-
-The integration system uses weighted algorithms to combine the different subscription factors. Proximity provides the base subscription level, relationships can enhance or maintain subscriptions beyond normal range, and interest patterns can boost priority within existing subscriptions. This multi-factor approach ensures that the most relevant information reaches players with appropriate priority and frequency.
-
-## Multicast Distribution and LOD Management
-
-GORC implements sophisticated distribution mechanisms that group players with similar information needs and manage detail levels automatically based on distance and importance. This approach dramatically reduces server processing overhead compared to individual point-to-point updates while maintaining personalized information delivery.
-
-### Multicast Group Architecture
-
-```mermaid
-graph TD
-    A[GORC Multicast Manager] --> B[Combat Zone Alpha]
-    A --> C[Mining Station Beta]
-    A --> D[Trade Hub Gamma]
-    
-    B --> B1[Channel 0: Critical<br/>Position/Health]
-    B --> B2[Channel 1: Detailed<br/>Weapons/Animations]
-    
-    C --> C1[Channel 0: Critical<br/>Mining Equipment]
-    C --> C2[Channel 3: Metadata<br/>Resource Info]
-    
-    D --> D1[Channel 1: Detailed<br/>Market Updates]
-    D --> D2[Channel 3: Metadata<br/>Trade Info]
-    
-    B1 --> E[High Priority Players]
-    B2 --> F[Standard Players]
-    C1 --> G[Active Miners]
-    C2 --> H[Resource Scouts]
-```
-
-Multicast groups enable efficient distribution of identical information to multiple players simultaneously, reducing server CPU usage and network traffic. The system dynamically creates and manages groups based on player locations, activities, and interests.
-
-```rust
-let manager = MulticastManager::new();
-
-// Create specialized multicast groups for different game areas
-let combat_channels = vec![0, 1].into_iter().collect(); // Critical + Detailed for combat
-let combat_group_id = manager.create_group(
-    "combat_zone_alpha".to_string(),
-    combat_channels,
-    ReplicationPriority::High,
-).await;
-
-let mining_channels = vec![0, 3].into_iter().collect(); // Critical + Metadata for mining
-let mining_group_id = manager.create_group(
-    "mining_station_beta".to_string(), 
-    mining_channels,
-    ReplicationPriority::Normal,
-).await;
-
-// Add players to appropriate groups based on their activities
-manager.add_player_to_group(combat_player_id, combat_group_id).await;
-manager.add_player_to_group(mining_player_id, mining_group_id).await;
-
-// Broadcast updates efficiently to entire groups
-let combat_update = b"enemy position update in sector 7";
-let recipients = manager.broadcast_to_group(combat_group_id, combat_update, 0).await?;
-println!("Combat update sent to {} players", recipients);
-
-// Groups automatically handle channel filtering
-let mining_metadata = b"new asteroid composition detected";
-manager.broadcast_to_group(mining_group_id, mining_metadata, 3).await?;
-```
-
-The multicast system includes sophisticated membership management that automatically adds and removes players from groups based on their current activities, locations, and subscription patterns. Players can belong to multiple groups simultaneously, allowing for overlapping information delivery when appropriate.
-
-### Level of Detail (LOD) Room System
-
-LOD rooms provide automatic detail management based on distance, ensuring that players receive appropriate levels of information without manual configuration. The system creates nested spatial regions where closer players receive more detailed information while distant players receive only essential updates.
-
-```rust
-// Create a hierarchical LOD room structure
-let mut main_lod_room = LodRoom::new(
-    Position::new(0.0, 0.0, 0.0),    // Center of the area
-    LodLevel::Medium,                 // Base detail level
-);
-
-// Add nested rooms for higher detail levels
-let high_detail_room = LodRoom::new(
-    Position::new(0.0, 0.0, 0.0),
-    LodLevel::High,                   // 150 unit radius, 30Hz updates
-);
-
-let ultra_detail_room = LodRoom::new(
-    Position::new(0.0, 0.0, 0.0), 
-    LodLevel::Ultra,                  // 50 unit radius, 60Hz updates
-);
-
-main_lod_room.add_nested_room(high_detail_room);
-main_lod_room.add_nested_room(ultra_detail_room);
-
-// Players are automatically placed in appropriate detail levels
-main_lod_room.add_member(player1_id, Position::new(25.0, 0.0, 0.0));  // Ultra detail
-main_lod_room.add_member(player2_id, Position::new(100.0, 0.0, 0.0)); // High detail  
-main_lod_room.add_member(player3_id, Position::new(250.0, 0.0, 0.0)); // Medium detail
-
-// Automatic transitions as players move
-main_lod_room.update_member_position(player1_id, Position::new(75.0, 0.0, 0.0));
-// Player1 automatically transitions from Ultra to High detail level
-```
-
-The LOD system includes intelligent hysteresis settings that prevent rapid oscillation between detail levels when players move along boundaries. The system uses different thresholds for entering and exiting detail levels, creating stable subscription patterns that enhance both performance and user experience.
-
-```rust
-pub enum LodLevel {
-    Ultra = 0,    // 50 unit radius, 60Hz updates - immediate vicinity
-    High = 1,     // 150 unit radius, 30Hz updates - close interaction range
-    Medium = 2,   // 300 unit radius, 15Hz updates - visual range
-    Low = 3,      // 600 unit radius, 7.5Hz updates - awareness range
-    Minimal = 4,  // 1200 unit radius, 3Hz updates - strategic information
-}
-
-// Each level automatically provides appropriate update frequency and compression
-let level = LodLevel::High;
-let frequency = level.frequency();      // 30.0 Hz
-let radius = level.radius();           // 150.0 units
-let priority = level.to_priority();    // ReplicationPriority::High
-```
-
-The LOD room system integrates seamlessly with the multicast groups, automatically creating and managing specialized multicast groups for each detail level. This integration ensures that the benefits of both systems combine effectively, providing highly optimized information distribution.
-
-## Spatial Partitioning and Query Systems
-
-Efficient spatial management is crucial for GORC's performance, especially in large game worlds with thousands of objects and players. The system implements advanced spatial partitioning using quadtree structures that enable fast proximity queries and subscription calculations.
-
-### QuadTree Spatial Indexing
-
-```mermaid
-graph TD
-    A[Region QuadTree Root<br/>0,0 to 1000,1000] --> B[NW Quadrant<br/>0,0 to 500,500]
-    A --> C[NE Quadrant<br/>500,0 to 1000,500]
-    A --> D[SW Quadrant<br/>0,500 to 500,1000]
-    A --> E[SE Quadrant<br/>500,500 to 1000,1000]
-    
-    B --> B1[Players 1-4<br/>High Density Area]
-    C --> C1[Players 5-7<br/>Medium Density]
-    D --> D2[Empty Quadrant]
-    E --> E1[Players 8-12<br/>High Density Area]
-    
-    E1 --> E2[Sub-NW<br/>Players 8-9]
-    E1 --> E3[Sub-NE<br/>Players 10-11]
-    E1 --> E4[Sub-SW<br/>Player 12]
-    E1 --> E5[Sub-SE<br/>Empty]
-```
-
-The spatial partitioning system uses adaptive quadtrees that automatically subdivide regions based on player density. Areas with many players are subdivided into smaller regions for efficient queries, while sparsely populated areas remain as larger regions to minimize memory overhead.
-
-```rust
-let region_bounds = RegionBounds {
-    min_x: 0.0, max_x: 1000.0,
-    min_y: 0.0, max_y: 1000.0, 
-    min_z: 0.0, max_z: 1000.0,
-};
-
-let mut quadtree = RegionQuadTree::new(region_bounds);
-
-// Add players to the spatial index
-quadtree.upsert_player(player1_id, Position::new(100.0, 150.0, 200.0));
-quadtree.upsert_player(player2_id, Position::new(300.0, 450.0, 100.0));
-quadtree.upsert_player(player3_id, Position::new(750.0, 200.0, 600.0));
-
-// Efficient radius queries for subscription calculations
-let query_center = Position::new(200.0, 200.0, 200.0);
-let nearby_players = quadtree.query_radius(query_center, 150.0);
-
-for result in nearby_players {
-    println!("Player {} at distance {:.1}", result.player_id, result.distance);
-    // Use distance to determine appropriate replication priority
-}
-```
-
-The quadtree implementation includes sophisticated optimization features such as spatial locality preservation, cache-friendly memory layouts, and predictive subdivision that anticipates player movement patterns. These optimizations ensure that spatial queries remain fast even in dense player clusters or rapidly changing scenarios.
-
-### Advanced Spatial Queries
-
-The spatial query system supports complex filtering and search patterns that enable sophisticated subscription logic. Rather than simple radius-based queries, the system supports multi-criteria searches that can filter results based on relationships, interests, and other game-specific factors.
-
-```rust
-// Create a complex spatial query with multiple filters
-let team_members: HashSet<PlayerId> = vec![teammate1_id, teammate2_id].into_iter().collect();
-let query = SpatialQuery {
-    center: Position::new(300.0, 300.0, 300.0),
-    radius: 200.0,
-    filters: QueryFilters {
-        max_results: Some(10),           // Limit results for performance
-        min_distance: Some(25.0),        // Exclude very close objects
-        include_players: Some(team_members), // Only team members
-        exclude_players: None,           // No specific exclusions
-    },
-};
-
-let filtered_results = quadtree.query(&query);
-for result in filtered_results {
-    println!("Team member {} at distance {:.1}", result.player_id, result.distance);
-    // Enhanced subscription priority for team members
-}
-```
-
-The query system integrates with the subscription management to provide real-time spatial awareness for all subscription decisions. When players move, the system efficiently recalculates affected subscriptions without requiring full spatial rebuilds.
-
-### Multi-Region Spatial Management
-
-For large game worlds spanning multiple regions, GORC provides a spatial partition manager that coordinates multiple quadtrees and handles cross-region queries seamlessly.
-
-```rust
-let partition = SpatialPartition::new();
-
-// Add multiple game regions with their own spatial characteristics
-partition.add_region("combat_zone".to_string(), combat_bounds).await;
-partition.add_region("mining_sector".to_string(), mining_bounds).await;
-partition.add_region("trade_hub".to_string(), trade_bounds).await;
-
-// Players can move between regions seamlessly
-partition.update_player_position(
+subscription_manager.add_relationship(
     player_id,
-    Position::new(500.0, 300.0, 200.0),
-    "combat_zone".to_string(),
+    "guild".to_string(),
+    guild_member_ids,
 ).await;
 
-// Cross-region queries for players near region boundaries
-let cross_region_results = partition.get_nearby_players(
-    Position::new(999.0, 500.0, 500.0), // Near region boundary
-    100.0,                               // Search radius spans regions
-    Some(20),                           // Limit results
-).await;
-
-// System automatically queries relevant regions and merges results
-for result in cross_region_results {
-    println!("Cross-region player {} at distance {:.1}", result.player_id, result.distance);
-}
+// Guild members get enhanced metadata updates for social features
+// Names, achievements, and status information propagate more reliably
 ```
 
-The multi-region system handles complex scenarios such as players standing near region boundaries who need to receive updates from multiple regions simultaneously. The partition manager automatically determines which regions need to be queried and efficiently merges results while maintaining distance-based sorting and filtering.
+Social relationships override pure distance-based calculations. Team members receive critical updates about each other across much larger distances than strangers. Guild members see enhanced social information that helps maintain community bonds even in large game worlds.
 
 ## Event System Integration
 
-GORC integrates seamlessly with the broader Horizon Event System, providing specialized event types for object replication while maintaining compatibility with the general event architecture. This integration allows GORC to leverage the event system's reliability, performance, and plugin ecosystem.
+GORC's integration with the Horizon Event System creates a comprehensive communication infrastructure that handles both discrete events and continuous state synchronization. This integration enables sophisticated gameplay patterns that wouldn't be possible with either system alone.
 
-### GORC Event Processing
+### Instance-Specific Event Handling
 
-The GORC event system extends the base event architecture with specialized handling for object replication events. These events carry additional metadata about replication channels, priorities, and spatial context that enables sophisticated routing and filtering decisions.
+The event system can target specific object instances, allowing for precise event delivery and object-specific behavior:
 
 ```rust
-use horizon_event_system::*;
-
-// Register handlers for specific object types and channels
-events.on_gorc("Asteroid", 0, "position_update", |event: GorcEvent| {
-    println!("Critical asteroid position update for {}", event.object_id);
-    
-    // Parse the position data with appropriate error handling
-    if let Ok(position_data) = serde_json::from_slice::<serde_json::Value>(&event.data) {
-        if let Some(position) = position_data.get("position") {
-            // Process position update with critical priority
-            process_critical_position_update(&event.object_id, position)?;
+// Register handlers that have direct access to object instances
+events.on_gorc_instance("SpaceShip", 0, "collision_detected", 
+    |event: GorcEvent, ship_instance: &mut ObjectInstance| {
+        if let Some(ship) = ship_instance.get_object_mut::<SpaceShip>() {
+            // Direct access to the ship object for immediate response
+            ship.apply_collision_damage(event.collision_force);
+            ship.trigger_emergency_systems();
+            
+            // Update physics state immediately
+            ship.velocity = ship.velocity * 0.5; // Reduce velocity after collision
+            
+            println!("Ship {} took collision damage: {} hull integrity remaining", 
+                     event.object_id, ship.health);
         }
+        Ok(())
     }
-    
-    Ok(())
-}).await?;
+).await?;
 
-// Handle detailed channel updates for visual feedback
-events.on_gorc("Asteroid", 1, "rotation_update", |event: GorcEvent| {
-    println!("Asteroid {} rotation update on detailed channel", event.object_id);
-    
-    // Lower priority processing for visual updates
-    if let Ok(rotation_data) = serde_json::from_slice::<serde_json::Value>(&event.data) {
-        update_asteroid_visual_state(&event.object_id, &rotation_data)?;
-    }
-    
-    Ok(())
-}).await?;
-
-// Metadata channel for strategic information
-events.on_gorc("Asteroid", 3, "composition_discovered", |event: GorcEvent| {
-    println!("New mineral composition discovered in {}", event.object_id);
-    
-    // Process discovery information for strategic planning
-    if let Ok(composition_data) = serde_json::from_slice::<serde_json::Value>(&event.data) {
-        update_strategic_information(&event.object_id, &composition_data)?;
-    }
-    
-    Ok(())
-}).await?;
-```
-
-The event handlers can be registered with varying levels of specificity, from broad object type handlers that process all events for a type, to highly specific handlers that only process particular event types on specific channels. This flexibility allows plugins to subscribe to exactly the information they need without processing irrelevant updates.
-
-### Event Emission and Distribution
-
-GORC events are emitted through the same reliable infrastructure as other event types, but with additional routing logic that considers spatial relationships, subscription patterns, and network priorities.
-
-```rust
-// Emit a critical position update that will be distributed based on subscriptions
-let position_data = serde_json::json!({
-    "position": {"x": 150.0, "y": 200.0, "z": 300.0},
-    "velocity": {"x": 5.0, "y": 0.0, "z": -2.0}
-});
-
-events.emit_gorc("Asteroid", 0, "position_update", &GorcEvent {
-    object_id: "asteroid_mining_001".to_string(),
-    object_type: "Asteroid".to_string(),
+// Emit events for specific object instances
+events.emit_gorc_instance(ship_id, 0, "collision_detected", &GorcEvent {
+    object_id: ship_id.to_string(),
+    object_type: "SpaceShip".to_string(),
     channel: 0,
-    data: serde_json::to_vec(&position_data)?,
+    data: serde_json::to_vec(&collision_data)?,
     priority: "Critical".to_string(),
     timestamp: current_timestamp(),
 }).await?;
+```
 
-// Emit a metadata update with wider distribution but lower priority
-let composition_data = serde_json::json!({
-    "mineral_type": "Platinum",
-    "purity": 0.85,
-    "estimated_yield": 15000
+This pattern enables immediate, local responses to events while still broadcasting the information to other relevant systems. The collision handler can instantly update the ship's state while other systems receive the event for their own processing needs.
+
+### Cross-System Event Propagation
+
+Events can flow seamlessly between the traditional event system and GORC, enabling complex interactions between discrete actions and continuous state:
+
+```rust
+// Traditional event triggers GORC state changes
+events.on_client("weapons", "fire_torpedo", |event: RawClientMessageEvent| {
+    let torpedo_data = parse_torpedo_launch(&event.data)?;
+    
+    // Create a new torpedo object in GORC
+    let torpedo = Torpedo::new(torpedo_data.position, torpedo_data.target);
+    let torpedo_id = gorc_system.register_object(torpedo, torpedo_data.position).await;
+    
+    // Emit GORC event for the torpedo launch
+    events.emit_gorc_instance(torpedo_id, 0, "torpedo_launched", &GorcEvent {
+        object_id: torpedo_id.to_string(),
+        object_type: "Torpedo".to_string(),
+        channel: 0,
+        data: serde_json::to_vec(&torpedo_data)?,
+        priority: "Critical".to_string(),
+        timestamp: current_timestamp(),
+    }).await?;
+    
+    Ok(())
+}).await?;
+
+// GORC events can trigger traditional events
+events.on_gorc_instance("Torpedo", 0, "impact_detected", 
+    |event: GorcEvent, torpedo_instance: &mut ObjectInstance| {
+        // Process the impact through traditional event system
+        let explosion_event = ExplosionEvent {
+            position: torpedo_instance.object.position(),
+            blast_radius: 100.0,
+            damage: 50.0,
+            timestamp: current_timestamp(),
+        };
+        
+        // Note: In actual implementation, you'd need to emit this through 
+        // the event system reference, which would require additional architecture
+        println!("Torpedo {} exploded at {:?}", event.object_id, explosion_event.position);
+        
+        Ok(())
+    }
+).await?;
+```
+
+This seamless integration means that developers can choose the right communication pattern for each situation without being locked into a single approach.
+
+## Performance Monitoring and Optimization
+
+GORC provides comprehensive monitoring tools that help developers understand system behavior and optimize performance for their specific use cases. The monitoring system tracks everything from network utilization to spatial query performance, providing actionable insights for optimization.
+
+### Real-Time Performance Metrics
+
+The system continuously collects detailed metrics about all aspects of its operation:
+
+```rust
+// Monitor the complete GORC system performance
+let monitor = HorizonMonitor::with_gorc(events.clone(), Arc::new(gorc_system.clone()));
+
+// Generate comprehensive performance reports
+let report = monitor.generate_report().await;
+
+println!("System Health Score: {:.1}/10", report.system_health * 10.0);
+if let Some(gorc_perf) = &report.gorc_performance {
+    println!("Network Utilization: {:.1}%", gorc_perf.network_utilization * 100.0);
+    println!("Active Objects: {}", gorc_perf.total_objects);
+    println!("Total Subscriptions: {}", gorc_perf.total_subscriptions);
+}
+
+// Check for performance issues
+if let Some(gorc_perf) = &report.gorc_performance {
+    if gorc_perf.updates_dropped > 0 {
+        println!("Warning: {} updates were dropped due to bandwidth limits", gorc_perf.updates_dropped);
+    }
+    
+    if gorc_perf.avg_batch_size < 5.0 {
+        println!("Info: Low batch efficiency - consider adjusting batch size limits");
+    }
+}
+
+// Get specific recommendations for improvement
+if !report.is_healthy() {
+    println!("System recommendations:");
+    for recommendation in report.get_recommendations() {
+        println!("  - {}", recommendation);
+    }
+}
+```
+
+The monitoring system tracks dozens of metrics across all subsystems, from low-level network statistics to high-level gameplay metrics. This comprehensive view helps developers identify bottlenecks and optimization opportunities that might not be obvious from looking at individual components.
+
+### Automated Performance Tuning
+
+GORC can automatically adjust its behavior based on observed performance characteristics:
+
+```rust
+// Configure automatic performance tuning
+let mut gorc_config = GorcConfig {
+    adaptive_frequency: true,        // Automatically adjust update frequencies
+    load_threshold: 0.8,            // Start optimizations at 80% capacity
+    max_total_bandwidth: 100 * 1024 * 1024, // 100 MB/s total
+    default_compression_enabled: true,
+    adaptive_scale_factor: 0.2,     // How aggressively to scale under load
+    // ... other settings
+};
+
+// The system monitors its own performance and adapts
+loop {
+    gorc_system.tick().await?;
+    
+    // Automatic optimization happens internally
+    // Frequencies may be reduced, compression increased, or zones resized
+    // based on current performance characteristics
+    
+    tokio::time::sleep(Duration::from_millis(16)).await;
+}
+```
+
+The automatic tuning system makes gradual adjustments to maintain stable performance as conditions change. Rather than requiring manual intervention when player counts spike or network conditions degrade, GORC smoothly adapts its behavior to maintain the best possible player experience within available resources.
+
+## Advanced Use Cases and Patterns
+
+GORC's flexible architecture supports sophisticated gameplay patterns that would be difficult or impossible to implement with traditional replication systems. These advanced patterns showcase the system's ability to handle complex, real-world game requirements.
+
+### Large-Scale Battle Scenarios
+
+In massive multiplayer battles with hundreds of participants, GORC can dynamically adjust replication strategies to maintain performance while preserving gameplay quality:
+
+```rust
+// Battle-optimized object configuration
+impl GorcObject for BattleCruiser {
+    fn get_layers(&self) -> Vec<ReplicationLayer> {
+        let player_count_nearby = self.estimate_nearby_players();
+        
+        if player_count_nearby > 50 {
+            // High-density battle configuration: shorter ranges, lower frequencies
+            vec![
+                ReplicationLayer::new(0, 100.0, 15.0,  // Reduced from 30Hz to 15Hz
+                    vec!["position".to_string(), "health".to_string()],
+                    CompressionType::Delta),
+                ReplicationLayer::new(3, 1000.0, 1.0,  // Reduced metadata updates
+                    vec!["captain_name".to_string()],
+                    CompressionType::High),
+            ]
+        } else {
+            // Standard configuration for smaller engagements
+            vec![
+                ReplicationLayer::new(0, 200.0, 30.0,
+                    vec!["position".to_string(), "health".to_string(), "shield_status".to_string()],
+                    CompressionType::Delta),
+                ReplicationLayer::new(1, 500.0, 15.0,
+                    vec!["weapon_systems".to_string(), "crew_status".to_string()],
+                    CompressionType::Lz4),
+                ReplicationLayer::new(3, 2000.0, 2.0,
+                    vec!["captain_name".to_string(), "fleet_affiliation".to_string()],
+                    CompressionType::High),
+            ]
+        }
+    }
+}
+```
+
+This adaptive configuration ensures that large battles remain playable by automatically reducing the information density when many players are present, while providing rich detail during smaller engagements.
+
+### Persistent World Streaming
+
+For games with vast, persistent worlds, GORC can stream content dynamically as players explore:
+
+```rust
+// Region-based content streaming
+struct GalaxyRegion {
+    region_id: RegionId,
+    star_systems: Vec<StarSystem>,
+    trade_routes: Vec<TradeRoute>,
+    points_of_interest: Vec<PointOfInterest>,
+}
+
+impl GorcObject for GalaxyRegion {
+    fn get_layers(&self) -> Vec<ReplicationLayer> {
+        vec![
+            // Critical: Navigation hazards and immediate threats
+            ReplicationLayer::new(0, 1000.0, 5.0,
+                vec!["navigation_hazards".to_string(), "active_conflicts".to_string()],
+                CompressionType::Lz4),
+            
+            // Metadata: Rich world information for exploration
+            ReplicationLayer::new(3, 50000.0, 0.1,  // Very large radius, very low frequency
+                vec!["star_systems".to_string(), "trade_routes".to_string(), "points_of_interest".to_string()],
+                CompressionType::High),
+        ]
+    }
+    
+    fn get_priority(&self, observer_pos: Vec3) -> ReplicationPriority {
+        // Regions are always low priority but cover huge areas
+        ReplicationPriority::Low
+    }
+}
+```
+
+Galaxy regions use extremely large metadata zones that can span light-years, providing exploration information across vast distances while using minimal bandwidth through very low update frequencies and aggressive compression.
+
+### Social and Economic Systems
+
+GORC excels at managing complex social and economic interactions that span different scales and timeframes:
+
+```rust
+// Market hub with dynamic information flow
+struct TradingHub {
+    position: Vec3,
+    active_markets: Vec<Market>,
+    price_trends: HashMap<String, PriceTrend>,
+    trader_reputations: HashMap<PlayerId, TraderReputation>,
+    recent_transactions: Vec<Transaction>,
+}
+
+impl GorcObject for TradingHub {
+    fn get_layers(&self) -> Vec<ReplicationLayer> {
+        vec![
+            // Critical: Real-time market data for active traders
+            ReplicationLayer::new(0, 500.0, 10.0,
+                vec!["active_markets".to_string(), "recent_transactions".to_string()],
+                CompressionType::Lz4),
+            
+            // Metadata: Economic intelligence for strategic planning
+            ReplicationLayer::new(3, 10000.0, 1.0,
+                vec!["price_trends".to_string(), "trader_reputations".to_string()],
+                CompressionType::High),
+        ]
+    }
+}
+```
+
+Trading hubs provide real-time market data to nearby traders while broadcasting economic intelligence across large regions for strategic planning. The system automatically balances the need for immediate market information with the broader economic context that affects long-term decisions.
+
+## Integration and Deployment
+
+GORC is designed to integrate smoothly with existing game server architectures while providing clear migration paths for projects that want to adopt its advanced features gradually.
+
+### Hybrid Deployment Strategies
+
+You can start using GORC for specific object types while keeping existing replication systems for others:
+
+```rust
+// Gradually migrate to GORC object by object
+let (events, mut gorc_system) = create_complete_horizon_system(server_context)?;
+
+// Use GORC for dynamic objects that benefit from zone-based replication
+let ship_id = gorc_system.register_object(my_spaceship, ship_position).await;
+let station_id = gorc_system.register_object(my_station, station_position).await;
+
+// Keep using traditional events for discrete actions
+events.on_client("actions", "dock_request", |event: RawClientMessageEvent| {
+    handle_docking_request(event.player_id, &event.data).await?;
+    Ok(())
+}).await?;
+
+// Bridge between systems as needed - note: this requires additional architecture
+// to access gorc_system from within event handlers
+events.on_plugin("docking", "dock_completed", |event: DockCompletedEvent| {
+    // In a real implementation, you'd need to pass gorc_system reference
+    // or use a different architectural pattern to update GORC objects
+    println!("Dock completed for ship {}", event.ship_id);
+    Ok(())
+}).await?;
+```
+
+This hybrid approach allows teams to gain experience with GORC's benefits while minimizing disruption to existing systems. Objects can be migrated to GORC one at a time as developers become comfortable with the new patterns.
+
+### Production Deployment Considerations
+
+GORC includes features specifically designed for production deployment and operations:
+
+```rust
+// Production configuration with monitoring and alerting
+let production_config = NetworkConfig {
+    max_bandwidth_per_player: 256 * 1024,  // Conservative bandwidth limits
+    max_batch_size: 30,
+    compression_enabled: true,
+    compression_threshold: 64,              // Aggressive compression
+    adaptive_frequency: true,               // Enable automatic optimization
+    // ... other production settings
+};
+
+// Set up monitoring and alerting
+let monitor = HorizonMonitor::with_gorc(events.clone(), gorc_system.clone());
+
+tokio::spawn(async move {
+    loop {
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        
+        let alerts = monitor.should_alert().await;
+        if !alerts.is_empty() {
+            for alert in alerts {
+                send_alert_to_operations_team(&alert).await;
+            }
+        }
+        
+        let report = monitor.generate_report().await;
+        log_performance_metrics(&report).await;
+    }
 });
-
-events.emit_gorc("Asteroid", 3, "composition_update", &GorcEvent {
-    object_id: "asteroid_mining_001".to_string(),
-    object_type: "Asteroid".to_string(), 
-    channel: 3,
-    data: serde_json::to_vec(&composition_data)?,
-    priority: "Low".to_string(),
-    timestamp: current_timestamp(),
-}).await?;
 ```
 
-The emission system automatically handles the complex routing logic, determining which players should receive each event based on their current subscriptions, spatial relationships, and network capacity. Events are queued and prioritized according to their channel characteristics and current network conditions.
+The monitoring and alerting system helps operations teams identify issues before they affect players, while the automatic optimization features help maintain stable performance even under unexpected load conditions.
 
-### Plugin Integration Patterns
+## Future Possibilities
 
-GORC enables sophisticated plugin architectures where different plugins can handle different aspects of object replication without interfering with each other. A mining plugin might handle asteroid composition events, while a physics plugin handles position updates, and a graphics plugin handles visual effect events.
+GORC's architecture is designed to evolve with advancing technology and changing game development needs. The system's modular design and clean interfaces make it possible to add new capabilities without disrupting existing functionality.
 
-```rust
-// Mining plugin registers for resource-related events
-events.on_gorc("Asteroid", 3, "composition_discovered", |event: GorcEvent| {
-    // Update mining databases and strategic information
-    mining_system::update_resource_database(&event.object_id, &event.data)?;
-    Ok(())
-}).await?;
+The spatial intelligence system could be enhanced with machine learning capabilities that predict player behavior patterns and optimize replication strategies automatically. Advanced compression techniques could reduce bandwidth requirements further while maintaining information fidelity. Cross-server replication could enable truly massive game worlds that span multiple physical servers seamlessly.
 
-// Physics plugin registers for movement-related events  
-events.on_gorc("Asteroid", 0, "collision_imminent", |event: GorcEvent| {
-    // Handle collision predictions and physics calculations
-    physics_system::process_collision_warning(&event.object_id, &event.data)?;
-    Ok(())
-}).await?;
-
-// Graphics plugin registers for visual events
-events.on_gorc("Asteroid", 2, "visual_effect", |event: GorcEvent| {
-    // Handle particle effects and visual updates
-    graphics_system::update_visual_effects(&event.object_id, &event.data)?;
-    Ok(())
-}).await?;
-```
-
-This plugin architecture enables modular game development where different teams can work on different aspects of the game without tight coupling, while the GORC system ensures that all relevant information flows correctly between systems.
-
-## Performance Monitoring and Statistics
-
-GORC includes comprehensive performance monitoring capabilities that provide detailed insights into system behavior, network usage, and optimization opportunities. The statistics system tracks both high-level metrics for overall system health and detailed metrics for identifying specific performance bottlenecks.
-
-### Channel-Level Statistics
-
-Each replication channel maintains detailed statistics about its operation, including update frequencies, data volumes, and subscriber counts. These metrics enable real-time monitoring and help identify channels that may need configuration adjustments.
-
-```rust
-// Access channel statistics for monitoring
-let mut critical_channel = ReplicationChannel::new(
-    0, "Critical".to_string(), 
-    "Essential game state".to_string(),
-    (30.0, 60.0)
-);
-
-// After some operation time, examine channel performance
-let stats = &critical_channel.stats;
-println!("Critical Channel Performance:");
-println!("  Updates sent: {}", stats.updates_sent);
-println!("  Bytes transmitted: {}", stats.bytes_transmitted);
-println!("  Current subscribers: {}", stats.subscriber_count);
-println!("  Average frequency: {:.1} Hz", stats.avg_frequency);
-
-// Calculate derived metrics
-let avg_update_size = if stats.updates_sent > 0 {
-    stats.bytes_transmitted / stats.updates_sent
-} else {
-    0
-};
-println!("  Average update size: {} bytes", avg_update_size);
-```
-
-The channel statistics enable administrators to identify performance issues such as channels that are transmitting more data than expected, channels with unexpectedly low subscriber counts, or channels that are falling behind their target frequencies due to processing constraints.
-
-### Global GORC System Statistics
-
-The GorcManager provides system-wide statistics that offer a high-level view of overall GORC performance and resource utilization.
-
-```rust
-let gorc_manager = GorcManager::new();
-
-// Collect comprehensive system statistics
-let global_stats = gorc_manager.get_stats().await;
-println!("GORC System Overview:");
-println!("  Total active subscriptions: {}", global_stats.total_subscriptions);
-println!("  Total bytes transmitted: {}", global_stats.total_bytes_transmitted);
-println!("  Average update frequency: {:.1} Hz", global_stats.avg_update_frequency);
-println!("  Active multicast groups: {}", global_stats.multicast_groups);
-println!("  Memory usage: {} MB", global_stats.memory_usage / (1024 * 1024));
-
-// Calculate system efficiency metrics
-let bytes_per_subscription = if global_stats.total_subscriptions > 0 {
-    global_stats.total_bytes_transmitted / global_stats.total_subscriptions as u64
-} else {
-    0
-};
-println!("  Average bytes per subscription: {}", bytes_per_subscription);
-```
-
-These global statistics help identify system-wide trends and capacity planning needs. Administrators can use this information to determine when additional server resources are needed or when system configurations should be adjusted to handle changing player populations.
-
-### Subscription System Performance
-
-The subscription management system provides detailed metrics about the efficiency of different subscription types and the overall effectiveness of the filtering algorithms.
-
-```rust
-let subscription_manager = SubscriptionManager::new();
-
-// Monitor subscription system performance
-let sub_stats = subscription_manager.get_stats().await;
-println!("Subscription System Performance:");
-println!("  Proximity subscriptions: {}", sub_stats.proximity_subscriptions);
-println!("  Relationship subscriptions: {}", sub_stats.relationship_subscriptions);
-println!("  Interest subscriptions: {}", sub_stats.interest_subscriptions);
-println!("  Proximity recalculations: {}", sub_stats.proximity_recalculations);
-println!("  Average update time: {} μs", sub_stats.avg_update_time_us);
-
-// Calculate subscription efficiency
-let total_subscriptions = sub_stats.proximity_subscriptions + 
-                         sub_stats.relationship_subscriptions + 
-                         sub_stats.interest_subscriptions;
-println!("  Total managed subscriptions: {}", total_subscriptions);
-```
-
-The subscription statistics help identify the effectiveness of different subscription strategies and can guide optimization efforts. High recalculation rates might indicate that movement thresholds need adjustment, while low subscription counts might suggest that subscription radii are too restrictive.
-
-### Spatial Partitioning Performance
-
-The spatial partitioning system tracks query performance and memory utilization to ensure that spatial operations remain efficient as player populations grow.
-
-```rust
-let spatial_partition = SpatialPartition::new();
-
-// Monitor spatial system performance across all regions
-let spatial_stats = spatial_partition.get_global_stats().await;
-println!("Spatial Partitioning Performance:");
-println!("  Total regions: {}", spatial_stats.total_regions);
-println!("  Total indexed players: {}", spatial_stats.total_players);
-println!("  Total spatial queries: {}", spatial_stats.total_queries);
-println!("  Average players per region: {:.1}", spatial_stats.avg_players_per_region);
-println!("  Estimated memory usage: {} KB", spatial_stats.memory_usage_bytes / 1024);
-
-// Performance indicators
-if spatial_stats.total_regions > 0 {
-    let players_per_region = spatial_stats.total_players / spatial_stats.total_regions;
-    if players_per_region > 1000 {
-        println!("  Warning: High player density may impact query performance");
-    }
-}
-```
-
-Spatial statistics help identify when quadtree regions are becoming too dense and need subdivision, or when regions are too sparse and could be merged for better memory efficiency.
-
-## Configuration and Optimization Strategies
-
-GORC provides extensive configuration options that allow developers to tune system behavior for their specific game requirements, network conditions, and performance targets. Understanding these configuration options is crucial for achieving optimal performance in production environments.
-
-### Channel Configuration Strategies
-
-Different game types and scenarios benefit from different channel configurations. The static channel system provides a solid foundation, but the specific frequency ranges and compression settings should be adjusted based on game requirements.
-
-```rust
-// High-action game configuration - emphasizes responsiveness
-let high_action_critical = ReplicationLayer::new(
-    0,                                    // Critical channel
-    75.0,                                // Smaller radius for intense focus
-    60.0,                                // Maximum frequency for responsiveness
-    vec!["position".to_string(), "health".to_string(), "shield".to_string()],
-    CompressionType::Delta,              // Minimal compression for speed
-);
-
-// Strategic game configuration - emphasizes information richness
-let strategic_detailed = ReplicationLayer::new(
-    1,                                    // Detailed channel
-    500.0,                               // Larger radius for strategic awareness
-    20.0,                                // Moderate frequency
-    vec!["position".to_string(), "unit_type".to_string(), "formation".to_string()],
-    CompressionType::Lz4,                // Balanced compression
-);
-
-// Exploration game configuration - emphasizes discovery
-let exploration_metadata = ReplicationLayer::new(
-    3,                                    // Metadata channel
-    2000.0,                              // Very large radius for exploration
-    2.0,                                 // Low frequency for persistent information
-    vec!["discovery_type".to_string(), "resource_value".to_string()],
-    CompressionType::High,               // Maximum compression for large radius
-);
-```
-
-The key to effective channel configuration is understanding the gameplay implications of different settings. Fast-paced action games need higher frequencies and lower latencies, while strategic games can tolerate lower frequencies in exchange for more comprehensive information coverage.
-
-### Subscription Optimization Patterns
-
-The subscription system benefits from careful tuning of movement thresholds, relationship priorities, and interest decay rates to match player behavior patterns in specific games.
-
-```rust
-// Configure subscription thresholds for different game paces
-let mut fast_paced_proximity = ProximitySubscription::new(Position::new(0.0, 0.0, 0.0));
-fast_paced_proximity.movement_threshold = 2.0; // Frequent updates for fast movement
-
-let mut strategic_proximity = ProximitySubscription::new(Position::new(0.0, 0.0, 0.0));
-strategic_proximity.movement_threshold = 10.0; // Less frequent updates for deliberate movement
-
-// Adjust relationship priorities based on game social structures
-let mut competitive_team = RelationshipSubscription::new("team".to_string());
-// Competitive games need very high team coordination
-competitive_team.channel_priorities.insert(0, ReplicationPriority::Critical);
-competitive_team.channel_priorities.insert(1, ReplicationPriority::Critical);
-
-let mut casual_guild = RelationshipSubscription::new("guild".to_string());
-// Casual games can use normal priorities for guild members
-casual_guild.channel_priorities.insert(0, ReplicationPriority::Normal);
-casual_guild.channel_priorities.insert(3, ReplicationPriority::High);
-```
-
-Subscription optimization also involves careful consideration of the player population and typical engagement patterns. Games with very large numbers of players may need more aggressive filtering, while smaller, more intimate games can afford more generous subscription patterns.
-
-### Spatial Partitioning Tuning
-
-The spatial partitioning system performance depends heavily on the region sizes and subdivision thresholds, which should be configured based on typical player distribution patterns and movement speeds.
-
-```rust
-// Configure spatial partitioning for different world scales
-let small_world_bounds = RegionBounds {
-    min_x: -500.0, max_x: 500.0,         // 1km x 1km world
-    min_y: 0.0, max_y: 100.0,
-    min_z: -500.0, max_z: 500.0,
-};
-
-let large_world_bounds = RegionBounds {
-    min_x: -50000.0, max_x: 50000.0,     // 100km x 100km world
-    min_y: 0.0, max_y: 1000.0,
-    min_z: -50000.0, max_z: 50000.0,
-};
-
-// Small worlds can use finer spatial granularity
-let small_world_tree = RegionQuadTree::new(small_world_bounds);
-
-// Large worlds need coarser initial granularity with adaptive subdivision
-let large_world_tree = RegionQuadTree::new(large_world_bounds);
-```
-
-The spatial partitioning configuration should also consider the typical query patterns in the game. Games with frequent small-radius queries benefit from finer subdivision, while games with occasional large-radius queries work better with coarser initial partitioning.
-
-## Implementation Notes and Current Limitations
-
-The current GORC implementation provides a solid foundation for advanced replication systems but includes some areas marked for future development. Understanding these limitations helps developers plan their integration strategies and anticipate future system evolution.
-
-### Static Channel System
-
-The current implementation uses a fixed four-channel architecture that provides predictable performance characteristics and simplified client implementation. The code includes comments indicating that a dynamic channel system is planned for future releases, which would allow games to define custom channel configurations at runtime.
-
-```rust
-// Current static implementation in GorcManager::initialize_default_channels()
-// TODO: This will be deprecated in favor of the dynamic channel system
-fn initialize_default_channels(&mut self) {
-    let _default_channels: Vec<(i32, &'static str, &'static str, (f64, f64))> = vec![
-        (0, "Critical", "Essential game state", (30.0, 60.0)),
-        (1, "Detailed", "Important non-critical info", (15.0, 30.0)),
-        (2, "Cosmetic", "Visual enhancements", (5.0, 15.0)),
-        (3, "Metadata", "Informational data", (1.0, 5.0)),
-    ];
-    // Implementation currently uses static initialization
-}
-```
-
-While the static system works well for most games, future versions will support custom channel definitions, allowing games with unique requirements to define specialized replication channels with custom characteristics.
-
-### Compression System Implementation Status
-
-The compression system defines multiple compression types but the current implementation focuses primarily on JSON serialization with basic compression support. Advanced compression algorithms like delta compression and quantization are defined in the interface but may require additional implementation work for full functionality.
-
-```rust
-// Compression types are defined but implementation varies
-pub enum CompressionType {
-    None,           // Fully implemented
-    Lz4,           // Interface defined, implementation may vary
-    Zlib,          // Interface defined, implementation may vary  
-    Delta,         // Advanced feature - implementation in progress
-    Quantized,     // Advanced feature - future implementation
-    High,          // Maps to available high-compression algorithms
-    Custom(u8),    // Extension point for game-specific compression
-}
-```
-
-Developers should test compression performance in their specific scenarios and may need to implement custom compression strategies for optimal results in bandwidth-constrained environments.
-
-### Event System Integration Patterns
-
-The integration with the Horizon Event System is comprehensive, but some advanced features like cross-plugin event filtering and priority-based event queuing are still evolving. The current system provides solid basic integration with room for future enhancements.
-
-```rust
-// Current GORC event integration works well for basic scenarios
-events.on_gorc("ObjectType", 0, "event_name", |event: GorcEvent| {
-    // Handler implementation
-    Ok(())
-}).await?;
-
-// Advanced filtering and priority handling may be enhanced in future versions
-```
-
-The event system integration provides a solid foundation for plugin development, but developers building complex multi-plugin architectures should design their systems with future enhancements in mind.
-
-## Best Practices and Recommendations
-
-Successful GORC implementation requires careful consideration of game-specific requirements and systematic optimization based on actual usage patterns. These best practices are derived from the system architecture and anticipated usage scenarios.
-
-### Channel Assignment Strategy
-
-Assign data to channels based on gameplay impact rather than data type. Critical channels should contain only information that directly affects player decision-making and game fairness, while other channels can handle information that enhances the experience but doesn't affect core gameplay.
-
-```rust
-// Good: Assign based on gameplay impact
-// Critical channel - affects immediate gameplay decisions
-vec!["position".to_string(), "health".to_string(), "collision_state".to_string()]
-
-// Detailed channel - enhances experience but not immediately critical  
-vec!["animation_state".to_string(), "weapon_readiness".to_string()]
-
-// Bad: Assign based on data type
-// Don't put all position data in critical regardless of importance
-```
-
-Consider the temporal requirements of different information types. Data that becomes stale quickly should use higher frequencies, while persistent information can use lower frequencies with higher compression ratios.
-
-### Subscription Pattern Optimization
-
-Design subscription patterns around actual player behavior rather than theoretical maximum ranges. Use telemetry and analytics to understand how players actually interact with the game world and tune subscription parameters accordingly.
-
-```rust
-// Monitor actual interaction patterns
-let interaction_radius = analyze_player_interaction_patterns();
-let subscription_radius = interaction_radius * 1.5; // Add buffer for prediction
-
-// Adjust thresholds based on movement patterns
-let movement_threshold = if game_pace == GamePace::Fast {
-    average_movement_speed * 0.1  // More sensitive for fast games
-} else {
-    average_movement_speed * 0.5  // Less sensitive for strategic games
-};
-```
-
-Implement gradual subscription changes rather than hard cutoffs to prevent subscription thrashing in boundary conditions. Use hysteresis and prediction to smooth subscription transitions.
-
-### Performance Monitoring Integration
-
-Integrate GORC statistics with existing monitoring infrastructure to enable proactive performance management. Set up alerts for key metrics that indicate system stress or configuration problems.
-
-```rust
-// Example monitoring integration
-async fn monitor_gorc_health(gorc_manager: &GorcManager) -> Result<(), MonitoringError> {
-    let stats = gorc_manager.get_stats().await;
-    
-    // Alert on high bandwidth usage
-    if stats.total_bytes_transmitted > bandwidth_threshold {
-        alert_system::send_alert("GORC bandwidth usage high", &stats).await?;
-    }
-    
-    // Alert on low update frequencies
-    if stats.avg_update_frequency < minimum_frequency_threshold {
-        alert_system::send_alert("GORC update frequency degraded", &stats).await?;
-    }
-    
-    // Alert on memory usage growth
-    if stats.memory_usage > memory_threshold {
-        alert_system::send_alert("GORC memory usage high", &stats).await?;
-    }
-    
-    Ok(())
-}
-```
-
-Regular monitoring helps identify performance trends before they become critical issues and provides the data needed for informed optimization decisions.
-
-The GORC system represents a sophisticated approach to multiplayer game state replication that balances performance, scalability, and developer usability. By providing fine-grained control over information distribution while maintaining a clean, extensible architecture, GORC enables developers to build rich, responsive multiplayer experiences that scale effectively with player populations and world complexity. The system's integration with the broader Horizon Event System ensures that GORC benefits from ongoing improvements in event processing, plugin architecture, and performance optimization while maintaining compatibility with existing game development workflows.
+The event system integration could be extended to support more sophisticated event routing patterns, enabling complex distributed game logic that spans multiple servers or even multiple game worlds. Enhanced social awareness could create replication strategies that adapt to player community structures and interaction patterns in real-time.
