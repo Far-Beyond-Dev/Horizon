@@ -58,12 +58,19 @@ RUN addgroup -g ${UID} appgroup && \
 RUN mkdir -p /app && chown appuser:appgroup /app
 
 # Copy plugins directory if it exists
-COPY plugins/ /app/plugins/
-RUN chown -R appuser:appgroup /app/plugins || true
+RUN if [ -d plugins ]; then cp -r plugins /app/plugins; fi
+RUN if [ -d /app/plugins ]; then chown -R appuser:appgroup /app/plugins; fi
 
 # Copy config.toml if it exists, otherwise create an empty one
-COPY config.toml /app/config.toml
-RUN chown appuser:appgroup /app/config.toml && chmod 600 /app/config.toml || touch /app/config.toml && chown appuser:appgroup /app/config.toml && chmod 600 /app/config.toml
+RUN if [ -f config.toml ]; then \
+  cp config.toml /app/config.toml && \
+  chown appuser:appgroup /app/config.toml && \
+  chmod 600 /app/config.toml; \
+    else \
+  touch /app/config.toml && \
+  chown appuser:appgroup /app/config.toml && \
+  chmod 600 /app/config.toml; \
+    fi
 
 # Copy the executable from the "build" stage.
 COPY --from=build /app/server /app/server
