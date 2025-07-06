@@ -12,7 +12,9 @@ WORKDIR /app
 RUN apk add --no-cache clang lld musl-dev git
 
 # Copy workspace configuration first for better caching
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
+# Only copy Cargo.lock if it exists
+RUN if [ -f Cargo.lock ]; then cp Cargo.lock .; fi
 
 # Copy all crate directories
 COPY crates/ ./crates/
@@ -22,7 +24,11 @@ COPY examples/ ./examples/
 RUN --mount=type=cache,target=/app/target/ \
     --mount=type=cache,target=/usr/local/cargo/git/db \
     --mount=type=cache,target=/usr/local/cargo/registry/ \
-    cargo build --locked --release --package horizon && \
+    if [ -f Cargo.lock ]; then \
+      cargo build --locked --release --package horizon; \
+    else \
+      cargo build --release --package horizon; \
+    fi && \
     cp ./target/release/horizon /bin/server
 
 ################################################################################
