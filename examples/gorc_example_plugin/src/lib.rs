@@ -490,7 +490,7 @@ mod tests {
     async fn test_object_registration() {
         let registry = Arc::new(GorcObjectRegistry::new());
 
-        Player::register_with_gorc(registry.clone()).await.unwrap();9
+        Player::register_with_gorc(registry.clone()).await.unwrap();
         Asteroid::register_with_gorc(registry.clone()).await.unwrap();
         
         let objects = registry.list_objects().await;
