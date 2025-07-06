@@ -63,4 +63,4 @@ USER appuser
 # Expose the port that the application listens on.
 EXPOSE 8080
 
-# What the container
+ENTRYPOINT [ "/bin/server" ]
