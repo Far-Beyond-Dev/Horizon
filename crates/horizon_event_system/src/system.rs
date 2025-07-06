@@ -558,7 +558,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
     {
-        let event_key = format!("gork:{}:{}:{}", object_type, channel, event_name);
+        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
@@ -627,7 +627,7 @@ impl EventSystem {
     where
         T: Event,
     {
-        let event_key = format!("gork:{}:{}:{}", object_type, channel, event_name);
+        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
         self.emit_event(&event_key, event).await
     }
 }
