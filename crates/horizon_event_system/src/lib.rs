@@ -192,7 +192,7 @@ pub use gorc::{
     // Constants
     GORC_VERSION, MAX_CHANNELS,
 };
-pub use gorc::system::{DetailedEventSystemStats, HandlerCategoryStats};
+pub use crate::system::{DetailedEventSystemStats, HandlerCategoryStats};
 
 // External dependencies that plugins commonly need
 pub use async_trait::async_trait;
@@ -234,7 +234,7 @@ pub fn create_complete_horizon_system(
     server_context: Arc<dyn ServerContext>
 ) -> Result<(Arc<EventSystem>, CompleteGorcSystem), gorc::GorcError> {
     let gorc_system = gorc::utils::create_complete_gorc_system(server_context)?;
-    let event_system = Arc::new(EventSystem::with_gorc(gorc_system.clone()));
+    let event_system = Arc::new(EventSystem::with_gorc(gorc_system.instance_manager.clone()));
 
     Ok((event_system, gorc_system))
 }

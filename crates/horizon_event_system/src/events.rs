@@ -25,6 +25,7 @@
 use crate::types::{PlayerId, RegionId, RegionBounds, DisconnectReason};
 use async_trait::async_trait;
 use serde::{de::{self, DeserializeOwned}, Deserialize, Serialize};
+use core::error;
 use std::{any::{Any, TypeId}, fmt::Debug};
 
 // ============================================================================
@@ -124,7 +125,7 @@ where
 /// Most users will not implement this trait directly, but instead use the
 /// `TypedEventHandler` wrapper or the registration macros.
 #[async_trait]
-pub trait EventHandler: Send + Sync + Debug {
+pub trait EventHandler: Send + Sync + 'static + Debug {
     /// Handles an event from serialized data.
     /// 
     /// # Arguments
@@ -179,6 +180,21 @@ where
     _phantom: std::marker::PhantomData<T>,
 }
 
+// Implement Clone for TypedEventHandler if F is Clone
+impl<T, F> Clone for TypedEventHandler<T, F>
+where
+    T: Event,
+    F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            handler: self.handler.clone(),
+            name: self.name.clone(),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+}
+
 impl<T, F> std::fmt::Debug for TypedEventHandler<T, F>
 where
     T: Event,
@@ -215,7 +231,7 @@ where
 impl<T, F> EventHandler for TypedEventHandler<T, F>
 where
     T: Event,
-    F: Fn(T) -> Result<(), EventError> + Send + Sync,
+    F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
 {
     async fn handle(&self, data: &[u8]) -> Result<(), EventError> {
         let event = T::deserialize(data)?;
@@ -549,4 +565,6 @@ pub enum EventError {
     /// Handler execution failed during event processing
     #[error("Handler execution error: {0}")]
     HandlerExecution(String),
+    #[error("An unexpected error occurred: {0}")]
+    Other(String),
 }

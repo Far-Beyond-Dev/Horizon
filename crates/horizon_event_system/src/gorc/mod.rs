@@ -198,7 +198,6 @@ pub mod network;
 pub mod subscription;
 pub mod multicast;
 pub mod spatial;
-pub mod system;
 
 use std::sync::Arc;
 

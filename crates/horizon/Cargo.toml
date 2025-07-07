@@ -10,7 +10,6 @@ tokio = { workspace = true }
 serde = { workspace = true }
 tracing = { workspace = true }
 futures = { workspace = true }
-tokio-tungstenite = { workspace = true }
 tracing-subscriber = { workspace = true }
 game_server = { path = "../game_server" }
 horizon_event_system = { path = "../horizon_event_system" }

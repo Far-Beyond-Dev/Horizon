@@ -5,9 +5,7 @@
 //! registration system.
 
 use horizon_event_system::{
-    create_simple_plugin, async_trait, defObject,
-    SimplePlugin, PluginError, EventSystem, ReplicationLayer, ReplicationLayers, ReplicationPriority, CompressionType, 
-    Vec3, PlayerId, Replication, GorcObjectRegistry, GorcEvent, MineralType, ServerContext,
+    async_trait, create_simple_plugin, defObject, events, CompressionType, EventSystem, GorcEvent, GorcObjectRegistry, MineralType, PlayerId, PluginError, Replication, ReplicationLayer, ReplicationLayers, ReplicationPriority, ServerContext, SimplePlugin, Vec3
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -302,25 +300,43 @@ impl GorcExamplePlugin {
     }
 
     async fn setup_gorc_handlers(&self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+
+
+
         // Register GORC event handlers for Player objects
-        events.on_gorc("Player", 0, "position_update", |event: GorcEvent| {
+        events.on_gorc_instance("Player", 0, "position_update", |event: GorcEvent, _instance| {
             info!("🎯 Player critical position update: {}", event.object_id);
             Ok(())
         }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        events.on_gorc("Player", 1, "weapon_change", |event: GorcEvent| {
-            info!("🔫 Player weapon change: {}", event.object_id);
+        events.on_gorc_instance("Player", 1, "detailed_update", |event: GorcEvent, _instance| {
+            info!("📝 Player detailed update: {}", event.object_id);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events.on_gorc_instance("Player", 2, "cosmetic_update", |event: GorcEvent, _instance| {
+            info!("💄 Player cosmetic update: {}", event.object_id);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events.on_gorc_instance("Player", 3, "metadata_update", |event: GorcEvent, _instance| {
+            info!("🆔 Player metadata update: {}", event.object_id);
             Ok(())
         }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         // Register GORC event handlers for Asteroid objects
-        events.on_gorc("Asteroid", 0, "position_update", |event: GorcEvent| {
-            debug!("🌌 Asteroid position update: {}", event.object_id);
+        events.on_gorc_instance("Asteroid", 0, "critical_update", |event: GorcEvent, _instance| {
+            debug!("🌌 Asteroid critical update: {}", event.object_id);
             Ok(())
         }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        events.on_gorc("Asteroid", 1, "mineral_scan", |event: GorcEvent| {
+        events.on_gorc_instance("Asteroid", 1, "mineral_scan", |event: GorcEvent, _instance| {
             info!("⛏️ Asteroid mineral scan: {}", event.object_id);
+            Ok(())
+        }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        events.on_gorc_instance("Asteroid", 2, "cosmetic_update", |event: GorcEvent, _instance| {
+            info!("✨ Asteroid cosmetic update: {}", event.object_id);
             Ok(())
         }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 

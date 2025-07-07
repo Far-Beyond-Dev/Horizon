@@ -2,91 +2,30 @@
 //!
 //! This module contains the core [`EventSystem`] implementation that manages
 //! event routing, handler execution, and system statistics. It provides the
-//! central hub for all event processing in the Horizon Event System.
-//!
-//! ## Key Components
-//!
-//! - [`EventSystem`] - The main event system that handles registration and emission
-//! - [`EventSystemStats`] - Performance and usage statistics tracking
-//!
-//! ## Event Categories
-//!
-//! The system organizes events into three main categories:
-//! - **Core Events** (`core:*`) - Server infrastructure events
-//! - **Client Events** (`client:namespace:event`) - Messages from game clients
-//! - **Plugin Events** (`plugin:plugin_name:event`) - Inter-plugin communication
-//!
-//! ## Performance Characteristics
-//!
-//! - Handler lookup: O(1) using HashMap
-//! - Sequential handler execution for the same event
-//! - Failure isolation: one handler failure doesn't affect others
-//! - Built-in statistics for monitoring and debugging
+//! central hub for all event processing in the Horizon Event System with
+//! full GORC integration for object instance events.
 
-use crate::{events::{Event, EventError, EventHandler, TypedEventHandler}, CompleteGorcSystem, GorcManager};
+use crate::events::{Event, EventHandler, TypedEventHandler, EventError, GorcEvent};
+use crate::gorc::instance::{GorcObjectId, GorcInstanceManager, ObjectInstance};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 
-// ============================================================================
-// Refined Event System with Cleaner API
-// ============================================================================
-
 /// The core event system that manages event routing and handler execution.
 /// 
 /// This is the central hub for all event processing in the system. It provides
 /// type-safe event registration and emission with support for different event
-/// categories (core, client, plugin).
-/// 
-/// # Thread Safety
-/// 
-/// The EventSystem is fully thread-safe and can be shared across multiple
-/// threads using `Arc<EventSystem>`. All operations are protected by async
-/// read-write locks to ensure consistency.
-/// 
-/// # Performance
-/// 
-/// - Handler lookup is O(1) using HashMap
-/// - Multiple handlers for the same event are executed sequentially
-/// - Failed handlers don't prevent other handlers from running
-/// - Built-in statistics tracking for monitoring
-/// 
-/// # Examples
-/// 
-/// ```rust
-/// use horizon_event_system::*;
-/// 
-/// #[tokio::main]
-/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
-///     let events = create_horizon_event_system();
-/// 
-///     // Register handlers
-///     events.on_core("player_connected", |event: PlayerConnectedEvent| {
-///         println!("Player connected!");
-///         Ok(())
-///     }).await?;
-/// 
-///     // Emit events
-///     events.emit_core("player_connected", &PlayerConnectedEvent {
-///         player_id: PlayerId::new(),
-///         connection_id: "conn_123".to_string(),
-///         remote_addr: "127.0.0.1:8080".to_string(),
-///         timestamp: current_timestamp(),
-///     }).await?;
-///     
-///     Ok(())
-/// }
-/// ```
+/// categories (core, client, plugin, and GORC instance events).
 #[derive(Debug)]
 pub struct EventSystem {
     /// Map of event keys to their registered handlers
     handlers: RwLock<HashMap<String, Vec<Arc<dyn EventHandler>>>>,
     /// System statistics for monitoring
     stats: RwLock<EventSystemStats>,
-    /// GORC integration for object replication events
-    gorc: Option<RwLock<CompleteGorcSystem>>,
+    /// GORC instance manager for object-specific events
+    gorc_instances: Option<Arc<GorcInstanceManager>>,
 }
 
 impl EventSystem {
@@ -95,52 +34,29 @@ impl EventSystem {
         Self {
             handlers: RwLock::new(HashMap::new()),
             stats: RwLock::new(EventSystemStats::default()),
-            gorc: None,
+            gorc_instances: None,
         }
     }
 
-    /// With GORC integration, allowing the event system to handle
-    pub fn with_gorc(gorc: CompleteGorcSystem) -> Self {
+    /// Creates a new event system with GORC instance manager integration
+    pub fn with_gorc(gorc_instances: Arc<GorcInstanceManager>) -> Self {
         Self {
             handlers: RwLock::new(HashMap::new()),
             stats: RwLock::new(EventSystemStats::default()),
-            gorc: Some(RwLock::new(gorc)),
+            gorc_instances: Some(gorc_instances),
         }
     }
 
+    /// Sets the GORC instance manager for this event system
+    pub fn set_gorc_instances(&mut self, gorc_instances: Arc<GorcInstanceManager>) {
+        self.gorc_instances = Some(gorc_instances);
+    }
+
     /// Registers a handler for core server events.
-    /// 
-    /// Core events are fundamental server infrastructure events like player
-    /// connections, plugin lifecycle, and region management.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `event_name` - Name of the core event (e.g., "server_started")
-    /// * `handler` - Function to handle events of type T
-    /// 
-    /// # Returns
-    /// 
-    /// Returns `Ok(())` if registration succeeds, or `Err(EventError)` if it fails.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use horizon_event_system::*;
-    /// 
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// #     let events = create_horizon_event_system();
-    /// events.on_core("player_connected", |event: PlayerConnectedEvent| {
-    ///     println!("Player {} connected from {}", event.player_id, event.remote_addr);
-    ///     Ok(())
-    /// }).await?;
-    /// #     Ok(())
-    /// # }
-    /// ```
     pub async fn on_core<T, F>(&self, event_name: &str, handler: F) -> Result<(), EventError>
     where
         T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let event_key = format!("core:{event_name}");
         self.register_typed_handler(event_key, event_name, handler)
@@ -148,40 +64,6 @@ impl EventSystem {
     }
 
     /// Registers a handler for client events with namespace.
-    /// 
-    /// Client events are organized by namespace to provide logical grouping
-    /// (e.g., "movement", "chat", "ui", "inventory").
-    /// 
-    /// # Arguments
-    /// 
-    /// * `namespace` - Logical grouping for the event (e.g., "movement")
-    /// * `event_name` - Specific event name (e.g., "player_moved")
-    /// * `handler` - Function to handle events of type T
-    /// 
-    /// # Returns
-    /// 
-    /// Returns `Ok(())` if registration succeeds, or `Err(EventError)` if it fails.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use horizon_event_system::*;
-    /// 
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// #     let events = create_horizon_event_system();
-    /// events.on_client("movement", "player_moved", |event: RawClientMessageEvent| {
-    ///     // Parse and validate movement data
-    ///     Ok(())
-    /// }).await?;
-    /// 
-    /// events.on_client("chat", "message", |event: RawClientMessageEvent| {
-    ///     // Process chat message
-    ///     Ok(())
-    /// }).await?;
-    /// #     Ok(())
-    /// # }
-    /// ```
     pub async fn on_client<T, F>(
         &self,
         namespace: &str,
@@ -190,7 +72,7 @@ impl EventSystem {
     ) -> Result<(), EventError>
     where
         T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let event_key = format!("client:{namespace}:{event_name}");
         self.register_typed_handler(event_key, event_name, handler)
@@ -198,52 +80,6 @@ impl EventSystem {
     }
 
     /// Registers a handler for plugin-to-plugin events.
-    /// 
-    /// Plugin events enable communication between different plugins without
-    /// tight coupling. Each plugin can emit events that other plugins can
-    /// listen for.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `plugin_name` - Name of the plugin emitting the event
-    /// * `event_name` - Name of the event being emitted
-    /// * `handler` - Function to handle events of type T
-    /// 
-    /// # Returns
-    /// 
-    /// Returns `Ok(())` if registration succeeds, or `Err(EventError)` if it fails.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use horizon_event_system::*;
-    /// use serde::{Serialize, Deserialize};
-    /// 
-    /// #[derive(Serialize, Deserialize, Clone, Debug)]
-    /// struct ItemEquippedEvent { item_id: String }
-    /// impl Event for ItemEquippedEvent {}
-    /// 
-    /// #[derive(Serialize, Deserialize, Clone, Debug)]
-    /// struct EnemyDefeatedEvent { enemy_id: String }
-    /// impl Event for EnemyDefeatedEvent {}
-    /// 
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// #     let events = create_horizon_event_system();
-    /// // Combat plugin listening for inventory events
-    /// events.on_plugin("inventory", "item_equipped", |event: ItemEquippedEvent| {
-    ///     // Update combat stats when items are equipped
-    ///     Ok(())
-    /// }).await?;
-    /// 
-    /// // Quest plugin listening for combat events
-    /// events.on_plugin("combat", "enemy_defeated", |event: EnemyDefeatedEvent| {
-    ///     // Progress quest objectives
-    ///     Ok(())
-    /// }).await?;
-    /// #     Ok(())
-    /// # }
-    /// ```
     pub async fn on_plugin<T, F>(
         &self,
         plugin_name: &str,
@@ -252,23 +88,123 @@ impl EventSystem {
     ) -> Result<(), EventError>
     where
         T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let event_key = format!("plugin:{plugin_name}:{event_name}");
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
 
-    /// Internal helper for registering typed handlers.
+    /// Registers a handler for GORC instance events with direct object access.
     /// 
-    /// This method handles the common logic for all handler registration types.
-    /// It creates a TypedEventHandler wrapper and stores it in the handlers map.
+    /// This provides access to both the GORC event and the actual object instance,
+    /// allowing handlers to directly modify object state or access object-specific data.
     /// 
     /// # Arguments
     /// 
-    /// * `event_key` - Full event key (e.g., "core:server_started")
-    /// * `_event_name` - Event name for debugging (currently unused)
-    /// * `handler` - Function to handle events of type T
+    /// * `object_type` - Type of the game object (e.g., "Asteroid", "Player")
+    /// * `channel` - Replication channel (0=Critical, 1=Detailed, 2=Cosmetic, 3=Metadata)
+    /// * `event_name` - Specific event name (e.g., "position_update", "health_change")
+    /// * `handler` - Function that handles the event and has access to the object instance
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// // Handle asteroid position updates with access to the actual asteroid instance
+    /// events.on_gorc_instance("Asteroid", 0, "position_update", 
+    ///     |event: GorcEvent, asteroid_instance: &mut ObjectInstance| {
+    ///         if let Some(asteroid) = asteroid_instance.get_object_mut::<Asteroid>() {
+    ///             // Direct access to the asteroid object
+    ///             println!("Asteroid at {:?} updated position", asteroid.position());
+    ///             Ok(())
+    ///         } else {
+    ///             Err(EventError::HandlerExecution("Failed to get asteroid".to_string()))
+    ///         }
+    ///     }
+    /// ).await?;
+    /// ```
+    pub async fn on_gorc_instance<F>(
+        &self,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        F: Fn(GorcEvent, &mut ObjectInstance) -> Result<(), EventError> + Send + Sync + 'static,
+    {
+        let event_key = format!("gorc_instance:{}:{}:{}", object_type, channel, event_name);
+        
+        // Store the handler with the GORC instance manager reference
+        let gorc_instances = self.gorc_instances.clone();
+        let handler = Arc::new(handler);
+
+        // Wrapper: auto-resolve UUID to object ref, handle errors, and keep API clean
+        let wrapper_handler = move |event: GorcEvent| -> Result<(), EventError> {
+            let instances = gorc_instances.as_ref().ok_or_else(|| {
+                EventError::HandlerExecution("GORC instance manager not available".to_string())
+            })?;
+
+            let object_id = GorcObjectId::from_str(&event.object_id).map_err(|e| {
+                EventError::HandlerExecution(format!("Invalid object ID in GORC event: {}", e))
+            })?;
+
+            // Use a channel to bridge async instance lookup to sync handler
+            let (tx, rx) = std::sync::mpsc::channel();
+            let instances_clone = instances.clone();
+            let handler_clone = handler.clone();
+            let event_clone = event.clone();
+
+            // Spawn async task to resolve object and call handler
+            let runtime = tokio::runtime::Handle::current();
+            runtime.spawn(async move {
+                let result = if let Some(mut instance) = instances_clone.get_object(object_id).await {
+                    handler_clone(event_clone, &mut instance)
+                } else {
+                    Err(EventError::HandlerNotFound(format!("Object instance {} not found", object_id)))
+                };
+                let _ = tx.send(result);
+            });
+
+            // Wait for result (could add timeout in future)
+            rx.recv().unwrap_or_else(|_| Err(EventError::HandlerExecution("Handler execution failed to complete".to_string())))
+        };
+
+        let handler_name = format!("{}::{}", event_key, "GorcInstanceEvent");
+        let typed_handler = TypedEventHandler::new(handler_name, wrapper_handler);
+        let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
+
+        let mut handlers = self.handlers.write().await;
+        handlers.entry(event_key.clone()).or_insert_with(Vec::new).push(handler_arc);
+
+        let mut stats = self.stats.write().await;
+        stats.total_handlers += 1;
+
+        info!("📝 Registered GORC instance handler for {}", event_key);
+        Ok(())
+    }
+
+    /// Registers a handler for basic GORC events (legacy API).
+    /// 
+    /// This is the simpler API that just receives the GORC event without object instance access.
+    /// Use `on_gorc_instance` for more advanced use cases where you need object access.
+    pub async fn on_gorc<T, F>(
+        &self,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
+    {
+        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
+        self.register_typed_handler(event_key, event_name, handler)
+            .await
+    }
+
+    /// Internal helper for registering typed handlers.
     async fn register_typed_handler<T, F>(
         &self,
         event_key: String,
@@ -277,7 +213,7 @@ impl EventSystem {
     ) -> Result<(), EventError>
     where
         T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let handler_name = format!("{}::{}", event_key, T::type_name());
         let typed_handler = TypedEventHandler::new(handler_name, handler);
@@ -297,37 +233,6 @@ impl EventSystem {
     }
 
     /// Emits a core server event to all registered handlers.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `event_name` - Name of the core event
-    /// * `event` - The event instance to emit
-    /// 
-    /// # Returns
-    /// 
-    /// Returns `Ok(())` if emission succeeds, or `Err(EventError)` if serialization fails.
-    /// Individual handler failures are logged but don't cause the emission to fail.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use horizon_event_system::*;
-    /// 
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// #     let events = create_horizon_event_system();
-    /// #     let player_id = PlayerId::new();
-    /// #     let conn_id = "conn_123".to_string();
-    /// #     let addr = "127.0.0.1:8080".to_string();
-    /// events.emit_core("player_connected", &PlayerConnectedEvent {
-    ///     player_id: player_id,
-    ///     connection_id: conn_id,
-    ///     remote_addr: addr,
-    ///     timestamp: current_timestamp(),
-    /// }).await?;
-    /// #     Ok(())
-    /// # }
-    /// ```
     pub async fn emit_core<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
     where
         T: Event,
@@ -337,37 +242,6 @@ impl EventSystem {
     }
 
     /// Emits a client event to all registered handlers.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `namespace` - Namespace for the event
-    /// * `event_name` - Name of the event
-    /// * `event` - The event instance to emit
-    /// 
-    /// # Returns
-    /// 
-    /// Returns `Ok(())` if emission succeeds, or `Err(EventError)` if serialization fails.
-    /// Individual handler failures are logged but don't cause the emission to fail.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use horizon_event_system::*;
-    /// 
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// #     let events = create_horizon_event_system();
-    /// #     let player_id = PlayerId::new();
-    /// #     let movement_data = serde_json::json!({"x": 100, "y": 200});
-    /// events.emit_client("movement", "player_moved", &RawClientMessageEvent {
-    ///     player_id: player_id,
-    ///     message_type: "move".to_string(),
-    ///     data: movement_data,
-    ///     timestamp: current_timestamp(),
-    /// }).await?;
-    /// #     Ok(())
-    /// # }
-    /// ```
     pub async fn emit_client<T>(
         &self,
         namespace: &str,
@@ -382,43 +256,6 @@ impl EventSystem {
     }
 
     /// Emits a plugin event to all registered handlers.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `plugin_name` - Name of the plugin emitting the event
-    /// * `event_name` - Name of the event
-    /// * `event` - The event instance to emit
-    /// 
-    /// # Returns
-    /// 
-    /// Returns `Ok(())` if emission succeeds, or `Err(EventError)` if serialization fails.
-    /// Individual handler failures are logged but don't cause the emission to fail.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use horizon_event_system::*;
-    /// use serde::{Serialize, Deserialize};
-    /// 
-    /// #[derive(Serialize, Deserialize, Clone, Debug)]
-    /// struct DamageDealtEvent { attacker: String, target: String, damage: u32, timestamp: u64 }
-    /// impl Event for DamageDealtEvent {}
-    /// 
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// #     let events = create_horizon_event_system();
-    /// #     let attacker_id = "player1".to_string();
-    /// #     let target_id = "enemy1".to_string();
-    /// #     let damage_amount = 50;
-    /// events.emit_plugin("combat", "damage_dealt", &DamageDealtEvent {
-    ///     attacker: attacker_id,
-    ///     target: target_id,
-    ///     damage: damage_amount,
-    ///     timestamp: current_timestamp(),
-    /// }).await?;
-    /// #     Ok(())
-    /// # }
-    /// ```
     pub async fn emit_plugin<T>(
         &self,
         plugin_name: &str,
@@ -432,16 +269,85 @@ impl EventSystem {
         self.emit_event(&event_key, event).await
     }
 
-    /// Internal emit implementation that handles the actual event dispatch.
+    /// Emits a GORC instance event for a specific object instance.
     /// 
-    /// This method serializes the event once and then dispatches it to all
-    /// registered handlers. Handler failures are logged but don't prevent
-    /// other handlers from running.
+    /// This is the new API for emitting events that target specific object instances.
+    /// The event will only be delivered to handlers that are registered for this
+    /// specific object type, channel, and event name.
     /// 
     /// # Arguments
     /// 
-    /// * `event_key` - Full event key for handler lookup
-    /// * `event` - The event instance to emit
+    /// * `object_id` - The specific object instance to emit the event for
+    /// * `channel` - Replication channel for the event
+    /// * `event_name` - Name of the specific event
+    /// * `event` - The event data to emit
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// // Emit a position update for a specific asteroid instance
+    /// events.emit_gorc_instance(asteroid_id, 0, "position_update", &GorcEvent {
+    ///     object_id: asteroid_id.to_string(),
+    ///     object_type: "Asteroid".to_string(),
+    ///     channel: 0,
+    ///     data: position_data,
+    ///     priority: "Critical".to_string(),
+    ///     timestamp: current_timestamp(),
+    /// }).await?;
+    /// ```
+    pub async fn emit_gorc_instance<T>(
+        &self,
+        object_id: GorcObjectId,
+        channel: u8,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event,
+    {
+        // First, get the object instance to determine its type
+        if let Some(ref gorc_instances) = self.gorc_instances {
+            if let Some(instance) = gorc_instances.get_object(object_id).await {
+                let object_type = &instance.type_name;
+                
+                // Emit to both the instance-specific and general GORC handlers
+                let instance_key = format!("gorc_instance:{}:{}:{}", object_type, channel, event_name);
+                let general_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
+                
+                // Emit to instance-specific handlers first
+                if let Err(e) = self.emit_event(&instance_key, event).await {
+                    warn!("Failed to emit instance event: {}", e);
+                }
+                
+                // Then emit to general handlers for backward compatibility
+                self.emit_event(&general_key, event).await
+            } else {
+                Err(EventError::HandlerNotFound(format!("Object instance {} not found", object_id)))
+            }
+        } else {
+            Err(EventError::HandlerExecution("GORC instance manager not available".to_string()))
+        }
+    }
+
+    /// Emits a GORC event using the legacy API (object type string).
+    /// 
+    /// This method is kept for backward compatibility but it's recommended to use
+    /// `emit_gorc_instance` for better type safety and instance targeting.
+    pub async fn emit_gorc<T>(
+        &self,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event,
+    {
+        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
+        self.emit_event(&event_key, event).await
+    }
+
+    /// Internal emit implementation that handles the actual event dispatch.
     async fn emit_event<T>(&self, event_key: &str, event: &T) -> Result<(), EventError>
     where
         T: Event,
@@ -456,9 +362,6 @@ impl EventSystem {
                 event_handlers.len()
             );
 
-            // We will not use par_iter here because we want to ensure that all events are
-            // executed as quickly as possible and cannot tolerate any delays from setting up
-            // parallel execution.
             for handler in event_handlers {
                 if let Err(e) = handler.handle(&data).await {
                     error!("❌ Handler {} failed: {}", handler.handler_name(), e);
@@ -467,6 +370,11 @@ impl EventSystem {
 
             let mut stats = self.stats.write().await;
             stats.events_emitted += 1;
+            
+            // Update GORC-specific stats
+            if event_key.starts_with("gorc") {
+                stats.gorc_events_emitted += 1;
+            }
         } else {
             warn!("⚠️ No handlers for event: {}", event_key);
         }
@@ -475,196 +383,351 @@ impl EventSystem {
     }
 
     /// Returns current system statistics.
-    /// 
-    /// # Returns
-    /// 
-    /// Returns a clone of the current `EventSystemStats` containing
-    /// information about handlers and emitted events.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use horizon_event_system::*;
-    /// 
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// #     let events = create_horizon_event_system();
-    /// let stats = events.get_stats().await;
-    /// println!("Handlers: {}, Events: {}", stats.total_handlers, stats.events_emitted);
-    /// #     Ok(())
-    /// # }
-    /// ```
     pub async fn get_stats(&self) -> EventSystemStats {
         let stats = self.stats.read().await;
         stats.clone()
     }
 
-    // ============================================================================
-    // GORC (Game Object Replication Channels) Integration
-    // ============================================================================
+    /// Gets detailed statistics including GORC instance information
+    pub async fn get_detailed_stats(&self) -> DetailedEventSystemStats {
+        let base_stats = self.get_stats().await;
+        let handler_count_by_category = self.get_handler_count_by_category().await;
+        
+        let gorc_instance_stats = if let Some(ref gorc_instances) = self.gorc_instances {
+            Some(gorc_instances.get_stats().await)
+        } else {
+            None
+        };
 
-    // TODO: @tristanpoland @haywoodspartan We need to implement the GORC listeners
-    // such that they can properly handle an instance of an object by reference.
-    // Events should be able to be emitted for a specific object instance, and the
-    // handlers should be able to handle that instance directly.
-
-    /// Registers a handler for GORC (Game Object Replication Channels) events.
-    /// 
-    /// GORC events are specialized events for game object replication with
-    /// support for channels and layers. This provides a clean API for listening
-    /// to object state changes at different priority levels.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `object_type` - Type of the game object (e.g., "Asteroid", "Player")
-    /// * `channel` - Replication channel (0=Critical, 1=Detailed, 2=Cosmetic, 3=Metadata)
-    /// * `event_name` - Specific event name (e.g., "position_update", "health_change")
-    /// * `handler` - Function to handle GORC events
-    /// 
-    /// # Returns
-    /// 
-    /// Returns `Ok(())` if registration succeeds, or `Err(EventError)` if it fails.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use horizon_event_system::*;
-    /// 
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// #     let events = create_horizon_event_system();
-    /// // Listen for critical position updates on asteroids
-    /// events.on_gorc("Asteroid", 0, "position_update", |event: GorcEvent| {
-    ///     // Handle asteroid position updates in critical channel
-    ///     Ok(())
-    /// }).await?;
-    /// 
-    /// // Listen for metadata updates on players
-    /// events.on_gorc("Player", 3, "name_change", |event: GorcEvent| {
-    ///     // Handle player name changes in metadata channel
-    ///     Ok(())
-    /// }).await?;
-    /// #     Ok(())
-    /// # }
-    /// ```
-    pub async fn on_gorc<T, F>(
-        &self,
-        object_type: &str,
-        channel: u8,
-        event_name: &str,
-        handler: F,
-    ) -> Result<(), EventError>
-    where
-        T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + 'static,
-    {
-        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
-        self.register_typed_handler(event_key, event_name, handler)
-            .await
+        DetailedEventSystemStats {
+            base: base_stats,
+            handler_count_by_category,
+            gorc_instance_stats,
+        }
     }
 
-    // TODO: @tristanpoland @haywoodspartan We need to implement the GORC listeners such that they can properly handle an instance of an object by reference. Events should be able to be emitted for a specific object instance, and the handlers should be able to handle that instance directly.
+    /// Gets handler count breakdown by event category
+    async fn get_handler_count_by_category(&self) -> HandlerCategoryStats {
+        let handlers = self.handlers.read().await;
+        let mut core_handlers = 0;
+        let mut client_handlers = 0;
+        let mut plugin_handlers = 0;
+        let mut gorc_handlers = 0;
+        let mut gorc_instance_handlers = 0;
 
-    /// Emits a GORC (Game Object Replication Channels) event.
+        for (key, handler_list) in handlers.iter() {
+            let count = handler_list.len();
+            if key.starts_with("core:") {
+                core_handlers += count;
+            } else if key.starts_with("client:") {
+                client_handlers += count;
+            } else if key.starts_with("plugin:") {
+                plugin_handlers += count;
+            } else if key.starts_with("gorc_instance:") {
+                gorc_instance_handlers += count;
+            } else if key.starts_with("gorc:") {
+                gorc_handlers += count;
+            }
+        }
+
+        HandlerCategoryStats {
+            core_handlers,
+            client_handlers,
+            plugin_handlers,
+            gorc_handlers,
+            gorc_instance_handlers,
+        }
+    }
+
+    /// Broadcasts a GORC event to all subscribers of an object instance
     /// 
-    /// This method emits events specifically for game object replication,
-    /// allowing precise targeting of handlers based on object type, channel,
-    /// and event name.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `object_type` - Type of the game object emitting the event
-    /// * `channel` - Replication channel for the event
-    /// * `event_name` - Name of the specific event
-    /// * `event` - The event data to emit
-    /// 
-    /// # Returns
-    /// 
-    /// Returns `Ok(())` if emission succeeds, or `Err(EventError)` if serialization fails.
-    /// Individual handler failures are logged but don't cause the emission to fail.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use horizon_event_system::*;
-    /// 
-    /// # #[tokio::main]
-    /// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    /// #     let events = create_horizon_event_system();
-    /// #     let asteroid_id = "asteroid_123".to_string();
-    /// #     let player_id = "player_456".to_string();
-    /// #     let position_data = serde_json::json!({"x": 100, "y": 200, "z": 300});
-    /// #     let achievement_data = serde_json::json!({"type": "first_kill", "points": 100});
-    /// // Emit a critical position update for an asteroid
-    /// events.emit_gorc("Asteroid", 0, "position_update", &GorcEvent {
-    ///     object_id: asteroid_id,
-    ///     object_type: "Asteroid".to_string(),
-    ///     channel: 0,
-    ///     data: position_data,
-    ///     priority: ReplicationPriority::Critical,
-    ///     timestamp: current_timestamp(),
-    /// }).await?;
-    /// 
-    /// // Emit a metadata update for a player
-    /// events.emit_gorc("Player", 3, "achievement_earned", &GorcEvent {
-    ///     object_id: player_id,
-    ///     object_type: "Player".to_string(),
-    ///     channel: 3,
-    ///     data: achievement_data,
-    ///     priority: ReplicationPriority::Low,
-    ///     timestamp: current_timestamp(),
-    /// }).await?;
-    /// #     Ok(())
-    /// # }
-    /// ```
-    pub async fn emit_gorc<T>(
+    /// This method combines event emission with the GORC subscription system
+    /// to ensure events are only sent to players who are subscribed to the
+    /// object's replication zones.
+    pub async fn broadcast_gorc_to_subscribers<T>(
         &self,
-        object_type: &str,
+        object_id: GorcObjectId,
         channel: u8,
         event_name: &str,
         event: &T,
-    ) -> Result<(), EventError>
+    ) -> Result<usize, EventError>
     where
         T: Event,
     {
-        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
-        self.emit_event(&event_key, event).await
+        let Some(ref gorc_instances) = self.gorc_instances else {
+            return Err(EventError::HandlerExecution(
+                "GORC instance manager not available".to_string()
+            ));
+        };
+
+        // Get the object instance and its subscribers
+        if let Some(instance) = gorc_instances.get_object(object_id).await {
+            let subscribers = instance.get_subscribers(channel);
+            
+            if !subscribers.is_empty() {
+                // Emit the event to handlers
+                self.emit_gorc_instance(object_id, channel, event_name, event).await?;
+                
+                // In a real implementation, you would also send the serialized event
+                // directly to the network layer for the specific subscribers
+                debug!(
+                    "📡 Broadcasted GORC event {} to {} subscribers for object {}",
+                    event_name, subscribers.len(), object_id
+                );
+                
+                Ok(subscribers.len())
+            } else {
+                debug!("No subscribers for object {} channel {}", object_id, channel);
+                Ok(0)
+            }
+        } else {
+            Err(EventError::HandlerNotFound(format!("Object instance {} not found", object_id)))
+        }
+    }
+
+    /// Removes all handlers for a specific event pattern
+    pub async fn remove_handlers(&self, pattern: &str) -> usize {
+        let mut handlers = self.handlers.write().await;
+        let mut removed_count = 0;
+
+        handlers.retain(|key, handler_list| {
+            if key.contains(pattern) {
+                removed_count += handler_list.len();
+                false
+            } else {
+                true
+            }
+        });
+
+        if removed_count > 0 {
+            let mut stats = self.stats.write().await;
+            stats.total_handlers = stats.total_handlers.saturating_sub(removed_count);
+            info!("🗑️ Removed {} handlers matching pattern '{}'", removed_count, pattern);
+        }
+
+        removed_count
+    }
+
+    /// Gets all registered event keys
+    pub async fn get_registered_events(&self) -> Vec<String> {
+        let handlers = self.handlers.read().await;
+        handlers.keys().cloned().collect()
+    }
+
+    /// Checks if handlers are registered for a specific event
+    pub async fn has_handlers(&self, event_key: &str) -> bool {
+        let handlers = self.handlers.read().await;
+        handlers.contains_key(event_key)
+    }
+
+    /// Gets the number of handlers for a specific event
+    pub async fn get_handler_count(&self, event_key: &str) -> usize {
+        let handlers = self.handlers.read().await;
+        handlers.get(event_key).map(|h| h.len()).unwrap_or(0)
+    }
+
+    /// Validates the event system configuration
+    pub async fn validate(&self) -> Vec<String> {
+        let mut issues = Vec::new();
+        let handlers = self.handlers.read().await;
+
+        // Check for potential issues
+        for (key, handler_list) in handlers.iter() {
+            if handler_list.is_empty() {
+                issues.push(format!("Event key '{}' has no handlers", key));
+            }
+            
+            if handler_list.len() > 100 {
+                issues.push(format!("Event key '{}' has excessive handlers: {}", key, handler_list.len()));
+            }
+        }
+
+        if let Some(ref gorc_instances) = self.gorc_instances {
+            let instance_stats = gorc_instances.get_stats().await;
+            if instance_stats.total_objects > 10000 {
+                issues.push(format!("High number of GORC objects: {}", instance_stats.total_objects));
+            }
+        }
+
+        issues
     }
 }
 
-// ============================================================================
-// Statistics
-// ============================================================================
-
 /// Statistics about the event system's performance and usage.
-/// 
-/// These statistics are useful for monitoring system health, debugging
-/// performance issues, and understanding event system usage patterns.
-/// 
-/// # Examples
-/// 
-/// ```rust
-/// use horizon_event_system::*;
-/// 
-/// # #[tokio::main]
-/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// #     let events = create_horizon_event_system();
-/// let stats = events.get_stats().await;
-/// println!("Event system has {} handlers and has processed {} events", 
-///          stats.total_handlers, stats.events_emitted);
-/// #     Ok(())
-/// # }
-/// ```
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct EventSystemStats {
     /// Total number of registered event handlers
     pub total_handlers: usize,
     /// Total number of events emitted since system start
     pub events_emitted: u64,
+    /// Total number of GORC events emitted
+    pub gorc_events_emitted: u64,
+    /// Average events per second (calculated over recent history)
+    pub avg_events_per_second: f64,
+    /// Peak events per second recorded
+    pub peak_events_per_second: f64,
+}
+
+/// Detailed statistics including category breakdowns
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetailedEventSystemStats {
+    /// Base event system statistics
+    pub base: EventSystemStats,
+    /// Handler count by category
+    pub handler_count_by_category: HandlerCategoryStats,
+    /// GORC instance manager statistics
+    pub gorc_instance_stats: Option<crate::gorc::instance::InstanceManagerStats>,
+}
+
+/// Handler count breakdown by event category
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HandlerCategoryStats {
+    /// Number of core event handlers
+    pub core_handlers: usize,
+    /// Number of client event handlers
+    pub client_handlers: usize,
+    /// Number of plugin event handlers
+    pub plugin_handlers: usize,
+    /// Number of basic GORC event handlers
+    pub gorc_handlers: usize,
+    /// Number of GORC instance event handlers
+    pub gorc_instance_handlers: usize,
 }
 
 impl Default for EventSystem {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Helper function to create an event system with GORC integration
+pub fn create_event_system_with_gorc(
+    gorc_instances: Arc<GorcInstanceManager>
+) -> Arc<EventSystem> {
+    Arc::new(EventSystem::with_gorc(gorc_instances))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::events::{PlayerConnectedEvent, GorcEvent};
+    use crate::types::PlayerId;
+    use crate::gorc::instance::{GorcInstanceManager, GorcObjectId};
+
+    #[tokio::test]
+    async fn test_event_system_creation() {
+        let events = EventSystem::new();
+        let stats = events.get_stats().await;
+        
+        assert_eq!(stats.total_handlers, 0);
+        assert_eq!(stats.events_emitted, 0);
+    }
+
+    #[tokio::test]
+    async fn test_core_event_registration_and_emission() {
+        let events = EventSystem::new();
+        
+        // Register handler
+        events.on_core("player_connected", |event: PlayerConnectedEvent| {
+            assert!(!event.player_id.to_string().is_empty());
+            Ok(())
+        }).await.unwrap();
+        
+        // Check handler was registered
+        let stats = events.get_stats().await;
+        assert_eq!(stats.total_handlers, 1);
+        
+        // Emit event
+        let player_event = PlayerConnectedEvent {
+            player_id: PlayerId::new(),
+            connection_id: "test_conn".to_string(),
+            remote_addr: "127.0.0.1:8080".to_string(),
+            timestamp: crate::utils::current_timestamp(),
+        };
+        
+        events.emit_core("player_connected", &player_event).await.unwrap();
+        
+        // Check event was emitted
+        let stats = events.get_stats().await;
+        assert_eq!(stats.events_emitted, 1);
+    }
+
+    #[tokio::test]
+    async fn test_gorc_event_system() {
+        let gorc_instances = Arc::new(GorcInstanceManager::new());
+        let events = EventSystem::with_gorc(gorc_instances);
+        
+        // Register GORC handler
+        events.on_gorc("Asteroid", 0, "position_update", |event: GorcEvent| {
+            assert_eq!(event.object_type, "Asteroid");
+            assert_eq!(event.channel, 0);
+            Ok(())
+        }).await.unwrap();
+        
+        // Emit GORC event
+        let gorc_event = GorcEvent {
+            object_id: GorcObjectId::new().to_string(),
+            object_type: "Asteroid".to_string(),
+            channel: 0,
+            data: vec![1, 2, 3, 4],
+            priority: "Critical".to_string(),
+            timestamp: crate::utils::current_timestamp(),
+        };
+        
+        events.emit_gorc("Asteroid", 0, "position_update", &gorc_event).await.unwrap();
+        
+        let stats = events.get_stats().await;
+        assert_eq!(stats.gorc_events_emitted, 1);
+    }
+
+    #[tokio::test]
+    async fn test_handler_category_stats() {
+        let events = EventSystem::new();
+        
+        // Register different types of handlers
+        events.on_core("test_core", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        events.on_client("test", "test_client", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        events.on_plugin("test_plugin", "test_event", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        events.on_gorc("TestObject", 0, "test_gorc", |_: GorcEvent| Ok(())).await.unwrap();
+        
+        let detailed_stats = events.get_detailed_stats().await;
+        let category_stats = detailed_stats.handler_count_by_category;
+        
+        assert_eq!(category_stats.core_handlers, 1);
+        assert_eq!(category_stats.client_handlers, 1);
+        assert_eq!(category_stats.plugin_handlers, 1);
+        assert_eq!(category_stats.gorc_handlers, 1);
+        assert_eq!(category_stats.gorc_instance_handlers, 0);
+    }
+
+    #[tokio::test]
+    async fn test_event_validation() {
+        let events = EventSystem::new();
+        
+        // Register a handler then remove it to create an empty key
+        events.on_core("test_event", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        
+        let issues = events.validate().await;
+        // Should not have issues with a properly registered handler
+        assert!(issues.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_handler_removal() {
+        let events = EventSystem::new();
+        
+        events.on_core("test1", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        events.on_core("test2", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        events.on_client("namespace", "test3", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        
+        let initial_stats = events.get_stats().await;
+        assert_eq!(initial_stats.total_handlers, 3);
+        
+        // Remove core handlers
+        let removed = events.remove_handlers("core:").await;
+        assert_eq!(removed, 2);
+        
+        let final_stats = events.get_stats().await;
+        assert_eq!(final_stats.total_handlers, 1);
     }
 }

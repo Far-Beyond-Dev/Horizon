@@ -10,8 +10,9 @@ thiserror = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
-tokio-tungstenite = { workspace = true }
 horizon_event_system = { path = "../horizon_event_system" }
 plugin_system = { path = "../plugin_system" }
 num_cpus = { workspace = true }
 socket2 = { workspace = true }
+tokio-tungstenite = "0.27.0"
+once_cell = "1.19.0"
