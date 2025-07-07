@@ -289,31 +289,32 @@ impl GameServer {
                 .map_err(|e| ServerError::Network(format!("Socket creation failed: {e}")))?;
             socket.set_reuse_address(true).ok();
             if self.config.use_reuse_port {
-                #[cfg(any(
-                    target_os = "linux",
-                    target_os = "android",
-                    target_os = "macos",
-                    target_os = "freebsd",
-                    target_os = "netbsd",
-                    target_os = "openbsd"
-                ))]
-                {
-                    socket.set_reuse_port(true).map_err(|e| {
-                        ServerError::Network(format!("Failed to set SO_REUSEPORT: {e}"))
-                    })?;
-                }
+                // TODO: Enable SO_REUSEPORT if supported in the future.
+                // #[cfg(any(
+                //     target_os = "linux",
+                //     target_os = "android",
+                //     target_os = "macos",
+                //     target_os = "freebsd",
+                //     target_os = "netbsd",
+                //     target_os = "openbsd"
+                // ))]
+                // {
+                //     socket.set_reuse_port(true).map_err(|e| {
+                //         ServerError::Network(format!("Failed to set SO_REUSEPORT: {e}"))
+                //     })?;
+                // }
 
-                #[cfg(not(any(
-                    target_os = "linux",
-                    target_os = "android",
-                    target_os = "macos",
-                    target_os = "freebsd",
-                    target_os = "netbsd",
-                    target_os = "openbsd"
-                )))]
-                {
-                    warn!("SO_REUSEPORT requested but not supported on this platform. Ignoring.");
-                }
+                // #[cfg(not(any(
+                //     target_os = "linux",
+                //     target_os = "android",
+                //     target_os = "macos",
+                //     target_os = "freebsd",
+                //     target_os = "netbsd",
+                //     target_os = "openbsd"
+                // )))]
+                // {
+                //     warn!("SO_REUSEPORT requested but not supported on this platform. Ignoring.");
+                // }
             }
             socket.bind(&self.config.bind_address.into())
                 .map_err(|e| ServerError::Network(format!("Bind failed: {e}")))?;
