@@ -194,7 +194,10 @@ impl SimplePlugin for LoggerPlugin {
 
         println!("📝 LoggerPlugin: ✅ Now monitoring all server events!");
 
-        // TODO: TOKIO SUPPORT!!
+        // TODO: Currently it seems plugins are unable to take advantage of the tokio runtime that Horizon runs on.
+        //       This makes a little sense due to the DLL boundaries, but it would be nice to see if there is a way
+        //       to allow plugins to spawn their own runtime or inherit the existing one. @tristanpoland @haywoodspartan @Copilot
+
         // // Start a periodic summary task
         // let events_clone = events.clone();
         // tokio::spawn(async move {
