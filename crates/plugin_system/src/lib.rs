@@ -361,26 +361,42 @@ impl PluginManager {
         let mut pre_init_failed = Vec::new();
         let mut handler_counts = Vec::new();
 
-        for partial in &mut partially_loaded {
-            let handler_count_before = self.get_total_handlers().await;
+        // Collect mutable references to plugins to avoid moving them
+        let mut partial_refs: Vec<&mut PartiallyLoadedPlugin> = partially_loaded.iter_mut().collect();
 
+        use std::time::Instant;
+        const PRE_INIT_WARN_THRESHOLD_MS: u128 = 1000; // 1 second
+        for partial in partial_refs.iter_mut() {
+            let handler_count_before = self.get_total_handlers().await;
+            let start = Instant::now();
+            info!("About to pre_init plugin: {}", partial.name);
             match partial.plugin.pre_init(self.server_context.clone()).await {
                 Ok(()) => {
+                    let elapsed = start.elapsed().as_millis();
                     let handler_count_after = self.get_total_handlers().await;
                     let handlers_registered = handler_count_after - handler_count_before;
                     handler_counts.push(handlers_registered);
 
+                    if elapsed > PRE_INIT_WARN_THRESHOLD_MS {
+                        warn!(
+                            "Plugin {} pre-initialization took {} ms (threshold: {} ms)",
+                            partial.name, elapsed, PRE_INIT_WARN_THRESHOLD_MS
+                        );
+                    }
+
                     info!(
-                        "Plugin {} pre-initialized successfully, registered {} handlers",
-                        partial.name, handlers_registered
+                        "Plugin {} pre-initialized successfully, registered {} handlers ({} ms)",
+                        partial.name, handlers_registered, elapsed
                     );
                 }
                 Err(e) => {
-                    error!("Plugin {} pre-initialization failed: {}", partial.name, e);
+                    let elapsed = start.elapsed().as_millis();
+                    error!("Plugin {} pre-initialization failed after {} ms: {}", partial.name, elapsed, e);
                     handler_counts.push(0);
                     pre_init_failed.push((partial.name.clone(), e));
                 }
             }
+            info!("Finished pre_init plugin: {}", partial.name);
         }
 
         // Remove failed plugins from partially_loaded
@@ -400,9 +416,19 @@ impl PluginManager {
         for (mut partial, handler_count) in
             partially_loaded.into_iter().zip(handler_counts.into_iter())
         {
+            use std::time::Instant;
+            const INIT_WARN_THRESHOLD_MS: u128 = 1000; // 1 second
+            let start = Instant::now();
             match partial.plugin.init(self.server_context.clone()).await {
                 Ok(()) => {
-                    info!("Plugin {} initialized successfully", partial.name);
+                    let elapsed = start.elapsed().as_millis();
+                    if elapsed > INIT_WARN_THRESHOLD_MS {
+                        warn!(
+                            "Plugin {} initialization took {} ms (threshold: {} ms)",
+                            partial.name, elapsed, INIT_WARN_THRESHOLD_MS
+                        );
+                    }
+                    info!("Plugin {} initialized successfully ({} ms)", partial.name, elapsed);
 
                     // Store the fully loaded plugin
                     let loaded_plugin = LoadedPlugin {
@@ -442,7 +468,8 @@ impl PluginManager {
                     loaded_plugins.push(partial.name);
                 }
                 Err(e) => {
-                    error!("Plugin {} initialization failed: {}", partial.name, e);
+                    let elapsed = start.elapsed().as_millis();
+                    error!("Plugin {} initialization failed after {} ms: {}", partial.name, elapsed, e);
                     init_failed.push((partial.name, e));
                 }
             }

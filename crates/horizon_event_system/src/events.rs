@@ -234,8 +234,18 @@ where
     F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
 {
     async fn handle(&self, data: &[u8]) -> Result<(), EventError> {
-        let event = T::deserialize(data)?;
-        (self.handler)(event)
+        match T::deserialize(data) {
+            Ok(event) => (self.handler)(event),
+            Err(e) => {
+                // Log and skip if deserialization fails (type mismatch)
+                tracing::warn!(
+                    "EventHandler {}: failed to deserialize event: {}. Skipping handler.",
+                    self.name,
+                    e
+                );
+                Ok(())
+            }
+        }
     }
 
     fn expected_type_id(&self) -> TypeId {

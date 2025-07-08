@@ -147,7 +147,7 @@ impl SimplePlugin for LoggerPlugin {
 
         // Listen to any plugin events (wildcard-style)
         events
-            .on_plugin("*", "activity", |event: serde_json::Value| {
+            .on_plugin("logger", "activity", |event: serde_json::Value| {
                 println!("📝 LoggerPlugin: 🌐 GENERAL ACTIVITY - {:?}", event);
                 Ok(())
             })
