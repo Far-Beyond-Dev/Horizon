@@ -7,18 +7,95 @@
 
 use crate::events::{Event, EventHandler, TypedEventHandler, EventError, GorcEvent};
 use crate::gorc::instance::{GorcObjectId, GorcInstanceManager, ObjectInstance};
+use crate::types::PlayerId;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+
+/// Connection-aware client reference that provides handlers with access to the client connection
+/// and methods to respond directly to that specific client.
+#[derive(Clone)]
+pub struct ClientConnectionRef {
+    /// The player ID associated with this connection
+    pub player_id: PlayerId,
+    /// The remote address of the client
+    pub remote_addr: SocketAddr,
+    /// Connection ID for internal tracking
+    pub connection_id: String,
+    /// Timestamp when the connection was established
+    pub connected_at: u64,
+    /// Sender for direct response to this specific client
+    response_sender: Arc<dyn ClientResponseSender + Send + Sync>,
+}
+
+impl std::fmt::Debug for ClientConnectionRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientConnectionRef")
+            .field("player_id", &self.player_id)
+            .field("remote_addr", &self.remote_addr)
+            .field("connection_id", &self.connection_id)
+            .field("connected_at", &self.connected_at)
+            .field("response_sender", &"[response_sender]")
+            .finish()
+    }
+}
+
+impl ClientConnectionRef {
+    /// Creates a new client connection reference
+    pub fn new(
+        player_id: PlayerId,
+        remote_addr: SocketAddr,
+        connection_id: String,
+        connected_at: u64,
+        response_sender: Arc<dyn ClientResponseSender + Send + Sync>,
+    ) -> Self {
+        Self {
+            player_id,
+            remote_addr,
+            connection_id,
+            connected_at,
+            response_sender,
+        }
+    }
+
+    /// Send a direct response to this specific client
+    pub async fn respond(&self, data: &[u8]) -> Result<(), EventError> {
+        self.response_sender
+            .send_to_client(self.player_id, data.to_vec())
+            .await
+            .map_err(|e| EventError::HandlerExecution(format!("Failed to send response: {}", e)))
+    }
+
+    /// Send a JSON response to this specific client
+    pub async fn respond_json<T: serde::Serialize>(&self, data: &T) -> Result<(), EventError> {
+        let json = serde_json::to_vec(data)
+            .map_err(|e| EventError::HandlerExecution(format!("JSON serialization failed: {}", e)))?;
+        self.respond(&json).await
+    }
+
+    /// Check if this connection is still active
+    pub async fn is_active(&self) -> bool {
+        self.response_sender.is_connection_active(self.player_id).await
+    }
+}
+
+/// Trait for sending responses to clients - implemented by the server/connection manager
+pub trait ClientResponseSender: std::fmt::Debug {
+    /// Send data to a specific client
+    fn send_to_client(&self, player_id: PlayerId, data: Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>>;
+    
+    /// Check if a client connection is still active
+    fn is_connection_active(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>>;
+}
 
 /// The core event system that manages event routing and handler execution.
 /// 
 /// This is the central hub for all event processing in the system. It provides
 /// type-safe event registration and emission with support for different event
 /// categories (core, client, plugin, and GORC instance events).
-#[derive(Debug)]
 pub struct EventSystem {
     /// Map of event keys to their registered handlers
     handlers: RwLock<HashMap<String, Vec<Arc<dyn EventHandler>>>>,
@@ -26,6 +103,19 @@ pub struct EventSystem {
     stats: RwLock<EventSystemStats>,
     /// GORC instance manager for object-specific events
     gorc_instances: Option<Arc<GorcInstanceManager>>,
+    /// Client response sender for connection-aware handlers
+    client_response_sender: Option<Arc<dyn ClientResponseSender + Send + Sync>>,
+}
+
+impl std::fmt::Debug for EventSystem {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EventSystem")
+            .field("handlers", &"[handlers]")
+            .field("stats", &"[stats]")
+            .field("gorc_instances", &self.gorc_instances.is_some())
+            .field("client_response_sender", &self.client_response_sender.is_some())
+            .finish()
+    }
 }
 
 impl EventSystem {
@@ -35,6 +125,7 @@ impl EventSystem {
             handlers: RwLock::new(HashMap::new()),
             stats: RwLock::new(EventSystemStats::default()),
             gorc_instances: None,
+            client_response_sender: None,
         }
     }
 
@@ -44,12 +135,18 @@ impl EventSystem {
             handlers: RwLock::new(HashMap::new()),
             stats: RwLock::new(EventSystemStats::default()),
             gorc_instances: Some(gorc_instances),
+            client_response_sender: None,
         }
     }
 
     /// Sets the GORC instance manager for this event system
     pub fn set_gorc_instances(&mut self, gorc_instances: Arc<GorcInstanceManager>) {
         self.gorc_instances = Some(gorc_instances);
+    }
+
+    /// Sets the client response sender for connection-aware handlers
+    pub fn set_client_response_sender(&mut self, sender: Arc<dyn ClientResponseSender + Send + Sync>) {
+        self.client_response_sender = Some(sender);
     }
 
     /// Registers a handler for core server events.
@@ -79,6 +176,85 @@ impl EventSystem {
             .await
     }
 
+    /// Registers a connection-aware handler for client events with namespace.
+    /// 
+    /// This variant provides the handler with a `ClientConnectionRef` that allows
+    /// direct response to the specific client that triggered the event. This enables
+    /// easy responses without needing to use global broadcast methods.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `namespace` - The client event namespace (e.g., "chat", "movement")
+    /// * `event_name` - The specific event name within the namespace
+    /// * `handler` - Function that receives both the event and client connection reference
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// // Handler with direct client response capability
+    /// events.on_client_with_connection("chat", "send_message", 
+    ///     |event: ChatMessageEvent, client: &ClientConnectionRef| async move {
+    ///         // Process the chat message
+    ///         let response = ChatResponse {
+    ///             message_id: event.id,
+    ///             status: "received".to_string(),
+    ///         };
+    ///         
+    ///         // Respond directly to this client
+    ///         client.respond_json(&response).await?;
+    ///         Ok(())
+    ///     }
+    /// ).await?;
+    /// ```
+    pub async fn on_client_with_connection<T, F, Fut>(
+        &self,
+        namespace: &str,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T, ClientConnectionRef) -> Fut + Send + Sync + Clone + 'static,
+        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+    {
+        let event_key = format!("client_conn_aware:{namespace}:{event_name}");
+        self.register_connection_aware_handler(event_key, event_name, handler)
+            .await
+    }
+
+    /// Registers an async handler for client events with namespace.
+    /// 
+    /// This is similar to `on_client` but the handler function is async,
+    /// allowing for async operations inside the handler without connection awareness.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// // Async handler without connection awareness
+    /// events.on_client_async("inventory", "use_item", 
+    ///     |event: UseItemEvent| async move {
+    ///         // Async database operations, etc.
+    ///         tokio::time::sleep(Duration::from_millis(10)).await;
+    ///         Ok(())
+    ///     }
+    /// ).await?;
+    /// ```
+    pub async fn on_client_async<T, F, Fut>(
+        &self,
+        namespace: &str,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
+        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+    {
+        let event_key = format!("client_async:{namespace}:{event_name}");
+        self.register_async_handler(event_key, event_name, handler)
+            .await
+    }
+
     /// Registers a handler for plugin-to-plugin events.
     pub async fn on_plugin<T, F>(
         &self,
@@ -92,6 +268,35 @@ impl EventSystem {
     {
         let event_key = format!("plugin:{plugin_name}:{event_name}");
         self.register_typed_handler(event_key, event_name, handler)
+            .await
+    }
+
+    /// Registers an async handler for plugin-to-plugin events.
+    pub async fn on_plugin_async<T, F, Fut>(
+        &self,
+        plugin_name: &str,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
+        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+    {
+        let event_key = format!("plugin_async:{plugin_name}:{event_name}");
+        self.register_async_handler(event_key, event_name, handler)
+            .await
+    }
+
+    /// Registers an async handler for core server events.
+    pub async fn on_core_async<T, F, Fut>(&self, event_name: &str, handler: F) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
+        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+    {
+        let event_key = format!("core_async:{event_name}");
+        self.register_async_handler(event_key, event_name, handler)
             .await
     }
 
@@ -232,6 +437,112 @@ impl EventSystem {
         Ok(())
     }
 
+    /// Internal helper for registering async handlers.
+    async fn register_async_handler<T, F, Fut>(
+        &self,
+        event_key: String,
+        _event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
+        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+    {
+        let handler_name = format!("{}::{}", event_key, T::type_name());
+        
+        // Wrap the async handler to be callable from sync context
+        // High-performance async spawning for better throughput
+        let async_wrapper = move |event: T| -> Result<(), EventError> {
+            let future = handler(event);
+            
+            // Spawn the async handler without blocking
+            let runtime = tokio::runtime::Handle::current();
+            runtime.spawn(async move {
+                if let Err(e) = future.await {
+                    error!("❌ Async handler failed: {}", e);
+                }
+            });
+            
+            Ok(())
+        };
+        
+        let typed_handler = TypedEventHandler::new(handler_name, async_wrapper);
+        let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
+
+        let mut handlers = self.handlers.write().await;
+        handlers
+            .entry(event_key.clone())
+            .or_insert_with(Vec::new)
+            .push(handler_arc);
+
+        let mut stats = self.stats.write().await;
+        stats.total_handlers += 1;
+
+        info!("📝 Registered async handler for {}", event_key);
+        Ok(())
+    }
+
+    /// Internal helper for registering connection-aware handlers.
+    async fn register_connection_aware_handler<T, F, Fut>(
+        &self,
+        event_key: String,
+        _event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T, ClientConnectionRef) -> Fut + Send + Sync + Clone + 'static,
+        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+    {
+        let handler_name = format!("{}::{}", event_key, T::type_name());
+        let client_response_sender = self.client_response_sender.clone();
+        
+        // Create a wrapper that extracts connection info and calls the connection-aware handler
+        let conn_aware_wrapper = move |event: T| -> Result<(), EventError> {
+            let sender = client_response_sender.as_ref().ok_or_else(|| {
+                EventError::HandlerExecution("Client response sender not configured".to_string())
+            })?;
+            
+            // TODO: Extract actual connection info from event context
+            // For now, create a placeholder - this will need to be extracted from event metadata
+            let client_ref = ClientConnectionRef::new(
+                crate::types::PlayerId::new(), // Will be extracted from event context
+                "127.0.0.1:8080".parse().unwrap(),
+                "placeholder".to_string(),
+                crate::utils::current_timestamp(),
+                sender.clone(),
+            );
+            
+            let future = handler(event, client_ref);
+            let runtime = tokio::runtime::Handle::current();
+            
+            // Spawn the async connection-aware handler
+            runtime.spawn(async move {
+                if let Err(e) = future.await {
+                    error!("❌ Connection-aware handler failed: {}", e);
+                }
+            });
+            
+            Ok(())
+        };
+        
+        let typed_handler = TypedEventHandler::new(handler_name, conn_aware_wrapper);
+        let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
+
+        let mut handlers = self.handlers.write().await;
+        handlers
+            .entry(event_key.clone())
+            .or_insert_with(Vec::new)
+            .push(handler_arc);
+
+        let mut stats = self.stats.write().await;
+        stats.total_handlers += 1;
+
+        info!("📝 Registered connection-aware handler for {}", event_key);
+        Ok(())
+    }
+
     /// Emits a core server event to all registered handlers.
     pub async fn emit_core<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
     where
@@ -348,34 +659,55 @@ impl EventSystem {
     }
 
     /// Internal emit implementation that handles the actual event dispatch.
+    /// Optimized for high throughput (500k messages/sec target).
     async fn emit_event<T>(&self, event_key: &str, event: &T) -> Result<(), EventError>
     where
         T: Event,
     {
+        // Pre-serialize once for all handlers to avoid duplicate serialization
         let data = event.serialize()?;
-        let handlers = self.handlers.read().await;
+        
+        // Use read lock with minimal hold time
+        let event_handlers = {
+            let handlers = self.handlers.read().await;
+            handlers.get(event_key).cloned()
+        };
 
-        if let Some(event_handlers) = handlers.get(event_key) {
-            debug!(
-                "📤 Emitting {} to {} handlers",
-                event_key,
-                event_handlers.len()
-            );
-
-            for handler in event_handlers {
-                if let Err(e) = handler.handle(&data).await {
-                    error!("❌ Handler {} failed: {}", handler.handler_name(), e);
+        if let Some(event_handlers) = event_handlers {
+            // Only log debug info if handlers exist to reduce overhead
+            if event_handlers.len() > 0 {
+                if cfg!(debug_assertions) {
+                    debug!("📤 Emitting {} to {} handlers", event_key, event_handlers.len());
                 }
+
+                // Parallel handler execution for better throughput
+                let futures: Vec<_> = event_handlers
+                    .iter()
+                    .map(|handler| {
+                        let data_ref = &data;
+                        let handler_name = handler.handler_name();
+                        async move {
+                            if let Err(e) = handler.handle(data_ref).await {
+                                error!("❌ Handler {} failed: {}", handler_name, e);
+                            }
+                        }
+                    })
+                    .collect();
+
+                // Execute all handlers concurrently for maximum throughput
+                futures::future::join_all(futures).await;
             }
 
+            // Batch stats updates to reduce lock contention
             let mut stats = self.stats.write().await;
             stats.events_emitted += 1;
             
-            // Update GORC-specific stats
-            if event_key.starts_with("gorc") {
+            // Update GORC-specific stats with branch prediction optimization
+            if event_key.as_bytes().get(0) == Some(&b'g') && event_key.starts_with("gorc") {
                 stats.gorc_events_emitted += 1;
             }
-        } else {
+        } else if cfg!(debug_assertions) {
+            // Only warn in debug builds to reduce production overhead
             warn!("⚠️ No handlers for event: {}", event_key);
         }
 

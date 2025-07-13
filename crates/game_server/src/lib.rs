@@ -9,7 +9,7 @@
 use horizon_event_system::{
     create_horizon_event_system, current_timestamp, DisconnectReason, EventSystem, PlayerConnectedEvent,
     PlayerDisconnectedEvent, PlayerId, RawClientMessageEvent, RegionBounds, RegionId,
-    RegionStartedEvent,
+    RegionStartedEvent, ClientResponseSender,
     // GORC imports
     GorcManager, SubscriptionManager, MulticastManager, SpatialPartition, Position,
 };
@@ -86,6 +86,7 @@ impl ClientConnection {
 
 type ConnectionId = usize;
 
+#[derive(Debug)]
 struct ConnectionManager {
     connections: Arc<RwLock<HashMap<ConnectionId, ClientConnection>>>,
     next_id: Arc<std::sync::atomic::AtomicUsize>,
@@ -145,6 +146,49 @@ impl ConnectionManager {
     fn subscribe(&self) -> broadcast::Receiver<(ConnectionId, Vec<u8>)> {
         self.sender.subscribe()
     }
+
+    async fn get_connection_id_by_player(&self, player_id: PlayerId) -> Option<ConnectionId> {
+        let connections = self.connections.read().await;
+        for (conn_id, connection) in connections.iter() {
+            if connection.player_id == Some(player_id) {
+                return Some(*conn_id);
+            }
+        }
+        None
+    }
+}
+
+/// Implementation of ClientResponseSender for the game server's connection manager
+#[derive(Clone, Debug)]
+pub struct GameServerResponseSender {
+    connection_manager: Arc<ConnectionManager>,
+}
+
+impl GameServerResponseSender {
+    pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
+        Self { connection_manager }
+    }
+}
+
+impl ClientResponseSender for GameServerResponseSender {
+    fn send_to_client(&self, player_id: PlayerId, data: Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+        let connection_manager = self.connection_manager.clone();
+        Box::pin(async move {
+            if let Some(connection_id) = connection_manager.get_connection_id_by_player(player_id).await {
+                connection_manager.send_to_connection(connection_id, data).await;
+                Ok(())
+            } else {
+                Err(format!("Player {} not found or not connected", player_id))
+            }
+        })
+    }
+
+    fn is_connection_active(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+        let connection_manager = self.connection_manager.clone();
+        Box::pin(async move {
+            connection_manager.get_connection_id_by_player(player_id).await.is_some()
+        })
+    }
 }
 
 // ============================================================================
@@ -168,9 +212,14 @@ pub struct GameServer {
 impl GameServer {
     pub fn new(config: ServerConfig) -> Self {
         let region_id = RegionId::new();
-        let horizon_event_system = create_horizon_event_system();
+        let mut horizon_event_system = create_horizon_event_system();
         let connection_manager = Arc::new(ConnectionManager::new());
         let (shutdown_sender, _) = broadcast::channel(1);
+
+        // Set up connection-aware response sender
+        let response_sender = Arc::new(GameServerResponseSender::new(connection_manager.clone()));
+        Arc::get_mut(&mut horizon_event_system).unwrap()
+            .set_client_response_sender(response_sender);
 
         // Create plugin manager with the event system
         let plugin_manager = Arc::new(create_plugin_manager_with_events(

@@ -6,8 +6,6 @@
 
 A high-performance, plugin-driven game server built in Rust with type-safe event handling and hot-reloadable plugins.
 
-[![Build Status](https://github.com/Stars-Beyond/Horizon-Community-Edition/workflows/Rust/badge.svg)](https://github.com/Stars-Beyond/Horizon-Community-Edition/actions)
-[![Docker](https://github.com/Stars-Beyond/Horizon-Community-Edition/workflows/Docker/badge.svg)](https://github.com/Stars-Beyond/Horizon-Community-Edition/actions)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 ## Features
@@ -33,8 +31,8 @@ A high-performance, plugin-driven game server built in Rust with type-safe event
 
 ```bash
 # Clone the repository
-git clone https://github.com/Stars-Beyond/Horizon-Community-Edition.git
-cd Horizon-Community-Edition
+git clone https://github.com/your-username/Horizon.git
+cd Horizon
 
 # Build the server
 cargo build --release
@@ -48,9 +46,6 @@ cargo build --release
 ```bash
 # Build and run with Docker Compose
 docker-compose up --build
-
-# Or use the pre-built image
-docker run -p 8080:8080 ghcr.io/stars-beyond/horizon-community-edition:latest
 ```
 
 ## Configuration
@@ -170,7 +165,7 @@ cargo build --release
 cp target/release/libmy_plugin.so ../plugins/
 ```
 
-For detailed plugin development documentation, see [Plugin Development Guide](docs/plugin-development.md).
+See the example plugins in the `crates/` directory for reference implementations.
 
 ## Event System
 
@@ -240,7 +235,7 @@ The repository includes example plugins:
 
 ### Binary Release
 
-Download pre-built binaries from [GitHub Releases](https://github.com/Stars-Beyond/Horizon-Community-Edition/releases).
+Build from source using the instructions above.
 
 ### Building from Source
 
@@ -273,20 +268,10 @@ WantedBy=multi-user.target
 
 ### Docker Deployment
 
-```yaml
-# docker-compose.yml
-version: '3.8'
-services:
-  horizon:
-    image: ghcr.io/stars-beyond/horizon-community-edition:latest
-    ports:
-      - "8080:8080"
-    volumes:
-      - ./config:/app/config
-      - ./plugins:/app/plugins
-    environment:
-      - RUST_LOG=info
-    restart: unless-stopped
+Use the included `compose.yaml` file:
+
+```bash
+docker-compose up --build
 ```
 
 ## Performance
@@ -335,15 +320,19 @@ cargo clippy
 
 ```
 ├── crates/
-│   ├── horizon/          # Main server executable
-│   ├── game_server/      # Core server implementation
-│   ├── horizon_event_system/     # Event handling framework
-│   ├── plugin_system/    # Plugin loading and management
-│   ├── plugin_greeter/   # Example plugin
-│   └── plugin_logger/    # Example plugin
-├── plugins/              # Plugin deployment directory
-├── config.toml          # Server configuration
-└── docker-compose.yml   # Container orchestration
+│   ├── horizon/               # Main server executable
+│   ├── game_server/           # Core server implementation  
+│   ├── horizon_event_system/  # Event handling framework with GORC
+│   ├── plugin_system/         # Plugin loading and management
+│   ├── plugin_greeter/        # Example plugin
+│   ├── plugin_logger/         # Example plugin
+│   └── stars_beyond/          # Additional game system components
+├── examples/
+│   ├── connection_aware_handlers.rs  # Event handling examples
+│   └── gorc_example_plugin/          # GORC system example
+├── plugins/               # Plugin deployment directory
+├── config.toml           # Server configuration
+└── compose.yaml          # Container orchestration
 ```
 
 ## Game Object Replication Channels (GORC)
@@ -383,7 +372,7 @@ let group_id = multicast.create_group(
 ).await;
 ```
 
-For detailed GORC documentation, see [GORC_DOCUMENTATION.md](GORC_DOCUMENTATION.md).
+For detailed GORC documentation, see the [GORC README](crates/horizon_event_system/src/gorc/README.md).
 
 ## Roadmap
 
@@ -394,7 +383,7 @@ For detailed GORC documentation, see [GORC_DOCUMENTATION.md](GORC_DOCUMENTATION.
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+We welcome contributions!
 
 ### Development Setup
 
@@ -414,9 +403,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## Community
 
-- **Discord**: [Join our Discord](https://discord.gg/NM4awJWGWu)
-- **GitHub Issues**: [Report bugs or request features](https://github.com/Far-Beyond-Dev/Horizon/issues)
-- **Discussions**: [Community discussions](https://github.com/Far-Beyond-Dev/Horizon/discussions)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/your-username/Horizon/issues)
 
 ## License
 

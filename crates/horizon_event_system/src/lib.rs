@@ -136,6 +136,7 @@ pub mod events;
 pub mod macros;
 pub mod plugin;
 pub mod system;
+pub mod system_tests;
 pub mod types;
 pub mod utils;
 
@@ -151,7 +152,7 @@ pub use events::{
     PluginLoadedEvent, PluginUnloadedEvent,
 };
 pub use plugin::{Plugin, PluginError, SimplePlugin};
-pub use system::{EventSystem, EventSystemStats};
+pub use system::{EventSystem, EventSystemStats, ClientConnectionRef, ClientResponseSender};
 pub use types::*;
 pub use utils::{create_horizon_event_system, current_timestamp};
 
