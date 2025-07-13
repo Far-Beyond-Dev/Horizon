@@ -5,7 +5,7 @@
 //! registration system.
 
 use horizon_event_system::{
-    async_trait, create_simple_plugin, defObject, events, CompressionType, EventSystem, GorcEvent, GorcObjectRegistry, MineralType, PlayerId, PluginError, Replication, ReplicationLayer, ReplicationLayers, ReplicationPriority, ServerContext, SimplePlugin, Vec3
+    async_trait, create_simple_plugin, defObject, CompressionType, EventSystem, GorcEvent, GorcObject, GorcObjectRegistry, MineralType, PlayerId, PluginError, ReplicationLayer, ReplicationPriority, ServerContext, SimplePlugin, Vec3
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use tracing::{info, debug};
 
 /// A game object that uses GORC for replication
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Player {
     pub id: PlayerId,
     pub position: Vec3,
@@ -96,11 +96,18 @@ impl Player {
     }
 }
 
-impl Replication for Player {
-    fn init_layers() -> ReplicationLayers {
-        ReplicationLayers::new()
+impl GorcObject for Player {
+    fn type_name(&self) -> &'static str {
+        "Player"
+    }
+    
+    fn position(&self) -> Vec3 {
+        self.position
+    }
+    fn get_layers(&self) -> Vec<ReplicationLayer> {
+        vec![
             // Critical Channel: Essential game state at 60Hz
-            .add_layer(ReplicationLayer::new(
+            ReplicationLayer::new(
                 0,
                 100.0, // 100 unit radius for critical updates
                 60.0,  // 60Hz for real-time combat
@@ -110,9 +117,9 @@ impl Replication for Player {
                     "in_combat".to_string(),
                 ],
                 CompressionType::None, // No compression for speed
-            ))
+            ),
             // Detailed Channel: Important gameplay info at 30Hz
-            .add_layer(ReplicationLayer::new(
+            ReplicationLayer::new(
                 1,
                 250.0, // Larger radius for weapon/animation awareness
                 30.0,  // 30Hz for smooth animations
@@ -122,9 +129,9 @@ impl Replication for Player {
                     "max_health".to_string(),
                 ],
                 CompressionType::Lz4, // Light compression
-            ))
+            ),
             // Cosmetic Channel: Visual effects at 15Hz
-            .add_layer(ReplicationLayer::new(
+            ReplicationLayer::new(
                 2,
                 400.0, // Wide radius for environmental awareness
                 15.0,  // 15Hz sufficient for visual effects
@@ -133,9 +140,9 @@ impl Replication for Player {
                     "visual_effects".to_string(),
                 ],
                 CompressionType::Zlib, // More compression acceptable
-            ))
+            ),
             // Metadata Channel: Player info at 5Hz
-            .add_layer(ReplicationLayer::new(
+            ReplicationLayer::new(
                 3,
                 1000.0, // Very wide radius for social features
                 5.0,    // Low frequency for rarely changing data
@@ -146,7 +153,8 @@ impl Replication for Player {
                     "achievements".to_string(),
                 ],
                 CompressionType::Zlib, // Maximize compression
-            ))
+            ),
+        ]
     }
 
     fn get_priority(&self, observer_pos: Vec3) -> ReplicationPriority {
@@ -173,13 +181,29 @@ impl Replication for Player {
             _ => Ok(vec![]),
         }
     }
+    
+    fn update_position(&mut self, new_position: Vec3) {
+        self.position = new_position;
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    
+    fn clone_object(&self) -> Box<dyn GorcObject> {
+        Box::new(self.clone())
+    }
 }
 
 // Register Player object with GORC
 defObject!(Player);
 
 /// An asteroid game object that demonstrates the new object registration system
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Asteroid {
     pub radius: i32,
     pub position: Vec3,
@@ -200,33 +224,39 @@ impl Asteroid {
     }
 }
 
-impl Replication for Asteroid {
-    fn init_layers() -> ReplicationLayers {
-        ReplicationLayers::new()
-            .add_layer(ReplicationLayer {
-                channel: 0,
-                radius: 50.0,
-                frequency: 30.0,
-                properties: vec!["position".to_string(), "velocity".to_string(), "health".to_string()],
-                compression: CompressionType::Delta,
-                priority: ReplicationPriority::Critical,
-            })
-            .add_layer(ReplicationLayer {
-                channel: 1,
-                radius: 200.0,
-                frequency: 10.0,
-                properties: vec!["position".to_string(), "mineral_type".to_string()],
-                compression: CompressionType::Quantized,
-                priority: ReplicationPriority::High,
-            })
-            .add_layer(ReplicationLayer {
-                channel: 2,
-                radius: 1000.0,
-                frequency: 2.0,
-                properties: vec!["position".to_string()],
-                compression: CompressionType::High,
-                priority: ReplicationPriority::Normal,
-            })
+impl GorcObject for Asteroid {
+    fn type_name(&self) -> &'static str {
+        "Asteroid"
+    }
+    
+    fn position(&self) -> Vec3 {
+        self.position
+    }
+    
+    fn get_layers(&self) -> Vec<ReplicationLayer> {
+        vec![
+            ReplicationLayer::new(
+                0,
+                50.0,
+                30.0,
+                vec!["position".to_string(), "velocity".to_string(), "health".to_string()],
+                CompressionType::Delta,
+            ),
+            ReplicationLayer::new(
+                1,
+                200.0,
+                10.0,
+                vec!["position".to_string(), "mineral_type".to_string()],
+                CompressionType::Quantized,
+            ),
+            ReplicationLayer::new(
+                2,
+                1000.0,
+                2.0,
+                vec!["position".to_string()],
+                CompressionType::High,
+            ),
+        ]
     }
     
     fn get_priority(&self, observer_pos: Vec3) -> ReplicationPriority {
@@ -264,6 +294,22 @@ impl Replication for Asteroid {
             },
             _ => Ok(vec![]),
         }
+    }
+    
+    fn update_position(&mut self, new_position: Vec3) {
+        self.position = new_position;
+    }
+    
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+    
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+    
+    fn clone_object(&self) -> Box<dyn GorcObject> {
+        Box::new(self.clone())
     }
 }
 
@@ -470,25 +516,25 @@ mod tests {
 
     #[test]
     fn test_player_replication_layers() {
-        let layers = Player::init_layers();
+        let player = Player::default();
+        let layers = player.get_layers();
         assert_eq!(layers.len(), 4);
         
-        let layer_vec = layers.into_layers();
-        assert_eq!(layer_vec[0].channel, 0); // Critical
-        assert_eq!(layer_vec[1].channel, 1); // Detailed
-        assert_eq!(layer_vec[2].channel, 2); // Cosmetic
-        assert_eq!(layer_vec[3].channel, 3); // Metadata
+        assert_eq!(layers[0].channel, 0); // Critical
+        assert_eq!(layers[1].channel, 1); // Detailed
+        assert_eq!(layers[2].channel, 2); // Cosmetic
+        assert_eq!(layers[3].channel, 3); // Metadata
     }
 
     #[test]
     fn test_asteroid_replication_layers() {
-        let layers = Asteroid::init_layers();
+        let asteroid = Asteroid::default();
+        let layers = asteroid.get_layers();
         assert_eq!(layers.len(), 3);
         
-        let layer_vec = layers.into_layers();
-        assert_eq!(layer_vec[0].channel, 0); // Critical
-        assert_eq!(layer_vec[1].channel, 1); // Detailed  
-        assert_eq!(layer_vec[2].channel, 2); // Cosmetic
+        assert_eq!(layers[0].channel, 0); // Critical
+        assert_eq!(layers[1].channel, 1); // Detailed  
+        assert_eq!(layers[2].channel, 2); // Cosmetic
     }
 
     #[test]

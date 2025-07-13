@@ -252,27 +252,33 @@ pub mod defaults {
     
     /// Creates default replication layers for a typical game object
     pub fn default_object_layers() -> ReplicationLayers {
-        ReplicationLayers::new()
-            .add_layer(ReplicationLayer::new(
-                0, 50.0, 30.0,
-                vec!["position".to_string(), "health".to_string()],
-                CompressionType::Delta
-            ))
-            .add_layer(ReplicationLayer::new(
-                1, 150.0, 15.0,
-                vec!["animation".to_string(), "state".to_string()],
-                CompressionType::Lz4
-            ))
-            .add_layer(ReplicationLayer::new(
-                2, 300.0, 10.0,
-                vec!["effects".to_string()],
-                CompressionType::Lz4
-            ))
-            .add_layer(ReplicationLayer::new(
-                3, 1000.0, 2.0,
-                vec!["name".to_string(), "metadata".to_string()],
-                CompressionType::High
-            ))
+        let mut layers = ReplicationLayers::new();
+        
+        layers.add_layer(ReplicationLayer::new(
+            0, 50.0, 30.0,
+            vec!["position".to_string(), "health".to_string()],
+            CompressionType::Delta
+        ));
+        
+        layers.add_layer(ReplicationLayer::new(
+            1, 150.0, 15.0,
+            vec!["animation".to_string(), "state".to_string()],
+            CompressionType::Lz4
+        ));
+        
+        layers.add_layer(ReplicationLayer::new(
+            2, 300.0, 10.0,
+            vec!["effects".to_string()],
+            CompressionType::Lz4
+        ));
+        
+        layers.add_layer(ReplicationLayer::new(
+            3, 1000.0, 2.0,
+            vec!["name".to_string(), "metadata".to_string()],
+            CompressionType::High
+        ));
+        
+        layers
     }
     
     /// Creates default network configuration optimized for most games
@@ -360,8 +366,8 @@ pub mod utils {
         }
         
         // Check network engine
-        let network_stats = system.network_engine.get_global_stats().await;
-        let utilization = system.network_engine.get_network_utilization().await;
+        let network_stats = system.network_engine.get_stats().await;
+        let utilization = network_stats.network_utilization;
         
         if utilization > 0.9 {
             issues.push(format!("High network utilization: {:.1}%", utilization * 100.0));
@@ -378,8 +384,8 @@ pub mod utils {
     pub async fn create_performance_report(system: &CompleteGorcSystem) -> GorcPerformanceReport {
         let replication_stats = system.coordinator.get_stats().await;
         let instance_stats = system.instance_manager.get_stats().await;
-        let network_stats = system.network_engine.get_global_stats().await;
-        let utilization = system.network_engine.get_network_utilization().await;
+        let network_stats = system.network_engine.get_stats().await;
+        let utilization = network_stats.network_utilization;
         
         GorcPerformanceReport {
             timestamp: crate::utils::current_timestamp(),
@@ -409,7 +415,7 @@ pub struct CompleteGorcSystem {
 impl CompleteGorcSystem {
     /// Registers a new object with the GORC system
     pub async fn register_object<T: GorcObject + 'static>(
-        &self,
+        &mut self,
         object: T,
         position: crate::types::Vec3,
     ) -> GorcObjectId {
@@ -417,7 +423,7 @@ impl CompleteGorcSystem {
     }
     
     /// Unregisters an object from the GORC system
-    pub async fn unregister_object(&self, object_id: GorcObjectId) {
+    pub async fn unregister_object(&mut self, object_id: GorcObjectId) {
         self.coordinator.unregister_object(object_id).await;
     }
     

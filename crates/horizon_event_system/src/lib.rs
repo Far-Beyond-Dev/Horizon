@@ -40,10 +40,7 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create the complete GORC system
 //!     let server_context = Arc::new(MyServerContext::new());
-//!     let mut gorc_system = utils::create_complete_gorc_system(server_context)?;
-//!     
-//!     // Create event system with GORC integration
-//!     let events = Arc::new(EventSystem::with_gorc(gorc_system.instance_manager.clone()));
+//!     let (events, mut gorc_system) = create_complete_horizon_system(server_context)?;
 //!     
 //!     // Register event handlers
 //!     events.on_core("player_connected", |event: PlayerConnectedEvent| {
@@ -131,12 +128,16 @@
 //! ```
 
 // Core modules
+pub mod api;
 pub mod context;
 pub mod events;
+pub mod gorc_macros;
 pub mod macros;
+pub mod monitoring;
 pub mod plugin;
 pub mod system;
 pub mod system_tests;
+pub mod traits;
 pub mod types;
 pub mod utils;
 
@@ -145,14 +146,17 @@ pub mod gorc;
 
 
 // Re-export commonly used items for convenience
+pub use api::{create_complete_horizon_system, create_simple_horizon_system};
 pub use context::{LogLevel, ServerContext, ServerError};
 pub use events::{
     Event, EventError, EventHandler, GorcEvent, PlayerConnectedEvent, PlayerDisconnectedEvent,
     RawClientMessageEvent, RegionStartedEvent, RegionStoppedEvent, TypedEventHandler,
     PluginLoadedEvent, PluginUnloadedEvent,
 };
+pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use plugin::{Plugin, PluginError, SimplePlugin};
-pub use system::{EventSystem, EventSystemStats, ClientConnectionRef, ClientResponseSender};
+pub use system::{EventSystem, EventSystemStats, DetailedEventSystemStats, HandlerCategoryStats, ClientConnectionRef, ClientResponseSender};
+pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
 pub use types::*;
 pub use utils::{create_horizon_event_system, current_timestamp};
 
@@ -193,7 +197,6 @@ pub use gorc::{
     // Constants
     GORC_VERSION, MAX_CHANNELS,
 };
-pub use crate::system::{DetailedEventSystemStats, HandlerCategoryStats};
 
 // External dependencies that plugins commonly need
 pub use async_trait::async_trait;
@@ -203,421 +206,6 @@ pub use serde::{Deserialize, Serialize};
 #[allow(unused_imports)] // This is actually used but only in the create plugin macro
 pub use futures;
 
-/// Creates a complete event system with full GORC integration
-/// 
-/// This is the recommended way to create an event system for games that need
-/// object replication capabilities.
-/// 
-/// # Arguments
-/// 
-/// * `server_context` - Server context providing access to core services
-/// 
-/// # Returns
-/// 
-/// Returns a tuple of (EventSystem, CompleteGorcSystem) ready for use
-/// 
-/// # Examples
-/// 
-/// ```rust
-/// let server_context = Arc::new(MyServerContext::new());
-/// let (events, gorc_system) = create_complete_horizon_system(server_context)?;
-/// 
-/// // Use the event system for traditional events
-/// events.on_core("server_started", |event: ServerStartedEvent| {
-///     println!("Server online!");
-///     Ok(())
-/// }).await?;
-/// 
-/// // Use the GORC system for object replication
-/// let asteroid_id = gorc_system.register_object(my_asteroid, position).await;
-/// ```
-pub fn create_complete_horizon_system(
-    server_context: Arc<dyn ServerContext>
-) -> Result<(Arc<EventSystem>, CompleteGorcSystem), gorc::GorcError> {
-    let gorc_system = gorc::utils::create_complete_gorc_system(server_context)?;
-    let event_system = Arc::new(EventSystem::with_gorc(gorc_system.instance_manager.clone()));
-
-    Ok((event_system, gorc_system))
-}
-
-/// Creates a lightweight event system without GORC for simple use cases
-/// 
-/// This creates just the basic event system without object replication capabilities.
-/// Use this for simpler applications that don't need advanced replication features.
-/// 
-/// # Returns
-/// 
-/// Returns an Arc<EventSystem> ready for basic event handling
-/// 
-/// # Examples
-/// 
-/// ```rust
-/// let events = create_simple_horizon_system();
-/// 
-/// events.on_core("player_connected", |event: PlayerConnectedEvent| {
-///     println!("Player {} connected", event.player_id);
-///     Ok(())
-/// }).await?;
-/// ```
-pub fn create_simple_horizon_system() -> Arc<EventSystem> {
-    create_horizon_event_system()
-}
-
-/// Helper trait for easily implementing GORC objects
-/// 
-/// This trait provides default implementations for common GORC object patterns,
-/// reducing boilerplate code for simple object types.
-pub trait SimpleGorcObject: Clone + Send + Sync + std::fmt::Debug + 'static {
-    /// Get the object's current position
-    fn position(&self) -> Vec3;
-    
-    /// Update the object's position
-    fn set_position(&mut self, position: Vec3);
-    
-    /// Get the object's type name
-    fn object_type() -> &'static str where Self: Sized;
-    
-    /// Get properties to replicate for a given channel
-    fn channel_properties(channel: u8) -> Vec<String> where Self: Sized;
-    
-    /// Get replication configuration for this object type
-    fn replication_config() -> SimpleReplicationConfig where Self: Sized {
-        SimpleReplicationConfig::default()
-    }
-}
-
-/// Simple configuration for GORC objects
-#[derive(Debug, Clone)]
-pub struct SimpleReplicationConfig {
-    /// Radius for each channel
-    pub channel_radii: [f32; 4],
-    /// Frequency for each channel
-    pub channel_frequencies: [f32; 4],
-    /// Compression for each channel
-    pub channel_compression: [CompressionType; 4],
-}
-
-impl Default for SimpleReplicationConfig {
-    fn default() -> Self {
-        Self {
-            channel_radii: [50.0, 150.0, 300.0, 1000.0],
-            channel_frequencies: [30.0, 15.0, 10.0, 2.0],
-            channel_compression: [
-                CompressionType::Delta,
-                CompressionType::Lz4,
-                CompressionType::Lz4,
-                CompressionType::High,
-            ],
-        }
-    }
-}
-
-/// Automatic implementation of GorcObject for types implementing SimpleGorcObject
-impl<T> GorcObject for T 
-where 
-    T: SimpleGorcObject + serde::Serialize + for<'de> serde::Deserialize<'de>,
-{
-    fn type_name(&self) -> &'static str {
-        T::object_type()
-    }
-    
-    fn position(&self) -> Vec3 {
-        SimpleGorcObject::position(self)
-    }
-    
-    fn get_priority(&self, observer_pos: Vec3) -> ReplicationPriority {
-        let distance = self.position().distance(observer_pos);
-        match distance {
-            d if d < 100.0 => ReplicationPriority::Critical,
-            d if d < 300.0 => ReplicationPriority::High,
-            d if d < 1000.0 => ReplicationPriority::Normal,
-            _ => ReplicationPriority::Low,
-        }
-    }
-    
-    fn serialize_for_layer(&self, layer: &ReplicationLayer) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        // For SimpleGorcObject, we serialize the entire object and let the layer filter properties
-        let serialized = serde_json::to_value(self)?;
-        
-        if let serde_json::Value::Object(mut map) = serialized {
-            // Keep only properties specified in the layer
-            map.retain(|key, _| layer.properties.contains(key));
-            Ok(serde_json::to_vec(&map)?)
-        } else {
-            Ok(serde_json::to_vec(&serialized)?)
-        }
-    }
-    
-    fn get_layers(&self) -> Vec<ReplicationLayer> {
-        let config = T::replication_config();
-        let mut layers = Vec::new();
-        
-        for channel in 0..4 {
-            let properties = T::channel_properties(channel);
-            if !properties.is_empty() {
-                layers.push(ReplicationLayer::new(
-                    channel,
-                    config.channel_radii[channel as usize],
-                    config.channel_frequencies[channel as usize],
-                    properties,
-                    config.channel_compression[channel as usize],
-                ));
-            }
-        }
-        
-        layers
-    }
-    
-    fn update_position(&mut self, new_position: Vec3) {
-        self.set_position(new_position);
-    }
-    
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-    
-    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
-        self
-    }
-    
-    fn clone_object(&self) -> Box<dyn GorcObject> {
-        Box::new(self.clone())
-    }
-}
-
-/// Macro for easily defining simple GORC objects
-/// 
-/// This macro reduces boilerplate by automatically implementing the SimpleGorcObject trait
-/// and providing sensible defaults for most object types.
-/// 
-/// # Examples
-/// 
-/// ```rust
-/// define_simple_gorc_object! {
-///     struct MyAsteroid {
-///         position: Vec3,
-///         velocity: Vec3,
-///         health: f32,
-///         mineral_type: MineralType,
-///     }
-///     
-///     type_name: "MyAsteroid",
-///     
-///     channels: {
-///         0 => ["position", "health"],      // Critical
-///         1 => ["velocity"],                // Detailed  
-///         3 => ["mineral_type"],            // Metadata
-///     }
-/// }
-/// ```
-#[macro_export]
-macro_rules! define_simple_gorc_object {
-    (
-        struct $name:ident {
-            position: Vec3,
-            $($field:ident: $field_type:ty),*
-        }
-        
-        type_name: $type_name:expr,
-        
-        channels: {
-            $($channel:expr => [$($prop:expr),*]),*
-        }
-        
-        $(config: {
-            $($config_field:ident: $config_value:expr),*
-        })?
-    ) => {
-        #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-        pub struct $name {
-            pub position: Vec3,
-            $(pub $field: $field_type),*
-        }
-        
-        impl SimpleGorcObject for $name {
-            fn position(&self) -> Vec3 {
-                self.position
-            }
-            
-            fn set_position(&mut self, position: Vec3) {
-                self.position = position;
-            }
-            
-            fn object_type() -> &'static str {
-                $type_name
-            }
-            
-            fn channel_properties(channel: u8) -> Vec<String> {
-                match channel {
-                    $(
-                        $channel => vec![$($prop.to_string()),*],
-                    )*
-                    _ => vec![]
-                }
-            }
-            
-            $(
-                fn replication_config() -> SimpleReplicationConfig {
-                    let mut config = SimpleReplicationConfig::default();
-                    $(
-                        config.$config_field = $config_value;
-                    )*
-                    config
-                }
-            )?
-        }
-    };
-}
-
-/// Performance monitoring utilities
-pub mod monitoring {
-    use super::*;
-    use std::time::{Duration, Instant};
-    
-    /// Performance monitor for the entire Horizon system
-    pub struct HorizonMonitor {
-        start_time: Instant,
-        last_report: Instant,
-        event_system: Arc<EventSystem>,
-        gorc_system: Option<Arc<CompleteGorcSystem>>,
-    }
-    
-    impl HorizonMonitor {
-        /// Creates a new performance monitor
-        pub fn new(event_system: Arc<EventSystem>) -> Self {
-            Self {
-                start_time: Instant::now(),
-                last_report: Instant::now(),
-                event_system,
-                gorc_system: None,
-            }
-        }
-        
-        /// Creates a monitor with GORC system integration
-        pub fn with_gorc(event_system: Arc<EventSystem>, gorc_system: Arc<CompleteGorcSystem>) -> Self {
-            Self {
-                start_time: Instant::now(),
-                last_report: Instant::now(),
-                event_system,
-                gorc_system: Some(gorc_system),
-            }
-        }
-        
-        /// Generates a comprehensive system report
-        pub async fn generate_report(&mut self) -> HorizonSystemReport {
-            let now = Instant::now();
-            let uptime = now.duration_since(self.start_time);
-            let time_since_last = now.duration_since(self.last_report);
-            self.last_report = now;
-            
-            let event_stats = self.event_system.as_ref().get_stats().await;
-            let gorc_report = if let Some(ref gorc) = self.gorc_system {
-                Some(gorc.get_performance_report().await)
-            } else {
-                None
-            };
-            
-            HorizonSystemReport {
-                timestamp: current_timestamp(),
-                uptime_seconds: uptime.as_secs(),
-                report_interval_seconds: time_since_last.as_secs(),
-                event_system_stats: event_stats.clone(),
-                gorc_performance: gorc_report.clone(),
-                system_health: self.calculate_system_health(&event_stats, &gorc_report).await,
-            }
-        }
-        
-        /// Calculates overall system health score (0.0 to 1.0)
-        async fn calculate_system_health(
-            &self,
-            event_stats: &EventSystemStats,
-            gorc_report: &Option<GorcPerformanceReport>
-        ) -> f32 {
-            let mut health_score = 1.0;
-            
-            // Factor in event system health
-            if event_stats.total_handlers == 0 {
-                health_score -= 0.2; // No handlers is concerning
-            }
-            
-            // Factor in GORC health if available
-            if let Some(gorc) = gorc_report {
-                let gorc_health = gorc.health_score();
-                health_score = (health_score + gorc_health) / 2.0;
-            }
-            
-            health_score.clamp(0.0, 1.0)
-        }
-        
-        /// Checks if the system should trigger alerts
-        pub async fn should_alert(&self) -> Vec<String> {
-            let mut alerts = Vec::new();
-            
-            let event_stats = self.event_system.get_stats().await;
-            
-            // Check for event system issues
-            if event_stats.total_handlers > 10000 {
-                alerts.push("Very high number of event handlers registered".to_string());
-            }
-            
-            // Check GORC system if available
-            if let Some(ref gorc) = self.gorc_system {
-                let gorc_report = gorc.get_performance_report().await;
-                if !gorc_report.is_healthy() {
-                    alerts.push("GORC system health issues detected".to_string());
-                }
-                
-                if gorc_report.network_utilization > 0.9 {
-                    alerts.push(format!("Critical network utilization: {:.1}%", 
-                                      gorc_report.network_utilization * 100.0));
-                }
-            }
-            
-            alerts
-        }
-    }
-    
-    /// Comprehensive system health report
-    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-    pub struct HorizonSystemReport {
-        pub timestamp: u64,
-        pub uptime_seconds: u64,
-        pub report_interval_seconds: u64,
-        pub event_system_stats: EventSystemStats,
-        pub gorc_performance: Option<GorcPerformanceReport>,
-        pub system_health: f32,
-    }
-    
-    impl HorizonSystemReport {
-        /// Returns true if the system is operating normally
-        pub fn is_healthy(&self) -> bool {
-            self.system_health > 0.7 && 
-            (self.gorc_performance.as_ref().map(|g| g.is_healthy()).unwrap_or(true))
-        }
-        
-        /// Gets actionable recommendations for system improvement
-        pub fn get_recommendations(&self) -> Vec<String> {
-            let mut recommendations = Vec::new();
-            
-            if self.system_health < 0.5 {
-                recommendations.push("System health is poor - investigate event system and GORC performance".to_string());
-            }
-            
-            if let Some(ref gorc) = self.gorc_performance {
-                recommendations.extend(gorc.get_recommendations());
-            }
-            
-            if self.event_system_stats.total_handlers == 0 {
-                recommendations.push("No event handlers registered - system may not be functioning".to_string());
-            }
-            
-            recommendations
-        }
-    }
-}
-
-// Export monitoring utilities
-pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 
 /// Version information
 pub const HORIZON_VERSION: &str = "2.0.0";
