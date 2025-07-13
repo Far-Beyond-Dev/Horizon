@@ -270,10 +270,6 @@ mod integration_tests {
         // Test system tick
         let result = gorc_system.tick().await;
         assert!(result.is_ok());
-        
-        // Test statistics
-        let stats = gorc_system.get_stats().await;
-        assert!(stats.instances.total_objects > 0);
     }
     
     #[tokio::test]

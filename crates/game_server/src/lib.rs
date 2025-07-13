@@ -722,7 +722,7 @@ pub fn create_server_with_config(config: ServerConfig) -> GameServer {
 mod tests {
     use super::*;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_core_server_creation() {
         let server = create_server();
         let events = server.get_horizon_event_system();
@@ -748,7 +748,7 @@ mod tests {
             .expect("Failed to register core event handler");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_plugin_message_routing() {
         let server = create_server();
         let events = server.get_horizon_event_system();
@@ -797,7 +797,7 @@ mod tests {
             .expect("Failed to emit client event for chat");
         }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_generic_client_message_routing() {
         let server = create_server();
         let events = server.get_horizon_event_system();
@@ -870,7 +870,7 @@ mod tests {
     }
 
     /// Example of how clean the new server is - just infrastructure!
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn demonstrate_clean_separation() {
         let server = create_server();
         let events = server.get_horizon_event_system();
@@ -907,48 +907,46 @@ mod tests {
         println!("✨ Clean separation achieved with generic routing!");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_gorc_integration() {
         let server = create_server();
-        
+
         // Test GORC component accessibility
         let gorc_manager = server.get_gorc_manager();
         let subscription_manager = server.get_subscription_manager();
         let multicast_manager = server.get_multicast_manager();
         let spatial_partition = server.get_spatial_partition();
-        
+
         // Test basic GORC functionality
         let stats = gorc_manager.get_stats().await;
-        assert_eq!(stats.total_subscriptions, 0);
-        
+        assert_eq!(stats.total_objects, 0);
+
         // Test spatial partition
         spatial_partition.add_region(
             "test_region".to_string(),
-            RegionBounds {
-                min_x: 0.0, max_x: 1000.0,
-                min_y: 0.0, max_y: 1000.0,
-                min_z: 0.0, max_z: 1000.0,
-            },
+            Position::new(0.0, 0.0, 0.0).into(),
+            Position::new(1000.0, 1000.0, 1000.0).into(),
         ).await;
-        
+
         // Test subscription management
         let player_id = PlayerId::new();
         let position = Position::new(100.0, 100.0, 100.0);
         subscription_manager.add_player(player_id, position).await;
-        
+
         // Test multicast group creation
         use std::collections::HashSet;
+        use horizon_event_system::ReplicationPriority;
         let channels: HashSet<u8> = vec![0, 1].into_iter().collect();
         let group_id = multicast_manager.create_group(
             "test_group".to_string(),
             channels,
             horizon_event_system::ReplicationPriority::Normal,
         ).await;
-        
+
         // Add player to multicast group
         let added = multicast_manager.add_player_to_group(player_id, group_id).await;
-        assert!(added);
-        
+        assert!(matches!(added, Ok(true)));
+
         println!("✅ GORC integration test passed!");
         println!("  - GORC Manager: Initialized with default channels");
         println!("  - Subscription Manager: Player subscription system ready");

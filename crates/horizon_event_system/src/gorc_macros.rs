@@ -6,6 +6,7 @@
 /// # Examples
 /// 
 /// ```rust
+/// use horizon_event_system::define_simple_gorc_object;
 /// define_simple_gorc_object! {
 ///     struct MyAsteroid {
 ///         position: Vec3,

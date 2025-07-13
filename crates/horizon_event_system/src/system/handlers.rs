@@ -146,6 +146,26 @@ impl EventSystem {
             .await
     }
 
+    /// On Core Async handler registration.
+    ///
+    /// This registers an asynchronous handler for core events.
+    /// This is useful for events that require async processing,
+    /// such as database operations or network calls.
+    pub async fn on_core_async<T, F, Fut>(
+        &self,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + 'static,
+        F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
+        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+    {
+        let event_key = format!("core_async:{}", event_name);
+        self.register_async_handler(event_key, event_name, handler)
+            .await
+    }
+
     /// Registers a handler for GORC instance events with direct object access.
     /// 
     /// This handler type provides access to the specific object instance that

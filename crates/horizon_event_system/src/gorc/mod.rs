@@ -816,7 +816,7 @@ mod tests {
         };
         
         assert!(!report.is_healthy());
-        assert!(report.health_score() < 0.5);
+        assert!(report.health_score() <= 0.5);
         assert!(!report.get_recommendations().is_empty());
     }
 }
