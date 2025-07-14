@@ -1,0 +1,428 @@
+//! Core game server implementation.
+//!
+//! This module contains the main `GameServer` struct and its implementation,
+//! providing the central orchestration of all server components including
+//! event systems, plugin management, and GORC infrastructure.
+
+use crate::{
+    config::ServerConfig,
+    connection::{ConnectionManager, GameServerResponseSender},
+    error::ServerError,
+    server::handlers::handle_connection,
+};
+use futures::stream::{FuturesUnordered, StreamExt as FuturesStreamExt};
+use horizon_event_system::{
+    create_horizon_event_system, current_timestamp, EventSystem, GorcManager, MulticastManager,
+    PlayerConnectedEvent, PlayerDisconnectedEvent, RegionId, RegionStartedEvent, SpatialPartition,
+    SubscriptionManager,
+};
+use plugin_system::{create_plugin_manager_with_events, PluginManager};
+use socket2::{Domain, Protocol, Socket, Type};
+use std::net::TcpListener as StdTcpListener;
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio::sync::broadcast;
+use tracing::{error, info, warn};
+
+/// The core game server structure.
+/// 
+/// `GameServer` orchestrates all server components including networking,
+/// event processing, plugin management, and GORC (Game Object Replication Channel)
+/// infrastructure. It provides a clean infrastructure-only foundation that
+/// delegates all game logic to plugins.
+/// 
+/// # Architecture
+/// 
+/// * **Event System**: Central hub for all plugin communication
+/// * **Connection Management**: WebSocket connection lifecycle and player mapping
+/// * **Plugin System**: Dynamic loading and management of game logic plugins
+/// * **GORC Components**: Advanced replication and spatial management
+/// * **Multi-threaded Networking**: Configurable accept loop scaling
+/// 
+/// # Design Philosophy
+/// 
+/// The server core contains NO game logic - it only provides infrastructure.
+/// All game mechanics, rules, and behaviors are implemented as plugins that
+/// communicate through the event system.
+pub struct GameServer {
+    /// Server configuration settings
+    config: ServerConfig,
+    
+    /// The event system for plugin communication
+    horizon_event_system: Arc<EventSystem>,
+    
+    /// Manager for client connections and messaging
+    connection_manager: Arc<ConnectionManager>,
+    
+    /// Plugin system for dynamic game logic
+    plugin_manager: Arc<PluginManager>,
+    
+    /// Channel for coordinating server shutdown
+    shutdown_sender: broadcast::Sender<()>,
+    
+    /// Unique identifier for this server region
+    region_id: RegionId,
+    
+    // GORC (Game Object Replication Channel) components
+    /// Main GORC manager for replication channels
+    gorc_manager: Arc<GorcManager>,
+    
+    /// Manager for dynamic subscription handling
+    subscription_manager: Arc<SubscriptionManager>,
+    
+    /// Manager for efficient group communication
+    multicast_manager: Arc<MulticastManager>,
+    
+    /// Spatial partitioning for region and proximity queries
+    spatial_partition: Arc<SpatialPartition>,
+}
+
+impl GameServer {
+    /// Creates a new game server with the specified configuration.
+    /// 
+    /// Initializes all core components including the event system, connection
+    /// management, plugin system, and GORC infrastructure. The server is
+    /// ready to start after construction.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `config` - Configuration parameters for server behavior
+    /// 
+    /// # Returns
+    /// 
+    /// A new `GameServer` instance ready to be started.
+    /// 
+    /// # Component Initialization
+    /// 
+    /// 1. Creates event system and connection manager
+    /// 2. Sets up client response sender for event system integration
+    /// 3. Initializes plugin manager with event system binding
+    /// 4. Creates all GORC components for advanced networking
+    /// 5. Generates unique region ID for this server instance
+    pub fn new(config: ServerConfig) -> Self {
+        let region_id = RegionId::new();
+        let mut horizon_event_system = create_horizon_event_system();
+        let connection_manager = Arc::new(ConnectionManager::new());
+        let (shutdown_sender, _) = broadcast::channel(1);
+
+        // Set up connection-aware response sender
+        let response_sender = Arc::new(GameServerResponseSender::new(connection_manager.clone()));
+        Arc::get_mut(&mut horizon_event_system).unwrap()
+            .set_client_response_sender(response_sender);
+
+        // Create plugin manager with the event system
+        let plugin_manager = Arc::new(create_plugin_manager_with_events(
+            horizon_event_system.clone(),
+            &config.plugin_directory,
+            region_id,
+        ));
+
+        // Initialize GORC components
+        let gorc_manager = Arc::new(GorcManager::new());
+        let subscription_manager = Arc::new(SubscriptionManager::new());
+        let multicast_manager = Arc::new(MulticastManager::new());
+        let spatial_partition = Arc::new(SpatialPartition::new());
+
+        Self {
+            config,
+            horizon_event_system,
+            connection_manager,
+            plugin_manager,
+            shutdown_sender,
+            region_id,
+            gorc_manager,
+            subscription_manager,
+            multicast_manager,
+            spatial_partition,
+        }
+    }
+
+    /// Starts the game server and begins accepting connections.
+    /// 
+    /// This method performs the complete server startup sequence including
+    /// plugin loading, event handler registration, network binding, and
+    /// the main accept loop. The server runs until shutdown is requested.
+    /// 
+    /// # Startup Sequence
+    /// 
+    /// 1. Register core infrastructure event handlers
+    /// 2. Load and initialize all plugins from the plugin directory
+    /// 3. Emit region started event to notify plugins
+    /// 4. Create TCP listeners (potentially multiple for multi-threading)
+    /// 5. Start accept loops to handle incoming connections
+    /// 6. Run until shutdown signal received
+    /// 7. Clean shutdown of all plugins
+    /// 
+    /// # Multi-threading
+    /// 
+    /// If `use_reuse_port` is enabled in configuration, the server will
+    /// create multiple accept loops equal to the number of CPU cores for
+    /// improved performance under high load.
+    /// 
+    /// # Returns
+    /// 
+    /// `Ok(())` if the server started and stopped cleanly, or a `ServerError`
+    /// if there was a failure during startup or operation.
+    pub async fn start(&self) -> Result<(), ServerError> {
+        info!("🚀 Starting game server on {}", self.config.bind_address);
+        info!("🌍 Region ID: {}", self.region_id.0);
+
+        // Register minimal core event handlers
+        self.register_core_handlers().await?;
+
+        info!(
+            "🔌 Loading plugins from: {}",
+            self.config.plugin_directory.display()
+        );
+        match self.plugin_manager.load_all_plugins().await {
+            Ok(loaded_plugins) => {
+                info!(
+                    "✅ Successfully loaded {} plugins: {:?}",
+                    loaded_plugins.len(),
+                    loaded_plugins
+                );
+            }
+            Err(e) => {
+                warn!(
+                    "⚠️ Plugin loading failed: {}. Server will continue without plugins.",
+                    e
+                );
+            }
+        }
+
+        // Display plugin statistics
+        let plugin_stats = self.plugin_manager.get_plugin_stats().await;
+        info!("📊 Plugin System Status:");
+        info!("  - Plugins loaded: {}", plugin_stats.total_plugins);
+        info!("  - Total handlers: {}", plugin_stats.total_handlers);
+        info!(
+            "  - Client events routed: {}",
+            plugin_stats.client_events_routed
+        );
+
+        // Emit region started event (for plugins)
+        self.horizon_event_system
+            .emit_core(
+                "region_started",
+                &RegionStartedEvent {
+                    region_id: self.region_id,
+                    bounds: self.config.region_bounds.clone(),
+                    timestamp: current_timestamp(),
+                },
+            )
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        // Determine number of accept loops based on configuration
+        let core_count = num_cpus::get();
+        let num_acceptors = if self.config.use_reuse_port {
+            core_count
+        } else {
+            1
+        };
+
+        info!(
+             "🧠 Detected {} CPU cores, using {} acceptor(s)",
+                core_count, num_acceptors
+        );
+
+        // Create TCP listeners
+        let mut listeners = Vec::new();
+
+        for i in 0..num_acceptors {
+            let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
+                .map_err(|e| ServerError::Network(format!("Socket creation failed: {e}")))?;
+            socket.set_reuse_address(true).ok();
+            
+            // Note: SO_REUSEPORT configuration is commented out for platform compatibility
+            // Future versions may enable this for supported platforms
+            if self.config.use_reuse_port {
+                // TODO: Enable SO_REUSEPORT if supported in the future.
+            }
+            
+            socket.bind(&self.config.bind_address.into())
+                .map_err(|e| ServerError::Network(format!("Bind failed: {e}")))?;
+
+            socket.listen(65535)
+                .map_err(|e| ServerError::Network(format!("Listen failed: {e}")))?;
+
+            let std_listener: StdTcpListener = socket.into();
+            std_listener.set_nonblocking(true).ok();
+            
+            let listener = TcpListener::from_std(std_listener)
+            .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {e}")))?;
+
+        listeners.push(listener);
+        info!("✅ Listener {} bound on {}", i, self.config.bind_address);
+        }
+
+        // Main server accept loops
+        let mut shutdown_receiver = self.shutdown_sender.subscribe();
+
+        // Create futures for all accept loops
+        let mut accept_futures = listeners
+            .into_iter()
+            .map(|listener| {
+                let connection_manager = self.connection_manager.clone();
+                let horizon_event_system = self.horizon_event_system.clone();
+                
+                async move {
+                    loop {
+                        match listener.accept().await {
+                            Ok((stream, addr)) => {
+                                let connection_manager = connection_manager.clone();
+                                let horizon_event_system = horizon_event_system.clone();
+
+                                // Spawn individual connection handler
+                                tokio::spawn(async move {
+                                    if let Err(e) = handle_connection(
+                                        stream,
+                                        addr,
+                                        connection_manager,
+                                        horizon_event_system,
+                                    ).await {
+                                        error!("Connection error: {:?}", e);
+                                    }
+                                });
+                            }
+                            Err(e) => {
+                                error!("Failed to accept connection: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                }
+            })
+            .collect::<FuturesUnordered<_>>();
+
+        // Run until shutdown
+        tokio::select! {
+            _ = accept_futures.next() => {} // Accept loop(s) will run until error or shutdown
+            _ = shutdown_receiver.recv() => {
+                info!("Shutdown signal received");
+            }
+        }
+
+        // Shutdown plugins when server stops
+        info!("🔌 Shutting down plugins...");
+        if let Err(e) = self.plugin_manager.shutdown_all().await {
+            error!("Error shutting down plugins: {}", e);
+        } else {
+            info!("✅ All plugins shut down successfully");
+        }
+
+        info!("Server stopped");
+        Ok(())
+    }
+
+    /// Registers core infrastructure event handlers.
+    /// 
+    /// Sets up handlers for essential server events like player connections,
+    /// disconnections, and region management. These handlers provide logging
+    /// and basic infrastructure functionality only - no game logic.
+    /// 
+    /// # Returns
+    /// 
+    /// `Ok(())` if all handlers were registered successfully, or a `ServerError`
+    /// if registration failed.
+    async fn register_core_handlers(&self) -> Result<(), ServerError> {
+        // Core infrastructure events only - no game logic!
+
+        self.horizon_event_system
+            .on_core("player_connected", |event: PlayerConnectedEvent| {
+                info!(
+                    "👋 Player {} connected from {}",
+                    event.player_id, event.remote_addr
+                );
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        self.horizon_event_system
+            .on_core("player_disconnected", |event: PlayerDisconnectedEvent| {
+                info!(
+                    "👋 Player {} disconnected: {:?}",
+                    event.player_id, event.reason
+                );
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        self.horizon_event_system
+            .on_core("region_started", |event: RegionStartedEvent| {
+                info!(
+                    "🌍 Region {:?} started with bounds: {:?}",
+                    event.region_id, event.bounds
+                );
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Initiates server shutdown.
+    /// 
+    /// Signals all server components to begin graceful shutdown, including
+    /// stopping accept loops and cleaning up active connections.
+    /// 
+    /// # Returns
+    /// 
+    /// `Ok(())` if the shutdown signal was sent successfully.
+    pub async fn shutdown(&self) -> Result<(), ServerError> {
+        info!("🛑 Shutting down server...");
+        let _ = self.shutdown_sender.send(());
+        Ok(())
+    }
+
+    /// Gets a reference to the event system.
+    /// 
+    /// Provides access to the core event system for plugins and external
+    /// components that need to interact with the server's event infrastructure.
+    /// 
+    /// # Returns
+    /// 
+    /// An `Arc<EventSystem>` that can be used to register handlers and emit events.
+    pub fn get_horizon_event_system(&self) -> Arc<EventSystem> {
+        self.horizon_event_system.clone()
+    }
+
+    /// Gets the GORC manager for replication channel management.
+    /// 
+    /// # Returns
+    /// 
+    /// An `Arc<GorcManager>` for managing game object replication channels.
+    pub fn get_gorc_manager(&self) -> Arc<GorcManager> {
+        self.gorc_manager.clone()
+    }
+
+    /// Gets the subscription manager for dynamic subscription handling.
+    /// 
+    /// # Returns
+    /// 
+    /// An `Arc<SubscriptionManager>` for managing player subscriptions to game events.
+    pub fn get_subscription_manager(&self) -> Arc<SubscriptionManager> {
+        self.subscription_manager.clone()
+    }
+
+    /// Gets the multicast manager for efficient group communication.
+    /// 
+    /// # Returns
+    /// 
+    /// An `Arc<MulticastManager>` for managing multicast groups and broadcasting.
+    pub fn get_multicast_manager(&self) -> Arc<MulticastManager> {
+        self.multicast_manager.clone()
+    }
+
+    /// Gets the spatial partition for spatial queries and region management.
+    /// 
+    /// # Returns
+    /// 
+    /// An `Arc<SpatialPartition>` for spatial indexing and proximity queries.
+    pub fn get_spatial_partition(&self) -> Arc<SpatialPartition> {
+        self.spatial_partition.clone()
+    }
+}

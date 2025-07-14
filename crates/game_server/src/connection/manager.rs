@@ -1,0 +1,179 @@
+//! Connection manager for tracking and managing client connections.
+//!
+//! This module provides the central management system for all client connections,
+//! handling connection lifecycle, player ID assignment, and message broadcasting.
+
+use super::{client::ClientConnection, ConnectionId};
+use horizon_event_system::PlayerId;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::sync::{broadcast, RwLock};
+use tracing::info;
+
+/// Central manager for all client connections.
+/// 
+/// The `ConnectionManager` tracks active connections, assigns unique IDs,
+/// manages player associations, and provides message broadcasting capabilities.
+/// It uses async-safe data structures to handle concurrent access from multiple
+/// connection handlers.
+/// 
+/// # Architecture
+/// 
+/// * Uses `RwLock<HashMap>` for thread-safe connection storage
+/// * Implements atomic connection ID generation
+/// * Provides broadcast channel for outgoing messages
+/// * Maintains bidirectional player-connection mapping
+#[derive(Debug)]
+pub struct ConnectionManager {
+    /// Map of connection ID to client connection information
+    connections: Arc<RwLock<HashMap<ConnectionId, ClientConnection>>>,
+    
+    /// Atomic counter for generating unique connection IDs
+    next_id: Arc<std::sync::atomic::AtomicUsize>,
+    
+    /// Broadcast sender for outgoing messages to specific connections
+    sender: broadcast::Sender<(ConnectionId, Vec<u8>)>,
+}
+
+impl ConnectionManager {
+    /// Creates a new connection manager.
+    /// 
+    /// Initializes the internal data structures and broadcast channel
+    /// with a reasonable buffer size for message queuing.
+    /// 
+    /// # Returns
+    /// 
+    /// A new `ConnectionManager` instance ready to handle connections.
+    pub fn new() -> Self {
+        let (sender, _) = broadcast::channel(1000);
+
+        Self {
+            connections: Arc::new(RwLock::new(HashMap::new())),
+            next_id: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
+            sender,
+        }
+    }
+
+    /// Adds a new connection and returns its unique ID.
+    /// 
+    /// Creates a new connection entry with the provided remote address
+    /// and assigns it a unique connection ID for tracking.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `remote_addr` - The network address of the connecting client
+    /// 
+    /// # Returns
+    /// 
+    /// A unique `ConnectionId` assigned to this connection.
+    pub async fn add_connection(&self, remote_addr: SocketAddr) -> ConnectionId {
+        let connection_id = self
+            .next_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let connection = ClientConnection::new(remote_addr);
+
+        let mut connections = self.connections.write().await;
+        connections.insert(connection_id, connection);
+
+        info!("🔗 Connection {} from {}", connection_id, remote_addr);
+        connection_id
+    }
+
+    /// Removes a connection from the manager.
+    /// 
+    /// Cleans up the connection entry and logs the disconnection.
+    /// This should be called when a client disconnects or times out.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `connection_id` - The ID of the connection to remove
+    pub async fn remove_connection(&self, connection_id: ConnectionId) {
+        let mut connections = self.connections.write().await;
+        if let Some(connection) = connections.remove(&connection_id) {
+            info!(
+                "❌ Connection {} from {} disconnected",
+                connection_id, connection.remote_addr
+            );
+        }
+    }
+
+    /// Associates a player ID with a connection.
+    /// 
+    /// This is typically called after successful authentication or
+    /// when a player is assigned to a connection.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `connection_id` - The connection to update
+    /// * `player_id` - The player ID to assign
+    pub async fn set_player_id(&self, connection_id: ConnectionId, player_id: PlayerId) {
+        let mut connections = self.connections.write().await;
+        if let Some(connection) = connections.get_mut(&connection_id) {
+            connection.player_id = Some(player_id);
+        }
+    }
+
+    /// Retrieves the player ID associated with a connection.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `connection_id` - The connection to look up
+    /// 
+    /// # Returns
+    /// 
+    /// The associated `PlayerId` if found, or `None` if the connection
+    /// doesn't exist or doesn't have a player assigned.
+    pub async fn get_player_id(&self, connection_id: ConnectionId) -> Option<PlayerId> {
+        let connections = self.connections.read().await;
+        connections.get(&connection_id).and_then(|c| c.player_id)
+    }
+
+    /// Sends a message to a specific connection.
+    /// 
+    /// Queues a message for delivery to the specified connection through
+    /// the internal broadcast channel.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `connection_id` - The target connection
+    /// * `message` - The message data to send
+    pub async fn send_to_connection(&self, connection_id: ConnectionId, message: Vec<u8>) {
+        let _ = self.sender.send((connection_id, message));
+    }
+
+    /// Creates a new receiver for outgoing messages.
+    /// 
+    /// Each connection handler should call this to get a receiver
+    /// for messages targeted to their specific connection.
+    /// 
+    /// # Returns
+    /// 
+    /// A broadcast receiver for connection-targeted messages.
+    pub fn subscribe(&self) -> broadcast::Receiver<(ConnectionId, Vec<u8>)> {
+        self.sender.subscribe()
+    }
+
+    /// Finds the connection ID associated with a player.
+    /// 
+    /// Searches through active connections to find the one associated
+    /// with the specified player ID.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `player_id` - The player to search for
+    /// 
+    /// # Returns
+    /// 
+    /// The `ConnectionId` if the player is found and connected,
+    /// or `None` if the player is not currently connected.
+    pub async fn get_connection_id_by_player(&self, player_id: PlayerId) -> Option<ConnectionId> {
+        let connections = self.connections.read().await;
+        for (conn_id, connection) in connections.iter() {
+            if connection.player_id == Some(player_id) {
+                return Some(*conn_id);
+            }
+        }
+        None
+    }
+}

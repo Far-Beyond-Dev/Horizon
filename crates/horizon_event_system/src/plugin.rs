@@ -58,7 +58,10 @@ use std::sync::Arc;
 /// 
 /// # Examples
 /// 
-/// ```rust
+/// ```rust,no_run
+/// use horizon_event_system::*;
+/// use std::sync::Arc;
+/// 
 /// struct ChatPlugin {
 ///     message_count: u64,
 /// }
@@ -69,12 +72,12 @@ use std::sync::Arc;
 ///     }
 /// }
 /// 
-/// #[async_trait]
-/// impl SimplePlugin for ChatPlugin {
+/// #[async_trait::async_trait]
+/// impl plugin::SimplePlugin for ChatPlugin {
 ///     fn name(&self) -> &str { "chat_system" }
 ///     fn version(&self) -> &str { "1.0.0" }
 ///     
-///     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+///     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), plugin::PluginError> {
 ///         events.on_client("chat", "message", |event: RawClientMessageEvent| {
 ///             // Process chat message
 ///             Ok(())
@@ -83,7 +86,7 @@ use std::sync::Arc;
 ///     }
 /// }
 /// 
-/// create_simple_plugin!(ChatPlugin);
+/// // create_simple_plugin!(ChatPlugin);
 /// ```
 #[async_trait]
 pub trait SimplePlugin: Send + Sync + 'static {

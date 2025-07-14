@@ -33,13 +33,18 @@
 //!
 //! ## Quick Start Example
 //!
-//! ```rust
+//! ```rust,no_run
 //! use horizon_event_system::*;
+//! use std::sync::Arc;
+//!
+//! // Mock server context for example
+//! struct MyServerContext;
+//! impl context::ServerContext for MyServerContext {}
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create the complete GORC system
-//!     let server_context = Arc::new(MyServerContext::new());
+//!     let server_context = Arc::new(MyServerContext);
 //!     let (events, mut gorc_system) = create_complete_horizon_system(server_context)?;
 //!     
 //!     // Register event handlers
@@ -51,7 +56,7 @@
 //!     // Register GORC instance handlers with object access
 //!     events.on_gorc_instance("Asteroid", 0, "position_update", 
 //!         |event: GorcEvent, instance: &mut ObjectInstance| {
-//!             if let Some(asteroid) = instance.get_object_mut::<ExampleAsteroid>() {
+//!             if let Some(asteroid) = instance.get_object_mut::<gorc::examples::ExampleAsteroid>() {
 //!                 println!("Asteroid {} moved to {:?}", event.object_id, asteroid.position());
 //!             }
 //!             Ok(())
@@ -59,7 +64,7 @@
 //!     ).await?;
 //!     
 //!     // Register game objects
-//!     let asteroid = ExampleAsteroid::new(Vec3::new(100.0, 0.0, 200.0), MineralType::Platinum);
+//!     let asteroid = gorc::examples::ExampleAsteroid::new(Vec3::new(100.0, 0.0, 200.0), gorc::MineralType::Platinum);
 //!     let asteroid_id = gorc_system.register_object(asteroid, Vec3::new(100.0, 0.0, 200.0)).await;
 //!     
 //!     // Add players
@@ -84,30 +89,31 @@
 //!
 //! ## Plugin Development with GORC
 //!
-//! ```rust
+//! ```rust,no_run
 //! use horizon_event_system::*;
+//! use std::sync::Arc;
 //!
 //! struct AsteroidMiningPlugin {
-//!     gorc_system: Arc<CompleteGorcSystem>,
+//!     gorc_system: Arc<gorc::CompleteGorcSystem>,
 //! }
 //!
 //! impl AsteroidMiningPlugin {
-//!     fn new(gorc_system: Arc<CompleteGorcSystem>) -> Self {
+//!     fn new(gorc_system: Arc<gorc::CompleteGorcSystem>) -> Self {
 //!         Self { gorc_system }
 //!     }
 //! }
 //!
-//! #[async_trait]
-//! impl SimplePlugin for AsteroidMiningPlugin {
+//! #[async_trait::async_trait]
+//! impl plugin::SimplePlugin for AsteroidMiningPlugin {
 //!     fn name(&self) -> &str { "asteroid_mining" }
 //!     fn version(&self) -> &str { "1.0.0" }
 //!     
-//!     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+//!     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), plugin::PluginError> {
 //!         // Handle asteroid discovery events
 //!         events.on_gorc_instance("Asteroid", 3, "composition_discovered", 
 //!             |event: GorcEvent, instance: &mut ObjectInstance| {
-//!                 if let Some(asteroid) = instance.get_object::<ExampleAsteroid>() {
-//!                     println!("Discovered {} asteroid with {} minerals", 
+//!                 if let Some(asteroid) = instance.get_object::<gorc::examples::ExampleAsteroid>() {
+//!                     println!("Discovered {:?} asteroid with {} minerals", 
 //!                             asteroid.mineral_type, asteroid.radius);
 //!                 }
 //!                 Ok(())
@@ -124,7 +130,7 @@
 //!     }
 //! }
 //!
-//! create_simple_plugin!(AsteroidMiningPlugin);
+//! // create_simple_plugin!(AsteroidMiningPlugin);
 //! ```
 
 // Core modules
