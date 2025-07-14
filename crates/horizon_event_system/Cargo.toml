@@ -1,6 +1,6 @@
 [package]
 name = "horizon_event_system"
-version = "0.4.0"
+version = "0.5.0"
 description = "Horizon Event System for handling events in the Horizon game server ecosystem."
 license = "MIT"
 edition = "2021"
