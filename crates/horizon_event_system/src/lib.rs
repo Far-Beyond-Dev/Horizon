@@ -133,6 +133,9 @@
 //! // create_simple_plugin!(AsteroidMiningPlugin);
 //! ```
 
+// tests
+mod test_integration;
+
 // Core modules
 pub mod api;
 pub mod context;
@@ -142,7 +145,6 @@ pub mod macros;
 pub mod monitoring;
 pub mod plugin;
 pub mod system;
-pub mod system_tests;
 pub mod traits;
 pub mod types;
 pub mod utils;
@@ -150,18 +152,22 @@ pub mod utils;
 // GORC (Game Object Replication Channels) module
 pub mod gorc;
 
-
 // Re-export commonly used items for convenience
 pub use api::{create_complete_horizon_system, create_simple_horizon_system};
 pub use context::{LogLevel, ServerContext, ServerError};
 pub use events::{
-    Event, EventError, EventHandler, GorcEvent, PlayerConnectedEvent, PlayerDisconnectedEvent,
-    RawClientMessageEvent, RegionStartedEvent, RegionStoppedEvent, TypedEventHandler,
+    Event, EventError, EventHandler, GorcEvent,
+    PlayerConnectedEvent, PlayerDisconnectedEvent,
+    RawClientMessageEvent, RegionStartedEvent,
+    RegionStoppedEvent, TypedEventHandler,
     PluginLoadedEvent, PluginUnloadedEvent,
 };
 pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use plugin::{Plugin, PluginError, SimplePlugin};
-pub use system::{EventSystem, EventSystemStats, DetailedEventSystemStats, HandlerCategoryStats, ClientConnectionRef, ClientResponseSender};
+pub use system::{EventSystem, EventSystemStats,
+    DetailedEventSystemStats, HandlerCategoryStats,
+    ClientConnectionRef, ClientResponseSender
+};
 pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
 pub use types::*;
 pub use utils::{create_horizon_event_system, current_timestamp};
@@ -208,88 +214,13 @@ pub use gorc::{
 pub use async_trait::async_trait;
 pub use std::sync::Arc;
 pub use serde::{Deserialize, Serialize};
-
-#[allow(unused_imports)] // This is actually used but only in the create plugin macro
 pub use futures;
 
-
-/// Version information
-pub const HORIZON_VERSION: &str = "2.0.0";
-pub const HORIZON_BUILD_INFO: &str = concat!(
-    "Horizon Event System v", 
-    env!("CARGO_PKG_VERSION"),
-    " with GORC v",
-    "1.0.0"
-);
-
-#[cfg(test)]
-mod integration_tests {
-    use super::*;
-    
-    // Mock server context for testing
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct MockServerContext;
-    
-    impl MockServerContext {
-        fn new() -> Self { Self }
-    }
-    
-    #[async_trait]
-    impl ServerContext for MockServerContext {
-        fn events(&self) -> Arc<crate::system::EventSystem> {
-            Arc::new(EventSystem::new())
-        }
-        
-        fn region_id(&self) -> RegionId {
-            RegionId::new()
-        }
-        
-        fn log(&self, _level: LogLevel, _message: &str) {
-            // Mock implementation
-        }
-        
-        async fn send_to_player(&self, _player_id: PlayerId, _data: &[u8]) -> Result<(), ServerError> {
-            Ok(())
-        }
-        
-        async fn broadcast(&self, _data: &[u8]) -> Result<(), ServerError> {
-            Ok(())
-        }
-    }
-    
-    #[tokio::test]
-    async fn test_complete_system_integration() {
-        let server_context = Arc::new(MockServerContext::new());
-        let (events, mut gorc_system) = create_complete_horizon_system(server_context).unwrap();
-        
-        // Test event registration
-        events.on_core("test_event", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
-        
-        // Test GORC object registration
-        let asteroid = ExampleAsteroid::new(Vec3::new(100.0, 0.0, 200.0), MineralType::Platinum);
-        let _asteroid_id = gorc_system.register_object(asteroid, Vec3::new(100.0, 0.0, 200.0)).await;
-        
-        // Test player management
-        let player_id = PlayerId::new();
-        gorc_system.add_player(player_id, Vec3::new(50.0, 0.0, 180.0)).await;
-        
-        // Test system tick
-        let result = gorc_system.tick().await;
-        assert!(result.is_ok());
-    }
-    
-    #[tokio::test]
-    async fn test_monitoring_system() {
-        let events = create_simple_horizon_system();
-        let mut monitor = HorizonMonitor::new(events.clone());
-        
-        // Generate initial report
-        let report = monitor.generate_report().await;
-        assert!(report.timestamp > 0);
-        assert_eq!(report.uptime_seconds, 0); // Just started
-        
-        // Check alerts (should be none for new system)
-        let alerts = monitor.should_alert().await;
-        assert!(alerts.is_empty());
-    }
+/// Returns build info string with version and Rust compiler version (if available)
+pub fn horizon_build_info() -> String {
+    format!(
+        "Horizon Event System v{} with Rust compiler v{}",
+        env!("CARGO_PKG_VERSION"),
+        option_env!("RUSTC_VERSION").unwrap_or("unknown")
+    )
 }
