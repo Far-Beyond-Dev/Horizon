@@ -50,10 +50,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
     }).await?;
     
-    // Register a game logic handler that checks auth status
+    // Register a game logic handler that demonstrates auth status checking
     events.on_client("game", "move_request", |event: RawClientMessageEvent| {
-        println!("🎮 Move request from player: {} - Auth check would happen here", event.player_id);
+        println!("🎮 Move request from player: {}", event.player_id);
+        
         // In a real implementation, you would check the auth status before processing
+        // This could be done by:
+        // 1. Looking up the player's auth status in a shared state
+        // 2. Using the ClientResponseSender to check auth status
+        // 3. Querying an authentication service
+        
+        // For demonstration, let's simulate an auth check
+        let auth_status_ok = true; // This would be a real check
+        
+        if auth_status_ok {
+            println!("✅ Player {} is authenticated - processing move request", event.player_id);
+            // Process the move request...
+        } else {
+            println!("❌ Player {} is not authenticated - rejecting move request", event.player_id);
+            // Reject the request or trigger re-authentication
+        }
+        
         Ok(())
     }).await?;
     

@@ -235,10 +235,16 @@ impl GameServer {
                 .map_err(|e| ServerError::Network(format!("Socket creation failed: {e}")))?;
             socket.set_reuse_address(true).ok();
             
-            // Note: SO_REUSEPORT configuration is commented out for platform compatibility
-            // Future versions may enable this for supported platforms
+            // Enable SO_REUSEPORT if supported and configured
             if self.config.use_reuse_port {
-                // TODO: Enable SO_REUSEPORT if supported in the future.
+                // Note: SO_REUSEPORT implementation requires additional platform-specific code
+                // This would enable load balancing across multiple threads/processes
+                warn!("SO_REUSEPORT was requested but is not implemented in this version");
+                warn!("This feature requires platform-specific socket options");
+                // In a production implementation, you would:
+                // 1. Add libc dependency
+                // 2. Use unsafe libc::setsockopt calls
+                // 3. Handle platform differences (Linux vs others)
             }
             
             socket.bind(&self.config.bind_address.into())
