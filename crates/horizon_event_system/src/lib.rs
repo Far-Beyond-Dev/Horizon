@@ -166,7 +166,8 @@ pub use events::{
     RegionStoppedEvent, TypedEventHandler,
     PluginLoadedEvent, PluginUnloadedEvent,
     AuthenticationStatusSetEvent,
-    AuthenticationStatusGetEvent, AuthenticationStatusChangedEvent,
+    AuthenticationStatusGetEvent, AuthenticationStatusGetResponseEvent,
+    AuthenticationStatusChangedEvent,
 };
 pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use plugin::{Plugin, PluginError, SimplePlugin};

@@ -5,7 +5,8 @@
 
 use horizon_event_system::{
     EventSystem, PlayerId, AuthenticationStatus, AuthenticationStatusSetEvent,
-    AuthenticationStatusGetEvent, AuthenticationStatusChangedEvent, current_timestamp,
+    AuthenticationStatusGetEvent, AuthenticationStatusGetResponseEvent, 
+    AuthenticationStatusChangedEvent, current_timestamp,
     create_horizon_event_system, RawClientMessageEvent
 };
 use std::sync::Arc;
@@ -32,6 +33,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("🔍 Auth status query for player: {} (request: {})", 
                 event.player_id, event.request_id);
         // In a real plugin, this would query the actual auth status and respond
+        Ok(())
+    }).await?;
+
+    // Handle authentication status query responses
+    events.on_core("auth_status_get_response", |event: AuthenticationStatusGetResponseEvent| {
+        println!("📨 Auth status response for player {}: {:?} (request: {})", 
+                event.player_id, event.status, event.request_id);
         Ok(())
     }).await?;
 

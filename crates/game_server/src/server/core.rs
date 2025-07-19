@@ -15,7 +15,7 @@ use horizon_event_system::{
     create_horizon_event_system, current_timestamp, EventSystem, GorcManager, MulticastManager,
     PlayerConnectedEvent, PlayerDisconnectedEvent, RegionId, RegionStartedEvent, SpatialPartition,
     SubscriptionManager, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
-    AuthenticationStatusChangedEvent,
+    AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent,
 };
 use plugin_system::{create_plugin_manager_with_events, PluginManager};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -364,25 +364,32 @@ impl GameServer {
 
         // Register authentication status management handlers
         let connection_manager_for_set = self.connection_manager.clone();
+        let horizon_event_system_for_set = self.horizon_event_system.clone();
         self.horizon_event_system
             .on_core_async("auth_status_set", move |event: AuthenticationStatusSetEvent| {
                 let conn_mgr = connection_manager_for_set.clone();
+                let event_system = horizon_event_system_for_set.clone();
                 async move {
+                    // Get old status before setting new one
+                    let old_status = conn_mgr.get_auth_status_by_player(event.player_id).await;
+                    
                     let success = conn_mgr.set_auth_status_by_player(event.player_id, event.status).await;
                     if success {
                         info!("🔐 Updated auth status for player {} to {:?}", event.player_id, event.status);
                         
-                        // Emit status changed event to notify other plugins
-                        let old_status = conn_mgr.get_auth_status_by_player(event.player_id).await;
+                        // Emit status changed event if status actually changed
                         if let Some(old_status) = old_status {
-                            let auth_status_changed_event = AuthenticationStatusChangedEvent {
-                                player_id: event.player_id,
-                                old_status,
-                                new_status: event.status,
-                            };
-                            self.horizon_event_system.emit(auth_status_changed_event).await.map_err(|e| {
-                                warn!("⚠️ Failed to emit auth status changed event for player {}: {:?}", event.player_id, e);
-                            })?;
+                            if old_status != event.status {
+                                let auth_status_changed_event = AuthenticationStatusChangedEvent {
+                                    player_id: event.player_id,
+                                    old_status,
+                                    new_status: event.status,
+                                    timestamp: current_timestamp(),
+                                };
+                                if let Err(e) = event_system.emit_core("auth_status_changed", &auth_status_changed_event).await {
+                                    warn!("⚠️ Failed to emit auth status changed event for player {}: {:?}", event.player_id, e);
+                                }
+                            }
                         }
                     } else {
                         warn!("⚠️ Failed to update auth status for player {} - player not found", event.player_id);
@@ -394,20 +401,28 @@ impl GameServer {
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
         let connection_manager_for_get = self.connection_manager.clone();
+        let horizon_event_system_for_get = self.horizon_event_system.clone();
         self.horizon_event_system
             .on_core_async("auth_status_get", move |event: AuthenticationStatusGetEvent| {
                 let conn_mgr = connection_manager_for_get.clone();
+                let event_system = horizon_event_system_for_get.clone();
                 async move {
                     let status = conn_mgr.get_auth_status_by_player(event.player_id).await;
-                    match status {
-                        Some(auth_status) => {
-                            info!("🔍 Auth status query for player {}: {:?}", event.player_id, auth_status);
-                            // TODO: In a real implementation, we'd emit a response event or call a callback
-                            // For now, just log the result
-                        }
-                        None => {
-                            info!("🔍 Auth status query for player {} - player not found", event.player_id);
-                        }
+                    
+                    // Emit response event with the queried status
+                    let response_event = AuthenticationStatusGetResponseEvent {
+                        player_id: event.player_id,
+                        request_id: event.request_id.clone(),
+                        status,
+                        timestamp: current_timestamp(),
+                    };
+                    
+                    if let Err(e) = event_system.emit_core("auth_status_get_response", &response_event).await {
+                        warn!("⚠️ Failed to emit auth status response for player {} request {}: {:?}", 
+                              event.player_id, event.request_id, e);
+                    } else {
+                        info!("🔍 Auth status query response for player {}: {:?} (request: {})", 
+                              event.player_id, status, event.request_id);
                     }
                     Ok(())
                 }

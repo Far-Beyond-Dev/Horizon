@@ -403,6 +403,41 @@ pub struct AuthenticationStatusGetEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted in response to authentication status queries.
+/// 
+/// This event provides the response to an `AuthenticationStatusGetEvent`,
+/// containing the current authentication status of the requested player.
+/// Plugins can register handlers for this event to receive query responses.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use horizon_event_system::{AuthenticationStatusGetResponseEvent, PlayerId, AuthenticationStatus, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
+/// events.emit_core("auth_status_get_response", &AuthenticationStatusGetResponseEvent {
+///     player_id: PlayerId::new(),
+///     request_id: "req_123".to_string(),
+///     status: Some(AuthenticationStatus::Authenticated),
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// #     Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthenticationStatusGetResponseEvent {
+    /// Unique identifier for the player
+    pub player_id: PlayerId,
+    /// Request ID for correlating with the original query
+    pub request_id: String,
+    /// Current authentication status (None if player not found)
+    pub status: Option<AuthenticationStatus>,
+    /// Unix timestamp when the response was generated
+    pub timestamp: u64,
+}
+
 /// Event emitted when a player's authentication status changes.
 /// 
 /// This event notifies all interested plugins when a player's authentication

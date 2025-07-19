@@ -4,7 +4,8 @@
 mod tests {
     use crate::{
         AuthenticationStatus, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
-        AuthenticationStatusChangedEvent, create_horizon_event_system, PlayerId, current_timestamp
+        AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent, 
+        create_horizon_event_system, PlayerId, current_timestamp
     };
     
     #[tokio::test]
@@ -32,7 +33,7 @@ mod tests {
         // Test querying authentication status
         let auth_query = AuthenticationStatusGetEvent {
             player_id,
-            request_id: Some("test_request_123".to_string()),
+            request_id: "test_request_123".to_string(),
             timestamp: current_timestamp(),
         };
         
@@ -75,6 +76,24 @@ mod tests {
         assert_eq!(status, deserialized);
     }
     
+    #[tokio::test]
+    async fn test_auth_status_get_response_event() {
+        let events = create_horizon_event_system();
+        let player_id = PlayerId::new();
+        
+        // Test authentication status query response
+        let auth_response = AuthenticationStatusGetResponseEvent {
+            player_id,
+            request_id: "test_request_123".to_string(),
+            status: Some(AuthenticationStatus::Authenticated),
+            timestamp: current_timestamp(),
+        };
+        
+        // This should not panic and should serialize correctly
+        let result = events.emit_core("auth_status_get_response", &auth_response).await;
+        assert!(result.is_ok(), "Failed to emit auth status get response event: {:?}", result);
+    }
+
     #[tokio::test]
     async fn test_auth_event_handler_registration() {
         let events = create_horizon_event_system();
