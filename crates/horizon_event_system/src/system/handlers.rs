@@ -335,7 +335,8 @@ impl EventSystem {
             
             // Create client connection ref with extracted player ID
             // For now, use default values for other fields - these could be made async in the future
-            let default_addr = "0.0.0.0:0".parse()
+            const UNSPECIFIED_ADDR: &str = "0.0.0.0:0"; // Placeholder for unspecified address
+            let default_addr = UNSPECIFIED_ADDR.parse()
                 .unwrap_or_else(|_| std::net::SocketAddr::from(([0, 0, 0, 0], 0)));
             
             let client_ref = ClientConnectionRef::new(
