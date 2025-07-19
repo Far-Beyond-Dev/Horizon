@@ -67,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n2️⃣ Querying authentication status...");
     events.emit_core("auth_status_get", &AuthenticationStatusGetEvent {
         player_id,
-        request_id: Some("example_query_123".to_string()),
+        request_id: "example_query_123".to_string(),
         timestamp: current_timestamp(),
     }).await?;
     
