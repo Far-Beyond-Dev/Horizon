@@ -6,7 +6,7 @@
 
 use horizon_event_system::{
     create_horizon_event_system, EventSystem, ClientConnectionRef, RawClientMessageEvent, 
-    current_timestamp, EventError, Event
+    current_timestamp, EventError, Event, PlayerConnectedEvent, PlayerId
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -165,9 +165,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         password_hash: "hashed_password".to_string(),
     };
     
-    // Note: In a real scenario, these would be emitted with actual client connection info
-    println!("💡 In a real server, these events would be emitted by client connections");
-    println!("   and the handlers would receive actual ClientConnectionRef objects");
+    // Demonstrate actual connection events as they are emitted by the real server
+    println!("💡 These events demonstrate the actual client connection integration:");
+    
+    // Emit realistic connection events like the game server does
+    let player_connected = PlayerConnectedEvent {
+        player_id: PlayerId::new(),
+        connection_id: "conn_12345".to_string(),
+        remote_addr: "192.168.1.100:45678".to_string(), 
+        timestamp: current_timestamp(),
+    };
+    
+    events.emit_core("player_connected", &player_connected).await?;
+    println!("  ✅ PlayerConnectedEvent emitted (as done by game server)");
+    
+    // Emit client events through the namespace system
+    events.emit_client("chat", "message", &chat_event).await?;
+    println!("  ✅ Client chat event routed through namespace system");
+    
+    events.emit_client("auth", "login_request", &login_event).await?;  
+    println!("  ✅ Client auth event processed by connection-aware handlers");
     
     let stats = events.get_stats().await;
     println!("\n📈 System Statistics:");

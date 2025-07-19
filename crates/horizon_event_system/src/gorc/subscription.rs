@@ -11,6 +11,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
 
+// Constants for interest-based subscription calculation
+const CRITICAL_CHANNEL: u8 = 0;
+const FREQUENCY_THRESHOLD: f32 = 0.8;
+
 /// Types of subscription relationships
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SubscriptionType {
@@ -494,16 +498,60 @@ impl SubscriptionManager {
         ReplicationPriority::Low
     }
 
-    /// Gets interest-based priority
+    /// Gets interest-based priority based on subscriber's tracked interests
     async fn get_interest_priority(
         &self,
-        _subscriber: PlayerId,
-        _target: PlayerId,
-        _channel: u8,
+        subscriber: PlayerId,
+        target: PlayerId,
+        channel: u8,
     ) -> ReplicationPriority {
-        // Simplified interest-based priority calculation
-        // In a real implementation, this would consider the subscriber's interest
-        // in the target player or objects the target is interacting with
+        let interest_subs = self.interest_subs.read().await;
+        let proximity_subs = self.proximity_subs.read().await;
+        
+        if let Some(interest) = interest_subs.get(&subscriber) {
+            // Check if subscriber has specific interest in target player's object type
+            if let Some(interested_level) = interest.interested_objects.get("player") {
+                let base_priority = match interested_level {
+                    InterestLevel::VeryHigh => ReplicationPriority::Critical,
+                    InterestLevel::High => ReplicationPriority::High,
+                    InterestLevel::Medium => ReplicationPriority::Normal,
+                    InterestLevel::Low => ReplicationPriority::Low,
+                    InterestLevel::None => ReplicationPriority::Low,
+                };
+                
+                // Boost priority if target is within focus area
+                if let (Some(focus_pos), Some(target_proximity)) = (
+                    &interest.focus_position,
+                    proximity_subs.get(&target)
+                ) {
+                    let distance = ProximitySubscription::calculate_distance(*focus_pos, target_proximity.position);
+                    if distance <= interest.focus_radius {
+                        // Target is within focus area - increase priority
+                        return match base_priority {
+                            ReplicationPriority::Low => ReplicationPriority::Normal,
+                            ReplicationPriority::Normal => ReplicationPriority::High,
+                            ReplicationPriority::High => ReplicationPriority::Critical,
+                            ReplicationPriority::Critical => ReplicationPriority::Critical,
+                        };
+                    }
+                }
+                
+                // Consider activity patterns for channel-specific adjustments
+                if let Some(activity) = interest.activity_patterns.get("combat") {
+                    if channel == CRITICAL_CHANNEL && activity.frequency > FREQUENCY_THRESHOLD { // Critical channel + high combat activity
+                        return match base_priority {
+                            ReplicationPriority::Low => ReplicationPriority::Normal,
+                            ReplicationPriority::Normal => ReplicationPriority::High,
+                            _ => base_priority,
+                        };
+                    }
+                }
+                
+                return base_priority;
+            }
+        }
+        
+        // Default priority if no specific interest data
         ReplicationPriority::Normal
     }
 

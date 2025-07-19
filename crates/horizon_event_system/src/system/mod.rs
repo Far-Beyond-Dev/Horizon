@@ -8,7 +8,7 @@ mod stats;
 mod tests;
 
 // Re-export all public items from submodules
-pub use client::{ClientConnectionRef, ClientResponseSender};
+pub use client::{ClientConnectionRef, ClientResponseSender, ClientConnectionInfo};
 pub use core::EventSystem;
 pub use stats::{EventSystemStats, DetailedEventSystemStats, HandlerCategoryStats};
 

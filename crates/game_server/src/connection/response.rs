@@ -106,4 +106,34 @@ impl ClientResponseSender for GameServerResponseSender {
             connection_manager.get_auth_status_by_player(player_id).await
         })
     }
+
+    /// Gets connection information for a player.
+    /// 
+    /// This method queries the connection manager for detailed connection
+    /// information about the specified player.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `player_id` - The ID of the player to query
+    /// 
+    /// # Returns
+    /// 
+    /// A future that resolves to `Some(ClientConnectionInfo)` if the player
+    /// is connected, or `None` if they are not currently connected.
+    fn get_connection_info(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<horizon_event_system::ClientConnectionInfo>> + Send + '_>> {
+        let connection_manager = self.connection_manager.clone();
+        Box::pin(async move {
+            if let Some((connection_id, remote_addr, connected_at, auth_status)) = connection_manager.get_connection_info_by_player(player_id).await {
+                return Some(horizon_event_system::ClientConnectionInfo {
+                    player_id,
+                    remote_addr,
+                    connection_id: connection_id.to_string(),
+                    connected_at: connected_at.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default().as_secs(),
+                    auth_status,
+                });
+            }
+            None
+        })
+    }
 }

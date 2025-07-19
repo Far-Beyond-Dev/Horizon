@@ -248,4 +248,23 @@ impl ConnectionManager {
         }
         false
     }
+
+    /// Gets detailed connection information for a player.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `player_id` - The player to query
+    /// 
+    /// # Returns
+    /// 
+    /// Connection information if the player is connected, `None` otherwise.
+    pub async fn get_connection_info_by_player(&self, player_id: PlayerId) -> Option<(ConnectionId, SocketAddr, std::time::SystemTime, AuthenticationStatus)> {
+        let connections = self.connections.read().await;
+        for (conn_id, connection) in connections.iter() {
+            if connection.player_id == Some(player_id) {
+                return Some((*conn_id, connection.remote_addr, connection.connected_at, connection.auth_status()));
+            }
+        }
+        None
+    }
 }

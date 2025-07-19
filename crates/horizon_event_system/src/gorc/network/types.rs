@@ -60,6 +60,8 @@ pub struct NetworkStats {
     pub avg_compression_ratio: f32,
     /// Network utilization percentage
     pub network_utilization: f32,
+    /// Number of configuration updates applied
+    pub config_updates: u64,
 }
 
 /// Configuration for the network replication engine

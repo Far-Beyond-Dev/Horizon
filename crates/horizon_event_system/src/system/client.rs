@@ -97,4 +97,20 @@ pub trait ClientResponseSender: std::fmt::Debug {
     
     /// Get the authentication status of a client
     fn get_auth_status(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<AuthenticationStatus>> + Send + '_>>;
+    
+    /// Get connection information for a client (optional implementation)
+    fn get_connection_info(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<ClientConnectionInfo>> + Send + '_>> {
+        // Default implementation returns None to maintain backwards compatibility
+        Box::pin(async move { None::<ClientConnectionInfo> })
+    }
+}
+
+/// Information about a client connection
+#[derive(Debug, Clone)]
+pub struct ClientConnectionInfo {
+    pub player_id: PlayerId,
+    pub remote_addr: std::net::SocketAddr,
+    pub connection_id: String,
+    pub connected_at: u64,
+    pub auth_status: AuthenticationStatus,
 }

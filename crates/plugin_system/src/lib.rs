@@ -603,8 +603,7 @@ impl PluginManager {
 
     /// Estimate plugin capabilities from file analysis
     async fn estimate_plugin_capabilities(&self, _path: &Path) -> Vec<String> {
-        // In a real implementation, this could analyze the binary for symbols
-        // or read metadata from embedded resources
+        // TODO: analyze the binary for symbols and/or read metadata from embedded resources later
         vec![
             "client_events".to_string(),
             "type_safe".to_string(),
@@ -718,13 +717,46 @@ impl ServerContext for ServerContextImpl {
             player_id,
             data.len()
         );
-        // TODO: Implement actual WebSocket message sending
+        
+        // Use the client response sender from the event system if available
+        if let Some(response_sender) = self.horizon_event_system.get_client_response_sender() {
+            response_sender
+                .send_to_client(player_id, data.to_vec())
+                .await
+                .map_err(|e| ServerError::Internal(format!("Failed to send message to player {}: {}", player_id, e)))?;
+        } else {
+            debug!("No client response sender configured - message not sent");
+        }
+        
         Ok(())
     }
 
     async fn broadcast(&self, data: &[u8]) -> Result<(), ServerError> {
         debug!("Broadcasting message: {} bytes", data.len());
-        // TODO: Implement actual WebSocket broadcasting
+        
+        // Use the client response sender from the event system if available
+        if let Some(response_sender) = self.horizon_event_system.get_client_response_sender() {
+            // Get all connected players
+            let players = self.players.read().await;
+            let player_ids: Vec<PlayerId> = players.keys().cloned().collect();
+            drop(players); // Release lock early
+            
+            // Send to each connected player
+            let mut errors = Vec::new();
+            for player_id in player_ids {
+                if let Err(e) = response_sender.send_to_client(player_id, data.to_vec()).await {
+                    errors.push(format!("Player {}: {}", player_id, e));
+                }
+            }
+            
+            if !errors.is_empty() {
+                debug!("Some broadcast messages failed: {:?}", errors);
+                // Continue even if some sends failed - this is typical for broadcasts
+            }
+        } else {
+            debug!("No client response sender configured - broadcast not sent");
+        }
+        
         Ok(())
     }
 }

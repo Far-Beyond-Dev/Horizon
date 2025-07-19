@@ -2,7 +2,8 @@
 use crate::events::{Event, EventError};
 use crate::gorc::instance::GorcObjectId;
 use super::core::EventSystem;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
+use base64::{Engine as _, engine::general_purpose};
 
 impl EventSystem {
     /// Broadcasts a GORC instance event to all subscribers of that instance.
@@ -47,7 +48,7 @@ impl EventSystem {
         event: &T,
     ) -> Result<usize, EventError>
     where
-        T: Event,
+        T: Event + serde::Serialize,
     {
         let Some(ref gorc_instances) = self.gorc_instances else {
             return Err(EventError::HandlerExecution(
@@ -63,12 +64,44 @@ impl EventSystem {
                 // Emit the event to handlers
                 self.emit_gorc_instance(object_id, channel, event_name, event).await?;
                 
-                // In a real implementation, you would also send the serialized event
-                // directly to the network layer for the specific subscribers
-                debug!(
-                    "📡 Broadcasted GORC event {} to {} subscribers for object {}",
-                    event_name, subscribers.len(), object_id
-                );
+                // Send the serialized event directly to the network layer for subscribers
+                if let Some(ref client_sender) = self.client_response_sender {
+                    // Serialize the event for network transmission
+                    if let Ok(serialized_event) = serde_json::to_vec(event) {
+                        // Create a network message for GORC event
+                        let gorc_message = serde_json::json!({
+                            "type": "gorc_event",
+                            "object_id": object_id.0,
+                            "channel": channel,
+                            "event_name": event_name,
+                            "data": general_purpose::STANDARD.encode(&serialized_event),
+                            "timestamp": crate::utils::current_timestamp()
+                        });
+                        
+                        if let Ok(message_bytes) = serde_json::to_vec(&gorc_message) {
+                            // Send to each subscriber individually
+                            for subscriber_id in &subscribers {
+                                if let Err(e) = client_sender.send_to_client(*subscriber_id, message_bytes.clone()).await {
+                                    warn!("Failed to send GORC event to subscriber {}: {}", subscriber_id, e);
+                                }
+                            }
+                            
+                            debug!(
+                                "📡 Sent serialized GORC event {} to {} subscribers for object {}",
+                                event_name, subscribers.len(), object_id
+                            );
+                        } else {
+                            warn!("Failed to serialize GORC message for transmission");
+                        }
+                    } else {
+                        warn!("Failed to serialize GORC event data for transmission");
+                    }
+                } else {
+                    debug!(
+                        "📡 Broadcasted GORC event {} to {} subscribers for object {} (handlers only - no network sender)",
+                        event_name, subscribers.len(), object_id
+                    );
+                }
                 
                 Ok(subscribers.len())
             } else {

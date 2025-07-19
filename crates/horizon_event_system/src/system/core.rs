@@ -67,6 +67,11 @@ impl EventSystem {
         self.client_response_sender = Some(sender);
     }
 
+    /// Gets the client response sender if available
+    pub fn get_client_response_sender(&self) -> Option<Arc<dyn ClientResponseSender + Send + Sync>> {
+        self.client_response_sender.clone()
+    }
+
     /// Gets the current event system statistics
     pub async fn get_stats(&self) -> EventSystemStats {
         self.stats.read().await.clone()
