@@ -4,6 +4,7 @@ use crate::gorc::instance::{GorcObjectId, GorcInstanceManager, ObjectInstance};
 use crate::types::PlayerId;
 use super::client::{ClientConnectionRef, ClientResponseSender};
 use super::stats::EventSystemStats;
+use super::udp::UdpEventSystem;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -13,7 +14,7 @@ use tracing::{debug, error, info, warn};
 /// 
 /// This is the central hub for all event processing in the system. It provides
 /// type-safe event registration and emission with support for different event
-/// categories (core, client, plugin, and GORC instance events).
+/// categories (core, client, plugin, GORC instance events, and UDP events).
 pub struct EventSystem {
     /// Map of event keys to their registered handlers
     pub(super) handlers: RwLock<HashMap<String, Vec<Arc<dyn EventHandler>>>>,
@@ -23,6 +24,8 @@ pub struct EventSystem {
     pub(super) gorc_instances: Option<Arc<GorcInstanceManager>>,
     /// Client response sender for connection-aware handlers
     pub(super) client_response_sender: Option<Arc<dyn ClientResponseSender + Send + Sync>>,
+    /// UDP event system for binary socket communication
+    pub(super) udp_system: Option<Arc<UdpEventSystem>>,
 }
 
 impl std::fmt::Debug for EventSystem {
@@ -32,6 +35,7 @@ impl std::fmt::Debug for EventSystem {
             .field("stats", &"[stats]")
             .field("gorc_instances", &self.gorc_instances.is_some())
             .field("client_response_sender", &self.client_response_sender.is_some())
+            .field("udp_system", &self.udp_system.is_some())
             .finish()
     }
 }
@@ -44,6 +48,7 @@ impl EventSystem {
             stats: RwLock::new(EventSystemStats::default()),
             gorc_instances: None,
             client_response_sender: None,
+            udp_system: None,
         }
     }
 
@@ -54,6 +59,7 @@ impl EventSystem {
             stats: RwLock::new(EventSystemStats::default()),
             gorc_instances: Some(gorc_instances),
             client_response_sender: None,
+            udp_system: None,
         }
     }
 
@@ -70,6 +76,16 @@ impl EventSystem {
     /// Gets the client response sender if available
     pub fn get_client_response_sender(&self) -> Option<Arc<dyn ClientResponseSender + Send + Sync>> {
         self.client_response_sender.clone()
+    }
+
+    /// Sets the UDP event system for socket communication
+    pub fn set_udp_system(&mut self, udp_system: Arc<UdpEventSystem>) {
+        self.udp_system = Some(udp_system);
+    }
+
+    /// Gets the UDP event system if available
+    pub fn get_udp_system(&self) -> Option<Arc<UdpEventSystem>> {
+        self.udp_system.clone()
     }
 
     /// Gets the current event system statistics
