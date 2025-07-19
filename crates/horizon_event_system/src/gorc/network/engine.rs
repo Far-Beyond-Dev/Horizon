@@ -9,14 +9,16 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::{Duration, Instant};
 use tracing::{info, warn, error};
+use flate2::{Compression, write::DeflateEncoder, read::DeflateDecoder};
+use std::io::prelude::*;
 
 /// Core network replication engine that manages update distribution
 #[derive(Debug, Clone)]
 pub struct NetworkReplicationEngine {
     /// Per-player network states
     player_states: Arc<RwLock<HashMap<PlayerId, PlayerNetworkState>>>,
-    /// Network configuration
-    config: NetworkConfig,
+    /// Network configuration with interior mutability for runtime updates
+    config: Arc<RwLock<NetworkConfig>>,
     /// Global network statistics
     global_stats: Arc<RwLock<NetworkStats>>,
     /// Reference to instance manager
@@ -34,7 +36,7 @@ impl NetworkReplicationEngine {
     ) -> Self {
         Self {
             player_states: Arc::new(RwLock::new(HashMap::new())),
-            config,
+            config: Arc::new(RwLock::new(config)),
             global_stats: Arc::new(RwLock::new(NetworkStats::default())),
             instance_manager,
             server_context,
@@ -43,10 +45,14 @@ impl NetworkReplicationEngine {
 
     /// Adds a player to the network system
     pub async fn add_player(&self, player_id: PlayerId) {
+        let config = self.config.read().await;
+        let priority_queue_sizes = config.priority_queue_sizes.clone();
+        drop(config); // Release the lock early
+        
         let mut player_states = self.player_states.write().await;
         player_states.insert(
             player_id,
-            PlayerNetworkState::new(player_id, self.config.priority_queue_sizes.clone()),
+            PlayerNetworkState::new(player_id, priority_queue_sizes),
         );
         
         info!("📡 Added player {} to network replication", player_id);
@@ -98,8 +104,14 @@ impl NetworkReplicationEngine {
         state: &mut PlayerNetworkState,
         batches_to_send: &mut Vec<ReplicationBatch>,
     ) -> Result<(), NetworkError> {
+        let config = self.config.read().await;
+        let max_batch_size = config.max_batch_size;
+        let max_batch_age_ms = config.max_batch_age_ms;
+        let max_bandwidth_per_player = config.max_bandwidth_per_player;
+        drop(config); // Release the lock early
+        
         // Check if we should send current batch
-        if state.should_send_batch(self.config.max_batch_size, self.config.max_batch_age_ms) {
+        if state.should_send_batch(max_batch_size, max_batch_age_ms) {
             if let Some(updates) = state.finish_batch() {
                 if !updates.is_empty() {
                     let batch = self.create_batch(state.player_id, updates)?;
@@ -117,7 +129,7 @@ impl NetworkReplicationEngine {
         while !state.update_queue.is_empty() {
             // Check bandwidth limits
             let estimated_size = 256; // Rough estimate per update
-            if !state.has_bandwidth(estimated_size, self.config.max_bandwidth_per_player) {
+            if !state.has_bandwidth(estimated_size, max_bandwidth_per_player) {
                 break;
             }
             
@@ -179,8 +191,13 @@ impl NetworkReplicationEngine {
         let data = serde_json::to_vec(&batch)
             .map_err(|e| NetworkError::SerializationError(e.to_string()))?;
 
+        let config = self.config.read().await;
+        let compression_enabled = config.compression_enabled;
+        let compression_threshold = config.compression_threshold;
+        drop(config); // Release the lock early
+
         // Apply compression if enabled and worthwhile
-        let final_data = if self.config.compression_enabled && data.len() > self.config.compression_threshold {
+        let final_data = if compression_enabled && data.len() > compression_threshold {
             self.compress_data(&data)?
         } else {
             data
@@ -197,11 +214,41 @@ impl NetworkReplicationEngine {
         Ok(())
     }
 
-    /// Compresses data using a simple compression algorithm
+    /// Compresses data using deflate compression algorithm
     fn compress_data(&self, data: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        // Simplified compression - in a real implementation you'd use a proper compression library
-        // For now, just return the original data
-        Ok(data.to_vec())
+        // Only compress if data is larger than threshold to avoid overhead
+        const COMPRESSION_THRESHOLD: usize = 64;
+        
+        if data.len() < COMPRESSION_THRESHOLD {
+            // For small data, compression overhead isn't worth it
+            return Ok(data.to_vec());
+        }
+        
+        let mut encoder = DeflateEncoder::new(Vec::new(), Compression::fast());
+        encoder.write_all(data)
+            .map_err(|e| NetworkError::SerializationError(format!("Compression failed: {}", e)))?;
+        
+        let compressed = encoder.finish()
+            .map_err(|e| NetworkError::SerializationError(format!("Compression finalization failed: {}", e)))?;
+        
+        // Only use compressed data if it's actually smaller
+        if compressed.len() < data.len() {
+            Ok(compressed)
+        } else {
+            Ok(data.to_vec())
+        }
+    }
+
+    /// Decompresses data using deflate decompression algorithm
+    #[allow(dead_code)]
+    fn decompress_data(&self, compressed_data: &[u8]) -> Result<Vec<u8>, NetworkError> {
+        let mut decoder = DeflateDecoder::new(compressed_data);
+        let mut decompressed = Vec::new();
+        
+        decoder.read_to_end(&mut decompressed)
+            .map_err(|e| NetworkError::SerializationError(format!("Decompression failed: {}", e)))?;
+        
+        Ok(decompressed)
     }
 
     /// Updates global statistics
@@ -257,5 +304,39 @@ impl NetworkReplicationEngine {
         }
         
         Ok(())
+    }
+
+    /// Updates the network configuration dynamically
+    /// 
+    /// This allows for runtime configuration changes to optimize performance
+    /// based on current network conditions and system load.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `new_config` - The new network configuration to apply
+    /// 
+    /// # Returns
+    /// 
+    /// A result indicating success or failure of the configuration update.
+    pub async fn update_config(&self, new_config: NetworkConfig) -> Result<(), NetworkError> {
+        info!("Updating network engine configuration");
+        {
+            let mut config = self.config.write().await;
+            *config = new_config;
+        }
+        
+        // Update global statistics to reflect configuration change
+        {
+            let mut stats = self.global_stats.write().await;
+            stats.config_updates += 1;
+        }
+        
+        info!("Network configuration updated successfully");
+        Ok(())
+    }
+
+    /// Gets a clone of the current network configuration
+    pub async fn get_config(&self) -> NetworkConfig {
+        self.config.read().await.clone()
     }
 }

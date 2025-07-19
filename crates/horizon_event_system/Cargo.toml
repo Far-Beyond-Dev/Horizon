@@ -16,3 +16,4 @@ uuid = { workspace = true }
 futures = { workspace = true }
 dashmap = "6.1.0"
 lazy_static = "1.4.0"
+flate2 = { workspace = true }

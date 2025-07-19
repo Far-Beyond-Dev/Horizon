@@ -173,18 +173,32 @@ pub async fn optimize_gorc_system(system: &mut CompleteGorcSystem) -> Result<Vec
     
     // Network optimizations
     if report.network_utilization > 0.8 {
+        // Increase compression threshold to enable more aggressive compression
+        let mut config = system.network_engine.get_config().await;
+        config.compression_threshold = (config.compression_threshold / 2).max(32); // Reduce threshold by half, minimum 32 bytes
+        system.network_engine.update_config(config).await
+            .map_err(|e| GorcError::Configuration(format!("Failed to update network config: {}", e)))?;
         optimizations.push("Increased compression threshold to reduce bandwidth".to_string());
-        // In a real implementation, we would modify system configuration here
     }
     
     if report.updates_dropped > 0 {
+        // Increase priority queue sizes to handle more concurrent updates
+        let mut config = system.network_engine.get_config().await;
+        for (_priority, size) in config.priority_queue_sizes.iter_mut() {
+            *size = (*size * 3) / 2; // Increase by 50%
+        }
+        system.network_engine.update_config(config).await
+            .map_err(|e| GorcError::Configuration(format!("Failed to update network config: {}", e)))?;
         optimizations.push("Adjusted priority queue sizes to reduce dropped updates".to_string());
-        // Actual configuration changes would go here
     }
     
     if report.avg_batch_size < 10.0 {
+        // Increase batch size limits to improve efficiency
+        let mut config = system.network_engine.get_config().await;
+        config.max_batch_size = (config.max_batch_size * 3) / 2; // Increase by 50%
+        system.network_engine.update_config(config).await
+            .map_err(|e| GorcError::Configuration(format!("Failed to update network config: {}", e)))?;
         optimizations.push("Increased batch size limits to improve efficiency".to_string());
-        // Configuration adjustments would be applied here
     }
     
     if optimizations.is_empty() {

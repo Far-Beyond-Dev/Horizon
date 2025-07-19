@@ -71,7 +71,7 @@ impl EventSystem {
         handler: F,
     ) -> Result<(), EventError>
     where
-        T: Event + 'static,
+        T: Event + serde::Serialize + 'static,
         F: Fn(T, ClientConnectionRef) -> Fut + Send + Sync + Clone + 'static,
         Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
     {
@@ -298,7 +298,7 @@ impl EventSystem {
         handler: F,
     ) -> Result<(), EventError>
     where
-        T: Event + 'static,
+        T: Event + serde::Serialize + 'static,
         F: Fn(T, ClientConnectionRef) -> Fut + Send + Sync + Clone + 'static,
         Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
     {
@@ -311,12 +311,34 @@ impl EventSystem {
                 EventError::HandlerExecution("Client response sender not configured".to_string())
             })?;
             
-            // TODO: Extract actual connection info from event context
-            // For now, create a placeholder - this will need to be extracted from event metadata
+            // Extract player ID from the event data by attempting to serialize/deserialize
+            // This works for events that have a player_id field
+            let player_id = match serde_json::to_value(&event) {
+                Ok(json_value) => {
+                    if let Some(player_id_value) = json_value.get("player_id") {
+                        if let Ok(player_id) = serde_json::from_value::<crate::types::PlayerId>(player_id_value.clone()) {
+                            player_id
+                        } else {
+                            // Fallback to new ID if deserialization fails
+                            crate::types::PlayerId::new()
+                        }
+                    } else {
+                        // Event doesn't have player_id field, use new ID
+                        crate::types::PlayerId::new()
+                    }
+                }
+                Err(_) => {
+                    // Event is not serializable, use new ID
+                    crate::types::PlayerId::new()
+                }
+            };
+            
+            // Create client connection ref with extracted player ID
+            // For now, use default values for other fields - these could be made async in the future
             let client_ref = ClientConnectionRef::new(
-                crate::types::PlayerId::new(), // Will be extracted from event context
-                "127.0.0.1:8080".parse().unwrap(),
-                "placeholder".to_string(),
+                player_id,
+                "127.0.0.1:8080".parse().unwrap(), // Default address
+                format!("conn_{}", player_id.0),    // Connection ID based on player ID
                 crate::utils::current_timestamp(),
                 crate::types::AuthenticationStatus::default(),
                 sender.clone(),

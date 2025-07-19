@@ -173,7 +173,7 @@ pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use plugin::{Plugin, PluginError, SimplePlugin};
 pub use system::{EventSystem, EventSystemStats,
     DetailedEventSystemStats, HandlerCategoryStats,
-    ClientConnectionRef, ClientResponseSender
+    ClientConnectionRef, ClientResponseSender, ClientConnectionInfo
 };
 pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
 pub use types::*;
