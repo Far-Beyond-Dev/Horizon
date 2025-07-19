@@ -146,12 +146,14 @@ mod auth_tests;
 
 // Core modules
 pub mod api;
+pub mod binary;
 pub mod context;
 pub mod events;
 pub mod gorc_macros;
 pub mod macros;
 pub mod monitoring;
 pub mod plugin;
+pub mod protocol;
 pub mod system;
 pub mod traits;
 pub mod types;
@@ -178,11 +180,19 @@ pub use plugin::{Plugin, PluginError, SimplePlugin};
 pub use system::{EventSystem, EventSystemStats,
     DetailedEventSystemStats, HandlerCategoryStats,
     ClientConnectionRef, ClientResponseSender, ClientConnectionInfo,
-    UdpEventSystem, UdpEventSystemExt, UdpEventHandler, UdpEventPacket,
+    UdpEventSystem, UdpEventHandler, UdpEventPacket,
     UdpConnection, UdpConnectionState, UdpStats, BinaryEventSerializer,
     BinaryEventDeserializer, JsonBinarySerializer, JsonBinaryDeserializer,
     UdpEventHeader, UdpReliabilityManager, ReliabilityMode,
     AckPacket, ReliabilityStats, get_reliability_mode_for_event
+};
+pub use protocol::{
+    format, ProtocolEvent, BinarySerializable,
+    tcp::TcpEventSystemExt, udp::UdpEventSystemExt
+};
+pub use binary::{
+    BinaryEvent, BinaryPositionUpdate, BinaryActionEvent,
+    BinaryPositionEvent, BinaryPlayerActionEvent, event_types
 };
 pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
 pub use types::*;

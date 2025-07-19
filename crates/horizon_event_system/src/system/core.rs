@@ -1,14 +1,12 @@
 /// Core EventSystem implementation
-use crate::events::{Event, EventHandler, TypedEventHandler, EventError, GorcEvent};
-use crate::gorc::instance::{GorcObjectId, GorcInstanceManager, ObjectInstance};
-use crate::types::PlayerId;
-use super::client::{ClientConnectionRef, ClientResponseSender};
+use crate::events::{EventHandler, EventError};
+use crate::gorc::instance::GorcInstanceManager;
+use super::client::ClientResponseSender;
 use super::stats::EventSystemStats;
 use super::udp::UdpEventSystem;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
 
 /// The core event system that manages event routing and handler execution.
 /// 
@@ -91,6 +89,40 @@ impl EventSystem {
     /// Gets the current event system statistics
     pub async fn get_stats(&self) -> EventSystemStats {
         self.stats.read().await.clone()
+    }
+
+    /// Register a raw event handler (internal use)
+    pub async fn register_handler(
+        &self,
+        event_key: &str,
+        handler: Box<dyn EventHandler>,
+    ) -> Result<(), EventError> {
+        let mut handlers = self.handlers.write().await;
+        handlers
+            .entry(event_key.to_string())
+            .or_insert_with(Vec::new)
+            .push(Arc::from(handler));
+        Ok(())
+    }
+
+    /// Emit raw binary data (internal use)
+    pub async fn emit_raw(
+        &self,
+        event_key: &str,
+        data: &[u8],
+    ) -> Result<(), EventError> {
+        let handlers = self.handlers.read().await;
+        if let Some(event_handlers) = handlers.get(event_key) {
+            let event_handlers = event_handlers.clone();
+            drop(handlers);
+
+            for handler in event_handlers {
+                if let Err(e) = handler.handle(data).await {
+                    tracing::error!("Handler {} failed: {}", handler.handler_name(), e);
+                }
+            }
+        }
+        Ok(())
     }
 }
 

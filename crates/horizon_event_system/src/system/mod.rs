@@ -16,7 +16,7 @@ pub use client::{ClientConnectionRef, ClientResponseSender, ClientConnectionInfo
 pub use core::EventSystem;
 pub use stats::{EventSystemStats, DetailedEventSystemStats, HandlerCategoryStats};
 pub use udp::{
-    UdpEventSystem, UdpEventSystemExt, UdpEventHandler, UdpEventPacket, UdpConnection,
+    UdpEventSystem, UdpEventHandler, UdpEventPacket, UdpConnection,
     UdpConnectionState, UdpStats, BinaryEventSerializer, BinaryEventDeserializer,
     JsonBinarySerializer, JsonBinaryDeserializer, UdpCompressionType, UdpEventHeader,
 };

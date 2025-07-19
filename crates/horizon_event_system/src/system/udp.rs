@@ -1,9 +1,7 @@
 /// UDP socket event system implementation
 /// Provides complete UDP socket compatibility for binary event transmission
-use crate::events::{Event, EventHandler, TypedEventHandler, EventError, GorcEvent};
+use crate::events::{Event, EventError};
 use crate::types::PlayerId;
-use crate::gorc::instance::GorcObjectId;
-use super::core::EventSystem;
 use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::sync::{RwLock, Mutex};
@@ -622,9 +620,9 @@ impl UdpEventSystem {
         data: &[u8],
         addr: SocketAddr,
         connections: &Arc<RwLock<HashMap<SocketAddr, UdpConnection>>>,
-        player_addresses: &Arc<RwLock<HashMap<PlayerId, SocketAddr>>>,
+        _player_addresses: &Arc<RwLock<HashMap<PlayerId, SocketAddr>>>,
         udp_handlers: &Arc<RwLock<HashMap<String, Vec<Arc<dyn UdpEventHandler>>>>>,
-        deserializers: &Arc<RwLock<HashMap<String, Arc<dyn BinaryEventDeserializer>>>>,
+        _deserializers: &Arc<RwLock<HashMap<String, Arc<dyn BinaryEventDeserializer>>>>,
     ) -> Result<(), EventError> {
         // Deserialize packet
         let packet: UdpEventPacket = serde_json::from_slice(data)
@@ -725,6 +723,108 @@ impl UdpEventSystem {
         
         Ok(decompressed)
     }
+
+    /// Send raw binary data to a specific player
+    pub async fn send_raw_to_player(
+        &self,
+        player_id: PlayerId,
+        event_type: &str,
+        data: &[u8],
+    ) -> Result<(), EventError> {
+        let player_addresses = self.player_addresses.read().await;
+        let addr = player_addresses.get(&player_id).copied();
+        drop(player_addresses);
+
+        let addr = addr.ok_or_else(|| {
+            EventError::HandlerNotFound(format!("Player {} not connected via UDP", player_id))
+        })?;
+
+        self.send_raw_to_addr(addr, event_type, data).await
+    }
+
+    /// Send raw binary data to a specific address
+    pub async fn send_raw_to_addr(
+        &self,
+        addr: SocketAddr,
+        event_type: &str,
+        data: &[u8],
+    ) -> Result<(), EventError> {
+        let mut connections = self.connections.write().await;
+        let connection = connections.get_mut(&addr).ok_or_else(|| {
+            EventError::HandlerNotFound(format!("No UDP connection to {}", addr))
+        })?;
+
+        let sequence = connection.next_sequence();
+        let source_id = connection.player_id.to_string();
+        drop(connections);
+
+        let (compressed_payload, compression) = if self.compression_enabled 
+            && data.len() > self.compression_threshold {
+            match self.compress_data(data) {
+                Ok(compressed) if compressed.len() < data.len() => {
+                    (compressed, UdpCompressionType::Deflate)
+                }
+                _ => (data.to_vec(), UdpCompressionType::None),
+            }
+        } else {
+            (data.to_vec(), UdpCompressionType::None)
+        };
+
+        let header = UdpEventHeader {
+            version: 1,
+            event_type: event_type.to_string(),
+            source_id,
+            target_id: String::new(),
+            sequence,
+            timestamp: crate::utils::current_timestamp(),
+            compression,
+            total_size: (compressed_payload.len() + 64) as u32,
+        };
+
+        let checksum = self.calculate_checksum(&compressed_payload);
+        let packet = UdpEventPacket {
+            header,
+            payload: compressed_payload,
+            checksum,
+        };
+
+        let packet_data = serde_json::to_vec(&packet)
+            .map_err(|e| EventError::HandlerExecution(format!("Packet serialization failed: {}", e)))?;
+
+        match self.socket.send_to(&packet_data, addr).await {
+            Ok(bytes_sent) => {
+                debug!("Sent {} bytes to {}", bytes_sent, addr);
+                
+                let mut connections = self.connections.write().await;
+                if let Some(conn) = connections.get_mut(&addr) {
+                    conn.bytes_sent += bytes_sent as u64;
+                    conn.update_last_seen();
+                }
+                
+                Ok(())
+            }
+            Err(e) => Err(EventError::HandlerExecution(format!("UDP send failed: {}", e))),
+        }
+    }
+
+    /// Broadcast raw binary data to all connected players
+    pub async fn broadcast_raw(
+        &self,
+        event_type: &str,
+        data: &[u8],
+    ) -> Result<(), EventError> {
+        let player_addresses = self.player_addresses.read().await;
+        let addresses: Vec<SocketAddr> = player_addresses.values().copied().collect();
+        drop(player_addresses);
+
+        for addr in addresses {
+            if let Err(e) = self.send_raw_to_addr(addr, event_type, data).await {
+                warn!("Failed to send UDP data to {}: {}", addr, e);
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// UDP statistics
@@ -735,102 +835,4 @@ pub struct UdpStats {
     pub total_bytes_received: u64,
     pub send_buffer_size: usize,
     pub recv_buffer_size: usize,
-}
-
-/// Extension trait for EventSystem to support UDP events
-#[async_trait::async_trait]
-pub trait UdpEventSystemExt {
-    /// Register a UDP event handler
-    async fn on_udp<F>(
-        &self,
-        event_type: &str,
-        handler: F,
-    ) -> Result<(), EventError>
-    where
-        F: Fn(&UdpEventPacket, &mut UdpConnection, &[u8]) -> Result<Option<Vec<u8>>, EventError>
-            + Send
-            + Sync
-            + 'static;
-
-    /// Emit a UDP event to a player
-    async fn emit_udp<T>(
-        &self,
-        player_id: PlayerId,
-        event_type: &str,
-        event: &T,
-    ) -> Result<(), EventError>
-    where
-        T: Event;
-
-    /// Broadcast a UDP event to all players
-    async fn broadcast_udp<T>(
-        &self,
-        event_type: &str,
-        event: &T,
-    ) -> Result<(), EventError>
-    where
-        T: Event;
-
-    /// Get UDP system statistics
-    async fn get_udp_stats(&self) -> Option<UdpStats>;
-}
-
-#[async_trait::async_trait]
-impl UdpEventSystemExt for EventSystem {
-    async fn on_udp<F>(
-        &self,
-        event_type: &str,
-        handler: F,
-    ) -> Result<(), EventError>
-    where
-        F: Fn(&UdpEventPacket, &mut UdpConnection, &[u8]) -> Result<Option<Vec<u8>>, EventError>
-            + Send
-            + Sync
-            + 'static,
-    {
-        if let Some(ref udp_system) = self.udp_system {
-            udp_system.register_udp_handler(event_type, handler).await
-        } else {
-            Err(EventError::HandlerExecution("UDP system not initialized".to_string()))
-        }
-    }
-
-    async fn emit_udp<T>(
-        &self,
-        player_id: PlayerId,
-        event_type: &str,
-        event: &T,
-    ) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        if let Some(ref udp_system) = self.udp_system {
-            udp_system.send_udp_event(player_id, event_type, event).await
-        } else {
-            Err(EventError::HandlerExecution("UDP system not initialized".to_string()))
-        }
-    }
-
-    async fn broadcast_udp<T>(
-        &self,
-        event_type: &str,
-        event: &T,
-    ) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        if let Some(ref udp_system) = self.udp_system {
-            udp_system.broadcast_udp_event(event_type, event).await
-        } else {
-            Err(EventError::HandlerExecution("UDP system not initialized".to_string()))
-        }
-    }
-
-    async fn get_udp_stats(&self) -> Option<UdpStats> {
-        if let Some(ref udp_system) = self.udp_system {
-            Some(udp_system.get_udp_stats().await)
-        } else {
-            None
-        }
-    }
 }
