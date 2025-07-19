@@ -11,6 +11,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
 
+// Constants for interest-based subscription calculation
+const CRITICAL_CHANNEL: u8 = 0;
+const FREQUENCY_THRESHOLD: f32 = 0.8;
+
 /// Types of subscription relationships
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SubscriptionType {

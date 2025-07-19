@@ -216,10 +216,17 @@ impl NetworkReplicationEngine {
 
     /// Compresses data using deflate compression algorithm
     fn compress_data(&self, data: &[u8]) -> Result<Vec<u8>, NetworkError> {
-        // Only compress if data is larger than threshold to avoid overhead
-        const COMPRESSION_THRESHOLD: usize = 64;
+        // We need to get the compression threshold from config
+        // This will be used in a sync context within an async method
+        let config = match self.config.try_read() {
+            Ok(cfg) => cfg.compression_threshold,
+            Err(_) => {
+                // Fallback to a reasonable default if we can't read the config
+                64
+            }
+        };
         
-        if data.len() < COMPRESSION_THRESHOLD {
+        if data.len() < config {
             // For small data, compression overhead isn't worth it
             return Ok(data.to_vec());
         }

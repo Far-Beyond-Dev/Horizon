@@ -3,6 +3,7 @@ use crate::events::{Event, EventError};
 use crate::gorc::instance::GorcObjectId;
 use super::core::EventSystem;
 use tracing::{debug, info, warn};
+use base64::{Engine as _, engine::general_purpose};
 
 impl EventSystem {
     /// Broadcasts a GORC instance event to all subscribers of that instance.
@@ -73,7 +74,7 @@ impl EventSystem {
                             "object_id": object_id.0,
                             "channel": channel,
                             "event_name": event_name,
-                            "data": serialized_event,
+                            "data": general_purpose::STANDARD.encode(&serialized_event),
                             "timestamp": crate::utils::current_timestamp()
                         });
                         

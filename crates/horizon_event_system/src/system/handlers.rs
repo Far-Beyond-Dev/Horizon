@@ -335,9 +335,12 @@ impl EventSystem {
             
             // Create client connection ref with extracted player ID
             // For now, use default values for other fields - these could be made async in the future
+            let default_addr = "0.0.0.0:0".parse()
+                .unwrap_or_else(|_| std::net::SocketAddr::from(([0, 0, 0, 0], 0)));
+            
             let client_ref = ClientConnectionRef::new(
                 player_id,
-                "127.0.0.1:8080".parse().unwrap(), // Default address
+                default_addr, // Default unknown address
                 format!("conn_{}", player_id.0),    // Connection ID based on player ID
                 crate::utils::current_timestamp(),
                 crate::types::AuthenticationStatus::default(),
