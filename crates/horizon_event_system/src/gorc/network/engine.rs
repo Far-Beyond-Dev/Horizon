@@ -221,6 +221,8 @@ impl NetworkReplicationEngine {
         let config = match self.config.try_read() {
             Ok(cfg) => cfg.compression_threshold,
             Err(_) => {
+                // Log a warning about lock contention and fallback
+                warn!("Failed to acquire read lock on config; falling back to default compression threshold.");
                 // Fallback to a reasonable default if we can't read the config
                 64
             }
