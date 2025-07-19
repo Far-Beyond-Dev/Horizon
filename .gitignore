@@ -50,3 +50,4 @@ dhat-heap.json
 *.dll
 /crates/stars_beyond
 /crates/Horizon-Stars-Beyond
+config.toml
