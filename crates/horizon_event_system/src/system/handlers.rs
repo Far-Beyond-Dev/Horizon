@@ -318,6 +318,7 @@ impl EventSystem {
                 "127.0.0.1:8080".parse().unwrap(),
                 "placeholder".to_string(),
                 crate::utils::current_timestamp(),
+                crate::types::AuthenticationStatus::default(),
                 sender.clone(),
             );
             

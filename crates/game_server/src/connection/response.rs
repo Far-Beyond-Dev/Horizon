@@ -5,7 +5,7 @@
 //! responses back to clients.
 
 use super::manager::ConnectionManager;
-use horizon_event_system::{ClientResponseSender, PlayerId};
+use horizon_event_system::{ClientResponseSender, PlayerId, AuthenticationStatus};
 use std::sync::Arc;
 
 /// Implementation of `ClientResponseSender` for the game server.
@@ -84,6 +84,26 @@ impl ClientResponseSender for GameServerResponseSender {
         let connection_manager = self.connection_manager.clone();
         Box::pin(async move {
             connection_manager.get_connection_id_by_player(player_id).await.is_some()
+        })
+    }
+
+    /// Gets the authentication status of a player.
+    /// 
+    /// This method queries the connection manager for the current
+    /// authentication status of the specified player.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `player_id` - The ID of the player to query
+    /// 
+    /// # Returns
+    /// 
+    /// A future that resolves to `Some(AuthenticationStatus)` if the player
+    /// is connected, or `None` if they are not currently connected.
+    fn get_auth_status(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<AuthenticationStatus>> + Send + '_>> {
+        let connection_manager = self.connection_manager.clone();
+        Box::pin(async move {
+            connection_manager.get_auth_status_by_player(player_id).await
         })
     }
 }

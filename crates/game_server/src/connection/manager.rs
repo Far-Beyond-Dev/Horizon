@@ -4,7 +4,7 @@
 //! handling connection lifecycle, player ID assignment, and message broadcasting.
 
 use super::{client::ClientConnection, ConnectionId};
-use horizon_event_system::PlayerId;
+use horizon_event_system::{PlayerId, AuthenticationStatus};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -175,5 +175,77 @@ impl ConnectionManager {
             }
         }
         None
+    }
+
+    /// Sets the authentication status for a connection.
+    /// 
+    /// Updates the authentication status of the specified connection.
+    /// This is typically called when authentication state changes.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `connection_id` - The connection to update
+    /// * `status` - The new authentication status
+    pub async fn set_auth_status(&self, connection_id: ConnectionId, status: AuthenticationStatus) {
+        let mut connections = self.connections.write().await;
+        if let Some(connection) = connections.get_mut(&connection_id) {
+            connection.set_auth_status(status);
+        }
+    }
+
+    /// Gets the authentication status for a connection.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `connection_id` - The connection to query
+    /// 
+    /// # Returns
+    /// 
+    /// The current authentication status, or `None` if the connection doesn't exist.
+    pub async fn get_auth_status(&self, connection_id: ConnectionId) -> Option<AuthenticationStatus> {
+        let connections = self.connections.read().await;
+        connections.get(&connection_id).map(|c| c.auth_status())
+    }
+
+    /// Gets the authentication status for a player.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `player_id` - The player to query
+    /// 
+    /// # Returns
+    /// 
+    /// The current authentication status, or `None` if the player is not connected.
+    pub async fn get_auth_status_by_player(&self, player_id: PlayerId) -> Option<AuthenticationStatus> {
+        let connections = self.connections.read().await;
+        for connection in connections.values() {
+            if connection.player_id == Some(player_id) {
+                return Some(connection.auth_status());
+            }
+        }
+        None
+    }
+
+    /// Sets the authentication status for a player.
+    /// 
+    /// Updates the authentication status of the connection associated with the specified player.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `player_id` - The player to update
+    /// * `status` - The new authentication status
+    /// 
+    /// # Returns
+    /// 
+    /// `true` if the player was found and updated, `false` otherwise.
+    pub async fn set_auth_status_by_player(&self, player_id: PlayerId, status: AuthenticationStatus) -> bool {
+        let mut connections = self.connections.write().await;
+        for connection in connections.values_mut() {
+            if connection.player_id == Some(player_id) {
+                connection.set_auth_status(status);
+                return true;
+            }
+        }
+        false
     }
 }

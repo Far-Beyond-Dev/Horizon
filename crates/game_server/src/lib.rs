@@ -102,3 +102,7 @@ pub mod utils;
 mod connection;
 mod messaging;
 mod tests;
+
+// Authentication integration tests
+#[cfg(test)]
+mod auth_integration_tests;
