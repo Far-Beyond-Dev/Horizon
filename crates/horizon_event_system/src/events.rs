@@ -397,8 +397,8 @@ pub struct AuthenticationStatusSetEvent {
 pub struct AuthenticationStatusGetEvent {
     /// Unique identifier for the player
     pub player_id: PlayerId,
-    /// Optional request ID for correlating responses
-    pub request_id: Option<String>,
+    /// Request ID for correlating responses
+    pub request_id: String,
     /// Unix timestamp when the query was made
     pub timestamp: u64,
 }
