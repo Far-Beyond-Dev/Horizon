@@ -534,7 +534,7 @@ impl SubscriptionManager {
                 
                 // Consider activity patterns for channel-specific adjustments
                 if let Some(activity) = interest.activity_patterns.get("combat") {
-                    if channel == 0 && activity.frequency > 5.0 { // Critical channel + high combat activity
+                    if channel == CRITICAL_CHANNEL && activity.frequency > FREQUENCY_THRESHOLD { // Critical channel + high combat activity
                         return match base_priority {
                             ReplicationPriority::Low => ReplicationPriority::Normal,
                             ReplicationPriority::Normal => ReplicationPriority::High,
