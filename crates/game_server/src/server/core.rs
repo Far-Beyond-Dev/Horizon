@@ -373,8 +373,17 @@ impl GameServer {
                         info!("🔐 Updated auth status for player {} to {:?}", event.player_id, event.status);
                         
                         // Emit status changed event to notify other plugins
-                        // TODO: We'd need a way to emit events from here - for now just log
-                        info!("🔄 Auth status changed for player {}: {:?}", event.player_id, event.status);
+                        let old_status = conn_mgr.get_auth_status_by_player(event.player_id).await;
+                        if let Some(old_status) = old_status {
+                            let auth_status_changed_event = AuthenticationStatusChangedEvent {
+                                player_id: event.player_id,
+                                old_status,
+                                new_status: event.status,
+                            };
+                            self.horizon_event_system.emit(auth_status_changed_event).await.map_err(|e| {
+                                warn!("⚠️ Failed to emit auth status changed event for player {}: {:?}", event.player_id, e);
+                            })?;
+                        }
                     } else {
                         warn!("⚠️ Failed to update auth status for player {} - player not found", event.player_id);
                     }
