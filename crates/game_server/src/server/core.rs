@@ -242,7 +242,6 @@ impl GameServer {
             if self.config.use_reuse_port {
                 #[cfg(any(target_os = "linux", target_os = "android"))]
                 {
-                    use std::os::fd::AsRawFd;
                     let sockfd = socket.as_raw_fd();
                     let optval: libc::c_int = 1;
                     let ret = unsafe {
