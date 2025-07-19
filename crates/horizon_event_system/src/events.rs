@@ -387,7 +387,7 @@ pub struct AuthenticationStatusSetEvent {
 /// #     let events = horizon_event_system::create_horizon_event_system();
 /// events.emit_core("auth_status_get", &AuthenticationStatusGetEvent {
 ///     player_id: PlayerId::new(),
-///     request_id: "req_123".to_string(),
+///     request_id: Some("req_123".to_string()),
 ///     timestamp: current_timestamp(),
 /// }).await?;
 /// #     Ok(())

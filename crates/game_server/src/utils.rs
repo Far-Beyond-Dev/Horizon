@@ -17,9 +17,12 @@ use crate::{config::ServerConfig, server::GameServer};
 /// # Example
 /// 
 /// ```rust
+/// # #[tokio::main]
+/// # async fn main() {
 /// use game_server::create_server;
 /// 
 /// let server = create_server();
+/// # }
 /// ```
 pub fn create_server() -> GameServer {
     GameServer::new(ServerConfig::default())
@@ -41,6 +44,8 @@ pub fn create_server() -> GameServer {
 /// # Example
 /// 
 /// ```rust
+/// # #[tokio::main]
+/// # async fn main() {
 /// use game_server::{create_server_with_config, ServerConfig};
 /// use std::net::SocketAddr;
 /// 
@@ -51,6 +56,7 @@ pub fn create_server() -> GameServer {
 /// };
 /// 
 /// let server = create_server_with_config(config);
+/// # }
 /// ```
 pub fn create_server_with_config(config: ServerConfig) -> GameServer {
     GameServer::new(config)

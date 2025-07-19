@@ -32,7 +32,7 @@ mod tests {
         // Test querying authentication status
         let auth_query = AuthenticationStatusGetEvent {
             player_id,
-            request_id: "test_request_123".to_string(),
+            request_id: Some("test_request_123".to_string()),
             timestamp: current_timestamp(),
         };
         

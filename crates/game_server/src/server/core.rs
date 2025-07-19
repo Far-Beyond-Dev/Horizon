@@ -14,7 +14,8 @@ use futures::stream::{FuturesUnordered, StreamExt as FuturesStreamExt};
 use horizon_event_system::{
     create_horizon_event_system, current_timestamp, EventSystem, GorcManager, MulticastManager,
     PlayerConnectedEvent, PlayerDisconnectedEvent, RegionId, RegionStartedEvent, SpatialPartition,
-    SubscriptionManager,
+    SubscriptionManager, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
+    AuthenticationStatusChangedEvent,
 };
 use plugin_system::{create_plugin_manager_with_events, PluginManager};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -355,6 +356,61 @@ impl GameServer {
                 info!(
                     "🌍 Region {:?} started with bounds: {:?}",
                     event.region_id, event.bounds
+                );
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        // Register authentication status management handlers
+        let connection_manager_for_set = self.connection_manager.clone();
+        self.horizon_event_system
+            .on_core_async("auth_status_set", move |event: AuthenticationStatusSetEvent| {
+                let conn_mgr = connection_manager_for_set.clone();
+                async move {
+                    let success = conn_mgr.set_auth_status_by_player(event.player_id, event.status).await;
+                    if success {
+                        info!("🔐 Updated auth status for player {} to {:?}", event.player_id, event.status);
+                        
+                        // Emit status changed event to notify other plugins
+                        // TODO: We'd need a way to emit events from here - for now just log
+                        info!("🔄 Auth status changed for player {}: {:?}", event.player_id, event.status);
+                    } else {
+                        warn!("⚠️ Failed to update auth status for player {} - player not found", event.player_id);
+                    }
+                    Ok(())
+                }
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        let connection_manager_for_get = self.connection_manager.clone();
+        self.horizon_event_system
+            .on_core_async("auth_status_get", move |event: AuthenticationStatusGetEvent| {
+                let conn_mgr = connection_manager_for_get.clone();
+                async move {
+                    let status = conn_mgr.get_auth_status_by_player(event.player_id).await;
+                    match status {
+                        Some(auth_status) => {
+                            info!("🔍 Auth status query for player {}: {:?}", event.player_id, auth_status);
+                            // TODO: In a real implementation, we'd emit a response event or call a callback
+                            // For now, just log the result
+                        }
+                        None => {
+                            info!("🔍 Auth status query for player {} - player not found", event.player_id);
+                        }
+                    }
+                    Ok(())
+                }
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
+
+        self.horizon_event_system
+            .on_core("auth_status_changed", |event: AuthenticationStatusChangedEvent| {
+                info!(
+                    "🔄 Player {} auth status changed: {:?} -> {:?}",
+                    event.player_id, event.old_status, event.new_status
                 );
                 Ok(())
             })
