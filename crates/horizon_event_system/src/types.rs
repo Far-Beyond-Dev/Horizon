@@ -327,3 +327,26 @@ pub enum DisconnectReason {
     /// An error occurred that forced disconnection
     Error(String),
 }
+
+/// Represents the authentication status of a player.
+/// 
+/// This enum defines the possible authentication states that a player
+/// can be in, allowing plugins to query and respond to authentication
+/// status appropriately.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AuthenticationStatus {
+    /// Player is not authenticated
+    Unauthenticated,
+    /// Player is in the process of authenticating
+    Authenticating,
+    /// Player is successfully authenticated
+    Authenticated,
+    /// Player authentication failed
+    AuthenticationFailed,
+}
+
+impl Default for AuthenticationStatus {
+    fn default() -> Self {
+        Self::Unauthenticated
+    }
+}

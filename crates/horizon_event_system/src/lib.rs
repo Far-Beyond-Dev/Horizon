@@ -136,6 +136,10 @@
 // tests
 mod test_integration;
 
+// auth tests
+#[cfg(test)]
+mod auth_tests;
+
 // Core modules
 pub mod api;
 pub mod context;
@@ -161,6 +165,9 @@ pub use events::{
     RawClientMessageEvent, RegionStartedEvent,
     RegionStoppedEvent, TypedEventHandler,
     PluginLoadedEvent, PluginUnloadedEvent,
+    AuthenticationStatusSetEvent,
+    AuthenticationStatusGetEvent, AuthenticationStatusGetResponseEvent,
+    AuthenticationStatusChangedEvent,
 };
 pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use plugin::{Plugin, PluginError, SimplePlugin};

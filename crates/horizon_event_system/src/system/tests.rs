@@ -42,6 +42,10 @@ mod tests {
         fn is_connection_active(&self, _player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
             Box::pin(async move { true })
         }
+        
+        fn get_auth_status(&self, _player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<crate::types::AuthenticationStatus>> + Send + '_>> {
+            Box::pin(async move { Some(crate::types::AuthenticationStatus::Authenticated) })
+        }
     }
     
     #[tokio::test]

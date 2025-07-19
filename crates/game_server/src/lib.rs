@@ -39,11 +39,17 @@
 //! Plugins register event handlers for specific namespace/event combinations:
 //!
 //! ```rust
+//! # use horizon_event_system::{create_horizon_event_system, RawClientMessageEvent};
+//! # #[tokio::main]
+//! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Example plugin handler registration
-//! event_system.on_client("movement", "move_request", |event| {
+//! let event_system = create_horizon_event_system();
+//! event_system.on_client("movement", "move_request", |event: RawClientMessageEvent| {
 //!     // Handle movement logic
 //!     Ok(())
 //! }).await?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! ## Configuration
@@ -102,3 +108,7 @@ pub mod utils;
 mod connection;
 mod messaging;
 mod tests;
+
+// Authentication integration tests
+#[cfg(test)]
+mod auth_integration_tests;

@@ -1,6 +1,6 @@
 /// Client connection and response handling
 use crate::events::EventError;
-use crate::types::PlayerId;
+use crate::types::{PlayerId, AuthenticationStatus};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -17,6 +17,8 @@ pub struct ClientConnectionRef {
     pub connection_id: String,
     /// Timestamp when the connection was established
     pub connected_at: u64,
+    /// Current authentication status of the connection
+    pub auth_status: AuthenticationStatus,
     /// Sender for direct response to this specific client
     response_sender: Arc<dyn ClientResponseSender + Send + Sync>,
 }
@@ -28,6 +30,7 @@ impl std::fmt::Debug for ClientConnectionRef {
             .field("remote_addr", &self.remote_addr)
             .field("connection_id", &self.connection_id)
             .field("connected_at", &self.connected_at)
+            .field("auth_status", &self.auth_status)
             .field("response_sender", &"[response_sender]")
             .finish()
     }
@@ -40,6 +43,7 @@ impl ClientConnectionRef {
         remote_addr: SocketAddr,
         connection_id: String,
         connected_at: u64,
+        auth_status: AuthenticationStatus,
         response_sender: Arc<dyn ClientResponseSender + Send + Sync>,
     ) -> Self {
         Self {
@@ -47,8 +51,19 @@ impl ClientConnectionRef {
             remote_addr,
             connection_id,
             connected_at,
+            auth_status,
             response_sender,
         }
+    }
+
+    /// Gets the current authentication status of this connection
+    pub fn auth_status(&self) -> AuthenticationStatus {
+        self.auth_status
+    }
+
+    /// Checks if the connection is authenticated
+    pub fn is_authenticated(&self) -> bool {
+        self.auth_status == AuthenticationStatus::Authenticated
     }
 
     /// Send a direct response to this specific client
@@ -79,4 +94,7 @@ pub trait ClientResponseSender: std::fmt::Debug {
     
     /// Check if a client connection is still active
     fn is_connection_active(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>>;
+    
+    /// Get the authentication status of a client
+    fn get_auth_status(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<AuthenticationStatus>> + Send + '_>>;
 }
