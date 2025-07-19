@@ -25,6 +25,9 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 
+#[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
+use std::os::fd::AsRawFd;
+
 /// The core game server structure.
 /// 
 /// `GameServer` orchestrates all server components including networking,
@@ -237,14 +240,54 @@ impl GameServer {
             
             // Enable SO_REUSEPORT if supported and configured
             if self.config.use_reuse_port {
-                // Note: SO_REUSEPORT implementation requires additional platform-specific code
-                // This would enable load balancing across multiple threads/processes
-                warn!("SO_REUSEPORT was requested but is not implemented in this version");
-                warn!("This feature requires platform-specific socket options");
-                // In a production implementation, you would:
-                // 1. Add libc dependency
-                // 2. Use unsafe libc::setsockopt calls
-                // 3. Handle platform differences (Linux vs others)
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                {
+                    use std::os::fd::AsRawFd;
+                    let sockfd = socket.as_raw_fd();
+                    let optval: libc::c_int = 1;
+                    let ret = unsafe {
+                        libc::setsockopt(
+                            sockfd,
+                            libc::SOL_SOCKET,
+                            libc::SO_REUSEPORT,
+                            &optval as *const _ as *const libc::c_void,
+                            std::mem::size_of_val(&optval) as libc::socklen_t,
+                        )
+                    };
+                    if ret != 0 {
+                        warn!("Failed to set SO_REUSEPORT: {}", std::io::Error::last_os_error());
+                    } else {
+                        info!("SO_REUSEPORT enabled for load balancing across acceptor threads");
+                    }
+                }
+                #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
+                {
+                    use std::os::fd::AsRawFd;
+                    let sockfd = socket.as_raw_fd();
+                    let optval: libc::c_int = 1;
+                    let ret = unsafe {
+                        libc::setsockopt(
+                            sockfd,
+                            libc::SOL_SOCKET,
+                            libc::SO_REUSEPORT,
+                            &optval as *const _ as *const libc::c_void,
+                            std::mem::size_of_val(&optval) as libc::socklen_t,
+                        )
+                    };
+                    if ret != 0 {
+                        warn!("Failed to set SO_REUSEPORT: {}", std::io::Error::last_os_error());
+                    } else {
+                        info!("SO_REUSEPORT enabled for load balancing across acceptor threads");
+                    }
+                }
+                #[cfg(target_os = "windows")]
+                {
+                    warn!("SO_REUSEPORT is not supported on Windows. Using SO_REUSEADDR only.");
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos", target_os = "windows")))]
+                {
+                    warn!("SO_REUSEPORT support unknown for this platform");
+                }
             }
             
             socket.bind(&self.config.bind_address.into())

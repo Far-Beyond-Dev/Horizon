@@ -603,8 +603,7 @@ impl PluginManager {
 
     /// Estimate plugin capabilities from file analysis
     async fn estimate_plugin_capabilities(&self, _path: &Path) -> Vec<String> {
-        // In a real implementation, this could analyze the binary for symbols
-        // or read metadata from embedded resources
+        // TODO: analyze the binary for symbols and/or read metadata from embedded resources later
         vec![
             "client_events".to_string(),
             "type_safe".to_string(),

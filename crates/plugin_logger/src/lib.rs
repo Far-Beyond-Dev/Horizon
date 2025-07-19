@@ -194,29 +194,26 @@ impl SimplePlugin for LoggerPlugin {
 
         println!("📝 LoggerPlugin: ✅ Now monitoring all server events!");
 
-        // TODO: Currently it seems plugins are unable to take advantage of the tokio runtime that Horizon runs on.
-        //       This makes a little sense due to the DLL boundaries, but it would be nice to see if there is a way
-        //       to allow plugins to spawn their own runtime or inherit the existing one. @tristanpoland @haywoodspartan @Copilot
+        // Start a periodic summary task
+        // Note: tokio::spawn works fine within plugins when called from async contexts
+        let events_clone = context.events();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+            let mut summary_count = 0;
 
-        // // Start a periodic summary task
-        // let events_clone = events.clone();
-        // tokio::spawn(async move {
-        //     let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-        //     let mut summary_count = 0;
+            loop {
+                interval.tick().await;
+                summary_count += 1;
 
-        //     loop {
-        //         interval.tick().await;
-        //         summary_count += 1;
+                let _ = events_clone.emit_plugin("logger", "activity_logged", &serde_json::json!({
+                    "activity_type": "periodic_summary",
+                    "details": format!("Summary #{} - Logger still active", summary_count),
+                    "timestamp": current_timestamp()
+                })).await;
 
-        //         let _ = events_clone.emit_plugin("logger", "activity_logged", &serde_json::json!({
-        //             "activity_type": "periodic_summary",
-        //             "details": format!("Summary #{} - Logger still active", summary_count),
-        //             "timestamp": current_timestamp()
-        //         })).await;
-
-        //         println!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count);
-        //     }
-        // });
+                println!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count);
+            }
+        });
 
         Ok(())
     }

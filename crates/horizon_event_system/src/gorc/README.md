@@ -758,7 +758,6 @@ events.on_client("actions", "dock_request", |event: RawClientMessageEvent| {
 // to access gorc_system from within event handlers
 events.on_plugin("docking", "dock_completed", |event: DockCompletedEvent| {
     // In a real implementation, you'd need to pass gorc_system reference
-    // or use a different architectural pattern to update GORC objects
     println!("Dock completed for ship {}", event.ship_id);
     Ok(())
 }).await?;

@@ -1,5 +1,6 @@
 /// Replication coordination and scheduling
-use super::types::{NetworkError, ReplicationStats};
+use super::types::{NetworkError, ReplicationStats, ReplicationUpdate};
+use crate::gorc::channels::{ReplicationPriority, CompressionType, ReplicationLayer};
 use super::engine::NetworkReplicationEngine;
 use crate::types::PlayerId;
 use crate::gorc::instance::{GorcObjectId, GorcInstanceManager};
@@ -18,6 +19,8 @@ pub struct ReplicationCoordinator {
     instance_manager: Arc<GorcInstanceManager>,
     /// Update scheduler
     update_scheduler: UpdateScheduler,
+    /// Sequence counter for updates
+    sequence_counter: u32,
 }
 
 impl ReplicationCoordinator {
@@ -30,6 +33,7 @@ impl ReplicationCoordinator {
             network_engine,
             instance_manager,
             update_scheduler: UpdateScheduler::new(),
+            sequence_counter: 0,
         }
     }
 
@@ -39,8 +43,55 @@ impl ReplicationCoordinator {
         let objects_needing_updates = self.update_scheduler.get_objects_needing_updates().await;
         
         for object_id in objects_needing_updates {
-            // Note: This method would need to be implemented in the network engine
-            // For now, we'll just mark the object as updated
+            // Get the object instance from the instance manager
+            if let Some(object_instance) = self.instance_manager.get_object(object_id).await {
+                // Serialize the object data for the core replication layer
+                let core_layer = ReplicationLayer {
+                    channel: 0,
+                    radius: 1000.0, // Default large radius
+                    frequency: 30.0, // 30 Hz
+                    properties: vec![], // Use all properties
+                    compression: CompressionType::None,
+                    priority: ReplicationPriority::Normal,
+                };
+                let serialized_data = match object_instance.object.serialize_for_layer(&core_layer) {
+                    Ok(data) => data,
+                    Err(_) => {
+                        // Skip objects that can't be serialized
+                        self.update_scheduler.mark_object_updated(object_id).await;
+                        continue;
+                    }
+                };
+                
+                // Create replication update
+                let update = ReplicationUpdate {
+                    object_id,
+                    object_type: object_instance.type_name.clone(),
+                    channel: 0, // Default to channel 0
+                    data: serialized_data,
+                    priority: ReplicationPriority::Normal,
+                    sequence: {
+                        self.sequence_counter += 1;
+                        self.sequence_counter
+                    },
+                    timestamp: std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64,
+                    compression: CompressionType::None,
+                };
+                
+                // Get all players subscribed to the default channel (0)
+                let target_players: Vec<PlayerId> = object_instance.subscribers
+                    .get(&0)
+                    .map(|set| set.iter().copied().collect())
+                    .unwrap_or_default();
+                
+                // Queue the update in the network engine
+                self.network_engine.queue_update(target_players, update).await;
+            }
+            
+            // Mark the object as updated regardless of whether we found data
             self.update_scheduler.mark_object_updated(object_id).await;
         }
 
