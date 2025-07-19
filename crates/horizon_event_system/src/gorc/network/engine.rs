@@ -239,7 +239,16 @@ impl NetworkReplicationEngine {
         }
     }
 
-    /// Decompresses data using deflate decompression algorithm
+    /// Decompresses data using deflate decompression algorithm.
+    /// 
+    /// This method complements the `compress_data` method and is intended for scenarios
+    /// where decompression of previously compressed data is required. While it is not
+    /// currently used in the codebase, it may be useful for debugging, data integrity
+    /// checks, or future features that involve receiving compressed data from external
+    /// sources.
+    /// 
+    /// The `#[allow(dead_code)]` attribute is used to suppress warnings about unused code,
+    /// as this method is retained for potential future use.
     #[allow(dead_code)]
     fn decompress_data(&self, compressed_data: &[u8]) -> Result<Vec<u8>, NetworkError> {
         let mut decoder = DeflateDecoder::new(compressed_data);
