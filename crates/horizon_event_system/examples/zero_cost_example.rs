@@ -80,7 +80,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     
     // Demonstrate type safety - these are the TYPES that would be used:
-    let tcp_json_data = <ChatMessage as ProtocolEvent<protocol::Tcp, format::Json>>::serialize_for_protocol(&chat_msg)?; // JSON serialization
+    type TcpJsonProtocol = <ChatMessage as ProtocolEvent<protocol::Tcp, format::Json>>;
+    let tcp_json_data = TcpJsonProtocol::serialize_for_protocol(&chat_msg)?; // JSON serialization
     let udp_binary_data = <BinaryPositionEvent as ProtocolEvent<protocol::Udp, format::Binary>>::serialize_for_protocol(&binary_event)?; // Binary serialization
     
     println!("TCP JSON data: {} bytes", tcp_json_data.len());
