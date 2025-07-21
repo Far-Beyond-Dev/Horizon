@@ -467,7 +467,7 @@ impl UdpEventSystem {
             sequence,
             timestamp: crate::utils::current_timestamp(),
             compression,
-            total_size: (compressed_payload.len() + 64) as u32, // Approximate header size
+            total_size: (compressed_payload.len() + ESTIMATED_HEADER_SIZE) as u32, // Approximate header size
         };
 
         // Create packet
