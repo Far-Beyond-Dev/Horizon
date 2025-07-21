@@ -155,7 +155,7 @@ impl BinarySerializable for BinaryPositionUpdate {
 impl BinaryPositionUpdate {
     pub fn new(player_id: PlayerId, position: Vec3, velocity: Vec3, sequence: u32) -> Self {
         Self {
-            player_id: player_id.0.as_bytes().clone(),
+            player_id: *player_id.0.as_bytes(),
             position,
             velocity,
             sequence,
