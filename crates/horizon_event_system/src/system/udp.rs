@@ -289,8 +289,8 @@ impl UdpEventSystem {
         let socket = UdpSocket::bind(bind_addr).await?;
         
         // Set socket buffer sizes for high performance
-        let send_buffer_size = 1024 * 1024; // 1MB
-        let recv_buffer_size = 1024 * 1024; // 1MB
+        let send_buffer_size = DEFAULT_BUFFER_SIZE;
+        let recv_buffer_size = DEFAULT_BUFFER_SIZE;
         
         // Note: Tokio UdpSocket doesn't expose buffer size methods directly
         // These would need to be set on the std socket before converting to tokio
