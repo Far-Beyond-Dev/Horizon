@@ -90,7 +90,7 @@ impl Default for CongestionControl {
             ssthresh: 65535,
             rtt_avg: 100.0, // 100ms default
             rtt_var: 50.0,
-            rto: 1000, // 1 second default
+            rto: DEFAULT_RTO_MS, // 1 second default
             state: CongestionState::SlowStart,
             packets_in_flight: 0,
             last_congestion: Instant::now(),
