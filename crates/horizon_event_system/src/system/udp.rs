@@ -581,7 +581,7 @@ impl UdpEventSystem {
         let running = self.running.clone();
 
         tokio::spawn(async move {
-            let mut buffer = vec![0u8; 65536]; // 64KB buffer
+            let mut buffer = vec![0u8; MAX_UDP_PACKET_SIZE]; // 64KB buffer
 
             loop {
                 {
