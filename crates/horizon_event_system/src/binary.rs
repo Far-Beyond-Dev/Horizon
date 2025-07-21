@@ -222,7 +222,7 @@ impl BinaryActionEvent {
         timestamp_offset: u16,
     ) -> Self {
         Self {
-            player_id: player_id.0.as_bytes().clone(),
+            player_id: *player_id.0.as_bytes(),
             action_type,
             action_data,
             timestamp_offset,
