@@ -24,8 +24,7 @@
 
 use crate::types::{PlayerId, RegionId, RegionBounds, DisconnectReason, AuthenticationStatus};
 use async_trait::async_trait;
-use serde::{de::{self, DeserializeOwned}, Deserialize, Serialize};
-use core::error;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{any::{Any, TypeId}, fmt::Debug};
 
 // ============================================================================
@@ -625,7 +624,7 @@ pub struct RegionStoppedEvent {
 /// events.emit_client("movement", "position_update", &RawClientMessageEvent {
 ///     player_id: player_id,
 ///     message_type: "move".to_string(),
-///     data: serde_json::json!({"x": 100, "y": 200}),
+///     data: b"binary_data".to_vec(),
 ///     timestamp: current_timestamp(),
 /// }).await?;
 /// #     Ok(())

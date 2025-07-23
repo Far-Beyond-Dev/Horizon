@@ -13,6 +13,9 @@
 //! - **Network Optimization**: Intelligent batching, compression, and priority queuing
 //! - **Spatial Awareness**: Efficient proximity-based replication and subscriptions
 //! - **Performance Monitoring**: Comprehensive statistics and health reporting
+//! - **UDP Socket Events**: Complete binary event transmission over UDP with reliability
+//! - **Binary Serialization**: High-performance binary event encoding/decoding
+//! - **Reliability Layer**: Acknowledgments, retransmission, and congestion control
 //!
 //! ## Architecture Overview
 //!
@@ -24,6 +27,7 @@
 //! - **Plugin Events** (`plugin:plugin_name:event`): Inter-plugin communication
 //! - **GORC Events** (`gorc:object_type:channel:event`): Object replication events
 //! - **Instance Events** (`gorc_instance:object_type:channel:event`): Instance-specific events
+//! - **UDP Events** (`udp:event_type`): Binary socket events with reliability
 //!
 //! ### GORC Replication System
 //! - **Object Instances**: Individual game objects with unique zones
@@ -142,12 +146,14 @@ mod auth_tests;
 
 // Core modules
 pub mod api;
+pub mod binary;
 pub mod context;
 pub mod events;
 pub mod gorc_macros;
 pub mod macros;
 pub mod monitoring;
 pub mod plugin;
+pub mod protocol;
 pub mod system;
 pub mod traits;
 pub mod types;
@@ -173,7 +179,20 @@ pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use plugin::{Plugin, PluginError, SimplePlugin};
 pub use system::{EventSystem, EventSystemStats,
     DetailedEventSystemStats, HandlerCategoryStats,
-    ClientConnectionRef, ClientResponseSender, ClientConnectionInfo
+    ClientConnectionRef, ClientResponseSender, ClientConnectionInfo,
+    UdpEventSystem, UdpEventHandler, UdpEventPacket,
+    UdpConnection, UdpConnectionState, UdpStats, BinaryEventSerializer,
+    BinaryEventDeserializer, JsonBinarySerializer, JsonBinaryDeserializer,
+    UdpEventHeader, UdpReliabilityManager, ReliabilityMode,
+    AckPacket, ReliabilityStats, get_reliability_mode_for_event
+};
+pub use protocol::{
+    format, ProtocolEvent, BinarySerializable,
+    tcp::TcpEventSystemExt, udp::UdpEventSystemExt
+};
+pub use binary::{
+    BinaryEvent, BinaryPositionUpdate, BinaryActionEvent,
+    BinaryPositionEvent, BinaryPlayerActionEvent, event_types
 };
 pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
 pub use types::*;
