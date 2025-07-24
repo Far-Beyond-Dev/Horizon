@@ -7,7 +7,7 @@
 use crate::{
     connection::{ConnectionId, ConnectionManager},
     error::ServerError,
-    messaging::router::route_client_message,
+    messaging::route_client_message,
 };
 use futures::{SinkExt, StreamExt};
 use horizon_event_system::{
