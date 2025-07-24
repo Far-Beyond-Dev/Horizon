@@ -172,7 +172,10 @@ impl EventSystem {
             }
         } else if cfg!(debug_assertions) {
             // Only warn in debug builds to reduce production overhead
-            warn!("⚠️ No handlers for event: {}", event_key);
+            // Exempt core:server_tick from warning spam
+            if event_key != "core:server_tick" {
+                warn!("⚠️ No handlers for event: {}", event_key);
+            }
         }
 
         Ok(())

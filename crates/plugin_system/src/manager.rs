@@ -2,7 +2,7 @@
 
 use crate::error::PluginSystemError;
 use dashmap::DashMap;
-use horizon_event_system::plugin::{Plugin, PluginError};
+use horizon_event_system::plugin::Plugin;
 use horizon_event_system::{EventSystem, context::ServerContext, LogLevel};
 use libloading::{Library, Symbol};
 use std::path::{Path, PathBuf};
@@ -10,16 +10,32 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 
 /// Basic server context implementation for plugin initialization
+
+/// Minimal server context for plugin initialization and testing.
+///
+/// In production, use a context that provides real region and player communication.
+#[derive(Debug, Clone)]
 struct BasicServerContext {
     event_system: Arc<EventSystem>,
+    region_id: horizon_event_system::types::RegionId,
 }
 
 impl BasicServerContext {
+    /// Create a new basic context with a specific region.
     fn new(event_system: Arc<EventSystem>) -> Self {
-        Self { event_system }
+        Self {
+            event_system,
+            region_id: horizon_event_system::types::RegionId::default(),
+        }
+    }
+
+    /// Create a context with a custom region id.
+    fn with_region(event_system: Arc<EventSystem>, region_id: horizon_event_system::types::RegionId) -> Self {
+        Self { event_system, region_id }
     }
 }
 
+#[async_trait::async_trait]
 impl ServerContext for BasicServerContext {
     fn events(&self) -> Arc<EventSystem> {
         self.event_system.clone()
@@ -31,7 +47,27 @@ impl ServerContext for BasicServerContext {
             LogLevel::Warn => warn!("{}", message),
             LogLevel::Info => info!("{}", message),
             LogLevel::Debug => tracing::debug!("{}", message),
+            LogLevel::Trace => tracing::trace!("{}", message),
         }
+    }
+
+
+    fn region_id(&self) -> horizon_event_system::types::RegionId {
+        self.region_id
+    }
+
+    async fn send_to_player(&self, player_id: horizon_event_system::types::PlayerId, _data: &[u8]) -> Result<(), horizon_event_system::context::ServerError> {
+        warn!("send_to_player called in BasicServerContext (player_id: {player_id}) - not implemented");
+        Err(horizon_event_system::context::ServerError::Internal(
+            "Player communication is not available in BasicServerContext".to_string(),
+        ))
+    }
+
+    async fn broadcast(&self, _data: &[u8]) -> Result<(), horizon_event_system::context::ServerError> {
+        warn!("broadcast called in BasicServerContext - not implemented");
+        Err(horizon_event_system::context::ServerError::Internal(
+            "Broadcast is not available in BasicServerContext".to_string(),
+        ))
     }
 }
 
