@@ -30,6 +30,9 @@ pub struct ServerConfig {
     
     /// Whether to use SO_REUSEPORT for multi-threaded accept loops
     pub use_reuse_port: bool,
+    
+    /// Server tick interval in milliseconds (0 to disable)
+    pub tick_interval_ms: u64,
 }
 
 impl Default for ServerConfig {
@@ -47,7 +50,8 @@ impl Default for ServerConfig {
             plugin_directory: PathBuf::from("plugins"),
             max_connections: 1000,
             connection_timeout: 60,
-            use_reuse_port: false
+            use_reuse_port: false,
+            tick_interval_ms: 50, // 20 ticks per second by default
         }
     }
 }

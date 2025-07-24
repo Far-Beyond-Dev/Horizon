@@ -9,6 +9,11 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::info;
 
+/// Default tick interval for serde deserialization
+fn default_tick_interval() -> u64 {
+    50 // 20 ticks per second
+}
+
 /// Application configuration loaded from TOML file.
 /// 
 /// This is the main configuration structure that encompasses all server settings
@@ -39,6 +44,9 @@ pub struct ServerSettings {
     /// Whether to use SO_REUSEPORT for multi-threaded accept loops (Linux only)
     #[serde(default)]
     pub use_reuse_port: bool,
+    /// Server tick interval in milliseconds (0 to disable)
+    #[serde(default = "default_tick_interval")]
+    pub tick_interval_ms: u64,
 }
 
 /// Spatial region boundary configuration.
@@ -103,6 +111,7 @@ impl Default for AppConfig {
                 max_connections: 1000,
                 connection_timeout: 60,
                 use_reuse_port: false,
+                tick_interval_ms: 50,
             },
             plugins: PluginSettings {
                 directory: "plugins".to_string(),
@@ -169,6 +178,7 @@ impl AppConfig {
             max_connections: self.server.max_connections,
             connection_timeout: self.server.connection_timeout,
             use_reuse_port: self.server.use_reuse_port,
+            tick_interval_ms: self.server.tick_interval_ms,
         })
     }
 

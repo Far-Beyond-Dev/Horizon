@@ -17,12 +17,12 @@ use horizon_event_system::{
     SubscriptionManager, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
     AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent,
 };
-use plugin_system::{create_plugin_manager_with_events, PluginManager};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::TcpListener as StdTcpListener;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
+use tokio::time::{interval, Duration};
 use tracing::{error, info, warn};
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
@@ -58,8 +58,6 @@ pub struct GameServer {
     /// Manager for client connections and messaging
     connection_manager: Arc<ConnectionManager>,
     
-    /// Plugin system for dynamic game logic
-    plugin_manager: Arc<PluginManager>,
     
     /// Channel for coordinating server shutdown
     shutdown_sender: broadcast::Sender<()>,
@@ -114,12 +112,6 @@ impl GameServer {
         Arc::get_mut(&mut horizon_event_system).unwrap()
             .set_client_response_sender(response_sender);
 
-        // Create plugin manager with the event system
-        let plugin_manager = Arc::new(create_plugin_manager_with_events(
-            horizon_event_system.clone(),
-            &config.plugin_directory,
-            region_id,
-        ));
 
         // Initialize GORC components
         let gorc_manager = Arc::new(GorcManager::new());
@@ -131,7 +123,6 @@ impl GameServer {
             config,
             horizon_event_system,
             connection_manager,
-            plugin_manager,
             shutdown_sender,
             region_id,
             gorc_manager,
@@ -174,35 +165,13 @@ impl GameServer {
         // Register minimal core event handlers
         self.register_core_handlers().await?;
 
-        info!(
-            "🔌 Loading plugins from: {}",
-            self.config.plugin_directory.display()
-        );
-        match self.plugin_manager.load_all_plugins().await {
-            Ok(loaded_plugins) => {
-                info!(
-                    "✅ Successfully loaded {} plugins: {:?}",
-                    loaded_plugins.len(),
-                    loaded_plugins
-                );
-            }
-            Err(e) => {
-                warn!(
-                    "⚠️ Plugin loading failed: {}. Server will continue without plugins.",
-                    e
-                );
-            }
+        // Start server tick if configured
+        if self.config.tick_interval_ms > 0 {
+            self.start_server_tick().await;
+            info!("🕒 Server tick started with interval: {}ms", self.config.tick_interval_ms);
+        } else {
+            info!("⏸️ Server tick disabled (interval: 0ms)");
         }
-
-        // Display plugin statistics
-        let plugin_stats = self.plugin_manager.get_plugin_stats().await;
-        info!("📊 Plugin System Status:");
-        info!("  - Plugins loaded: {}", plugin_stats.total_plugins);
-        info!("  - Total handlers: {}", plugin_stats.total_handlers);
-        info!(
-            "  - Client events routed: {}",
-            plugin_stats.client_events_routed
-        );
 
         // Emit region started event (for plugins)
         self.horizon_event_system
@@ -352,13 +321,9 @@ impl GameServer {
             }
         }
 
-        // Shutdown plugins when server stops
-        info!("🔌 Shutting down plugins...");
-        if let Err(e) = self.plugin_manager.shutdown_all().await {
-            error!("Error shutting down plugins: {}", e);
-        } else {
-            info!("✅ All plugins shut down successfully");
-        }
+        // Server shutdown cleanup
+        info!("🧹 Performing server cleanup...");
+        info!("✅ Server cleanup completed");
 
         info!("Server stopped");
         Ok(())
@@ -490,6 +455,43 @@ impl GameServer {
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
         Ok(())
+    }
+
+    /// Starts the server tick loop that emits periodic tick events.
+    /// 
+    /// Creates a background task that emits `server_tick` events at the configured
+    /// interval. This allows plugins and other components to perform periodic
+    /// operations like game state updates, cleanup, or maintenance tasks.
+    /// 
+    /// The tick system is non-blocking and runs independently of the main
+    /// server accept loops.
+    async fn start_server_tick(&self) {
+        if self.config.tick_interval_ms == 0 {
+            return; // Tick disabled
+        }
+
+        let event_system = self.horizon_event_system.clone();
+        let tick_interval = Duration::from_millis(self.config.tick_interval_ms);
+        
+        tokio::spawn(async move {
+            let mut ticker = interval(tick_interval);
+            let mut tick_count: u64 = 0;
+            
+            loop {
+                ticker.tick().await;
+                tick_count += 1;
+                
+                let tick_event = serde_json::json!({
+                    "tick_count": tick_count,
+                    "timestamp": current_timestamp()
+                });
+                
+                if let Err(e) = event_system.emit_core("server_tick", &tick_event).await {
+                    error!("Failed to emit server_tick event: {}", e);
+                    // Continue ticking even if emission fails
+                }
+            }
+        });
     }
 
     /// Initiates server shutdown.
