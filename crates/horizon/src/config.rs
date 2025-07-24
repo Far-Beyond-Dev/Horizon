@@ -51,12 +51,13 @@ pub struct ServerSettings {
     pub tick_interval_ms: u64,
 }
 
-/// Default for max_connections
-fn default_max_connections() -> usize {
 /// Default for connection_timeout
 pub fn default_connection_timeout() -> u64 {
     60
 }
+
+/// Default for max_connections
+fn default_max_connections() -> usize {
     1000
 }
 
