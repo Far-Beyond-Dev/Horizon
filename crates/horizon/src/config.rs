@@ -38,8 +38,10 @@ pub struct ServerSettings {
     /// Spatial region boundaries for this server instance
     pub region: RegionSettings,
     /// Maximum number of concurrent client connections
+    #[serde(default = "default_max_connections")]
     pub max_connections: usize,
     /// Connection timeout in seconds
+    #[serde(default = "default_connection_timeout")]
     pub connection_timeout: u64,
     /// Whether to use SO_REUSEPORT for multi-threaded accept loops (Linux only)
     #[serde(default)]
@@ -47,6 +49,15 @@ pub struct ServerSettings {
     /// Server tick interval in milliseconds (0 to disable)
     #[serde(default = "default_tick_interval")]
     pub tick_interval_ms: u64,
+}
+
+/// Default for max_connections
+fn default_max_connections() -> usize {
+/// Default for connection_timeout
+pub fn default_connection_timeout() -> u64 {
+    60
+}
+    1000
 }
 
 /// Spatial region boundary configuration.
@@ -537,8 +548,11 @@ file_path = "/tmp/test.log"
     #[test]
     fn test_serde_deserialization_with_defaults() {
         let toml_content = r#"
+
 [server]
 bind_address = "127.0.0.1:8080"
+max_connections = 1000
+connection_timeout = 60
 
 [server.region]
 min_x = -1000.0
