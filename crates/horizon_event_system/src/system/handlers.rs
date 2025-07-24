@@ -161,7 +161,7 @@ impl EventSystem {
         F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
         Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
     {
-        let event_key = format!("core_async:{}", event_name);
+        let event_key = format!("core:{}", event_name);
         self.register_async_handler(event_key, event_name, handler)
             .await
     }

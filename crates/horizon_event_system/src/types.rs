@@ -311,6 +311,19 @@ pub struct RegionBounds {
     pub max_z: f64,
 }
 
+impl Default for RegionBounds {
+    fn default() -> Self {
+        Self {
+            min_x: -1000.0,
+            max_x: 1000.0,
+            min_y: -1000.0,
+            max_y: 1000.0,
+            min_z: -100.0,
+            max_z: 100.0,
+        }
+    }
+}
+
 /// Enumeration of possible disconnection reasons.
 /// 
 /// This provides structured information about why a player disconnected,
