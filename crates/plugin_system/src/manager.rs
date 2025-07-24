@@ -9,7 +9,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
-/// Basic server context implementation for plugin initialization
 
 /// Minimal server context for plugin initialization and testing.
 ///
