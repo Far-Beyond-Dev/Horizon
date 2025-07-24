@@ -10,6 +10,7 @@ use crate::{
     error::ServerError,
     server::handlers::handle_connection,
 };
+use plugin_system::PluginManager;
 use futures::stream::{FuturesUnordered, StreamExt as FuturesStreamExt};
 use horizon_event_system::{
     create_horizon_event_system, current_timestamp, EventSystem, GorcManager, MulticastManager,
@@ -58,6 +59,8 @@ pub struct GameServer {
     /// Manager for client connections and messaging
     connection_manager: Arc<ConnectionManager>,
     
+    /// Manager for loading and managing plugins
+    plugin_manager: Arc<PluginManager>,
     
     /// Channel for coordinating server shutdown
     shutdown_sender: broadcast::Sender<()>,
@@ -112,6 +115,8 @@ impl GameServer {
         Arc::get_mut(&mut horizon_event_system).unwrap()
             .set_client_response_sender(response_sender);
 
+        // Initialize plugin manager
+        let plugin_manager = Arc::new(PluginManager::new(horizon_event_system.clone()));
 
         // Initialize GORC components
         let gorc_manager = Arc::new(GorcManager::new());
@@ -123,6 +128,7 @@ impl GameServer {
             config,
             horizon_event_system,
             connection_manager,
+            plugin_manager,
             shutdown_sender,
             region_id,
             gorc_manager,
@@ -164,6 +170,21 @@ impl GameServer {
 
         // Register minimal core event handlers
         self.register_core_handlers().await?;
+
+        // Load and initialize plugins
+        info!("🔌 Loading plugins from: {}", self.config.plugin_directory.display());
+        if let Err(e) = self.plugin_manager.load_plugins_from_directory(&self.config.plugin_directory).await {
+            error!("Failed to load plugins: {}", e);
+            return Err(ServerError::Internal(format!("Plugin loading failed: {}", e)));
+        }
+        
+        let plugin_count = self.plugin_manager.plugin_count();
+        if plugin_count > 0 {
+            info!("🎉 Successfully loaded {} plugin(s): {:?}", 
+                  plugin_count, self.plugin_manager.plugin_names());
+        } else {
+            info!("📭 No plugins loaded");
+        }
 
         // Start server tick if configured
         if self.config.tick_interval_ms > 0 {
@@ -323,6 +344,12 @@ impl GameServer {
 
         // Server shutdown cleanup
         info!("🧹 Performing server cleanup...");
+        
+        // Shutdown plugins first
+        if let Err(e) = self.plugin_manager.shutdown().await {
+            error!("Plugin shutdown failed: {}", e);
+        }
+        
         info!("✅ Server cleanup completed");
 
         info!("Server stopped");
@@ -554,5 +581,14 @@ impl GameServer {
     /// An `Arc<SpatialPartition>` for spatial indexing and proximity queries.
     pub fn get_spatial_partition(&self) -> Arc<SpatialPartition> {
         self.spatial_partition.clone()
+    }
+
+    /// Gets the plugin manager for plugin lifecycle management.
+    /// 
+    /// # Returns
+    /// 
+    /// An `Arc<PluginManager>` for managing dynamic plugins.
+    pub fn get_plugin_manager(&self) -> Arc<PluginManager> {
+        self.plugin_manager.clone()
     }
 }
