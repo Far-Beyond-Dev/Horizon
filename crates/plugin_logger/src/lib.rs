@@ -194,26 +194,33 @@ impl SimplePlugin for LoggerPlugin {
 
         println!("📝 LoggerPlugin: ✅ Now monitoring all server events!");
 
-        // Start a periodic summary task
-        // Note: tokio::spawn works fine within plugins when called from async contexts
+        // Set up a periodic summary using async event emission instead of tokio::spawn
         let events_clone = context.events();
-        tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
-            let mut summary_count = 0;
+        let events_ref = events_clone.clone();
+        events_clone
+            .on_core_async("server_tick", move |_event: serde_json::Value| {
+                let events_inner = events_ref.clone();
+                async move {
+                    // Emit periodic summary every 30 server ticks (assuming ~1 tick per second)
+                    static mut TICK_COUNT: u32 = 0;
+                    unsafe {
+                        TICK_COUNT += 1;
+                        if TICK_COUNT % 30 == 0 {
+                            let summary_count = TICK_COUNT / 30;
+                            let _ = events_inner.emit_plugin("logger", "activity_logged", &serde_json::json!({
+                                "activity_type": "periodic_summary",
+                                "details": format!("Summary #{} - Logger still active", summary_count),
+                                "timestamp": current_timestamp()
+                            })).await;
 
-            loop {
-                interval.tick().await;
-                summary_count += 1;
-
-                let _ = events_clone.emit_plugin("logger", "activity_logged", &serde_json::json!({
-                    "activity_type": "periodic_summary",
-                    "details": format!("Summary #{} - Logger still active", summary_count),
-                    "timestamp": current_timestamp()
-                })).await;
-
-                println!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count);
-            }
-        });
+                            println!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count);
+                        }
+                    }
+                    Ok(())
+                }
+            })
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
         Ok(())
     }
