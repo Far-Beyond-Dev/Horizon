@@ -481,6 +481,25 @@ impl GameServer {
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
+        self.horizon_event_system
+            .on_client_with_connection("system", "ping", |data: serde_json::Value, conn| async move {
+                info!("🔧 StarsBeyondPlugin: Received 'ping' event with connection: {:?}, data: {:?}", conn, data);
+
+                let response = serde_json::json!({
+                    "timestamp": current_timestamp(),
+                    "message": "pong",
+                });
+            
+                println!("🔧 StarsBeyondPlugin: Responding to 'ping' event with response: {:?}", response);
+            
+                let response_bytes = serde_json::to_vec(&response)
+                    .map_err(|e| horizon_event_system::EventError::HandlerExecution(format!("Failed to serialize response: {}", e)))?;
+            
+                conn.respond(&response_bytes).await?;
+            
+                Ok(())
+        }).await.unwrap();
+
         Ok(())
     }
 
