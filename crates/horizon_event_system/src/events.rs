@@ -709,6 +709,9 @@ pub enum EventError {
     /// Handler execution failed during event processing
     #[error("Handler execution error: {0}")]
     HandlerExecution(String),
+    /// Runtime error when dealing with async operations
+    #[error("Runtime error: {0}")]
+    RuntimeError(String),
     #[error("An unexpected error occurred: {0}")]
     Other(String),
 }

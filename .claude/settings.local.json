@@ -6,7 +6,8 @@
       "Bash(cargo:*)",
       "Bash(mkdir:*)",
       "Bash(rm:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(RUST_BACKTRACE=1 cargo run)"
     ],
     "deny": []
   }

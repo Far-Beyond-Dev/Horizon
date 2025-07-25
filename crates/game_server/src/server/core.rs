@@ -112,8 +112,8 @@ impl GameServer {
 
         // Set up connection-aware response sender
         let response_sender = Arc::new(GameServerResponseSender::new(connection_manager.clone()));
-        Arc::get_mut(&mut horizon_event_system).unwrap()
-            .set_client_response_sender(response_sender);
+        let event_system_mut = Arc::get_mut(&mut horizon_event_system).unwrap();
+        event_system_mut.set_client_response_sender(response_sender);
 
         // Initialize plugin manager
         let plugin_manager = Arc::new(PluginManager::new(horizon_event_system.clone()));
@@ -167,6 +167,8 @@ impl GameServer {
     pub async fn start(&self) -> Result<(), ServerError> {
         info!("🚀 Starting game server on {}", self.config.bind_address);
         info!("🌍 Region ID: {}", self.region_id.0);
+
+        info!("🔧 Runtime handle configured for async handlers");
 
         // Register minimal core event handlers
         self.register_core_handlers().await?;
@@ -409,33 +411,37 @@ impl GameServer {
             .on_core_async("auth_status_set", move |event: AuthenticationStatusSetEvent| {
                 let conn_mgr = connection_manager_for_set.clone();
                 let event_system = horizon_event_system_for_set.clone();
-                async move {
-                    // Get old status before setting new one
-                    let old_status = conn_mgr.get_auth_status_by_player(event.player_id).await;
-                    
-                    let success = conn_mgr.set_auth_status_by_player(event.player_id, event.status).await;
-                    if success {
-                        info!("🔐 Updated auth status for player {} to {:?}", event.player_id, event.status);
+                
+                // Use block_on to execute async code in sync handler
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.block_on(async move {
+                        // Get old status before setting new one
+                        let old_status = conn_mgr.get_auth_status_by_player(event.player_id).await;
                         
-                        // Emit status changed event if status actually changed
-                        if let Some(old_status) = old_status {
-                            if old_status != event.status {
-                                let auth_status_changed_event = AuthenticationStatusChangedEvent {
-                                    player_id: event.player_id,
-                                    old_status,
-                                    new_status: event.status,
-                                    timestamp: current_timestamp(),
-                                };
-                                if let Err(e) = event_system.emit_core("auth_status_changed", &auth_status_changed_event).await {
-                                    warn!("⚠️ Failed to emit auth status changed event for player {}: {:?}", event.player_id, e);
+                        let success = conn_mgr.set_auth_status_by_player(event.player_id, event.status).await;
+                        if success {
+                            info!("🔐 Updated auth status for player {} to {:?}", event.player_id, event.status);
+                            
+                            // Emit status changed event if status actually changed
+                            if let Some(old_status) = old_status {
+                                if old_status != event.status {
+                                    let auth_status_changed_event = AuthenticationStatusChangedEvent {
+                                        player_id: event.player_id,
+                                        old_status,
+                                        new_status: event.status,
+                                        timestamp: current_timestamp(),
+                                    };
+                                    if let Err(e) = event_system.emit_core("auth_status_changed", &auth_status_changed_event).await {
+                                        warn!("⚠️ Failed to emit auth status changed event for player {}: {:?}", event.player_id, e);
+                                    }
                                 }
                             }
+                        } else {
+                            warn!("⚠️ Failed to update auth status for player {} - player not found", event.player_id);
                         }
-                    } else {
-                        warn!("⚠️ Failed to update auth status for player {} - player not found", event.player_id);
-                    }
-                    Ok(())
+                    });
                 }
+                Ok(())
             })
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -446,26 +452,30 @@ impl GameServer {
             .on_core_async("auth_status_get", move |event: AuthenticationStatusGetEvent| {
                 let conn_mgr = connection_manager_for_get.clone();
                 let event_system = horizon_event_system_for_get.clone();
-                async move {
-                    let status = conn_mgr.get_auth_status_by_player(event.player_id).await;
-                    
-                    // Emit response event with the queried status
-                    let response_event = AuthenticationStatusGetResponseEvent {
-                        player_id: event.player_id,
-                        request_id: event.request_id.clone(),
-                        status,
-                        timestamp: current_timestamp(),
-                    };
-                    
-                    if let Err(e) = event_system.emit_core("auth_status_get_response", &response_event).await {
-                        warn!("⚠️ Failed to emit auth status response for player {} request {}: {:?}", 
-                              event.player_id, event.request_id, e);
-                    } else {
-                        info!("🔍 Auth status query response for player {}: {:?} (request: {})", 
-                              event.player_id, status, event.request_id);
-                    }
-                    Ok(())
+                
+                // Use block_on to execute async code in sync handler
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.block_on(async move {
+                        let status = conn_mgr.get_auth_status_by_player(event.player_id).await;
+                        
+                        // Emit response event with the queried status
+                        let response_event = AuthenticationStatusGetResponseEvent {
+                            player_id: event.player_id,
+                            request_id: event.request_id.clone(),
+                            status,
+                            timestamp: current_timestamp(),
+                        };
+                        
+                        if let Err(e) = event_system.emit_core("auth_status_get_response", &response_event).await {
+                            warn!("⚠️ Failed to emit auth status response for player {} request {}: {:?}", 
+                                  event.player_id, event.request_id, e);
+                        } else {
+                            info!("🔍 Auth status query response for player {}: {:?} (request: {})", 
+                                  event.player_id, status, event.request_id);
+                        }
+                    });
                 }
+                Ok(())
             })
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -481,22 +491,36 @@ impl GameServer {
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
+
+        // Register a simple ping handler for testing validity of the client connection
         self.horizon_event_system
-            .on_client_with_connection("system", "ping", |data: serde_json::Value, conn| async move {
-                info!("🔧 StarsBeyondPlugin: Received 'ping' event with connection: {:?}, data: {:?}", conn, data);
+            .on_client_with_connection("system", "ping", |data: serde_json::Value, conn| {
+                info!("🔧 GameServer: Received 'ping' event with connection: {:?}, data: {:?}", conn, data);
 
                 let response = serde_json::json!({
                     "timestamp": current_timestamp(),
                     "message": "pong",
                 });
-            
-                println!("🔧 StarsBeyondPlugin: Responding to 'ping' event with response: {:?}", response);
-            
-                let response_bytes = serde_json::to_vec(&response)
-                    .map_err(|e| horizon_event_system::EventError::HandlerExecution(format!("Failed to serialize response: {}", e)))?;
-            
-                conn.respond(&response_bytes).await?;
-            
+
+                println!("🔧 GameServer: Responding to 'ping' event with response: {:?}", response);
+
+                // Use block_on to execute async response in sync handler
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.block_on(async {
+                        let response_bytes = match serde_json::to_vec(&response) {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                error!("Failed to serialize ping response: {}", e);
+                                return;
+                            }
+                        };
+
+                        if let Err(e) = conn.respond(&response_bytes).await {
+                            error!("Failed to send ping response: {}", e);
+                        }
+                    });
+                }
+
                 Ok(())
         }).await.unwrap();
 
@@ -610,4 +634,5 @@ impl GameServer {
     pub fn get_plugin_manager(&self) -> Arc<PluginManager> {
         self.plugin_manager.clone()
     }
+
 }

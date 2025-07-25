@@ -64,7 +64,7 @@ impl EventSystem {
     ///     }
     /// ).await?;
     /// ```
-    pub async fn on_client_with_connection<T, F, Fut>(
+    pub async fn on_client_with_connection<T, F>(
         &self,
         namespace: &str,
         event_name: &str,
@@ -72,8 +72,7 @@ impl EventSystem {
     ) -> Result<(), EventError>
     where
         T: Event + serde::Serialize + 'static,
-        F: Fn(T, ClientConnectionRef) -> Fut + Send + Sync + Clone + 'static,
-        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+        F: Fn(T, ClientConnectionRef) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let event_key = format!("client_conn_aware:{namespace}:{event_name}");
         self.register_connection_aware_handler(event_key, event_name, handler)
@@ -90,14 +89,19 @@ impl EventSystem {
     /// ```rust
     /// // Async handler without connection awareness
     /// events.on_client_async("inventory", "use_item", 
-    ///     |event: UseItemEvent| async move {
-    ///         // Async database operations, etc.
-    ///         tokio::time::sleep(Duration::from_millis(10)).await;
+    ///     |event: UseItemEvent| {
+    ///         // Sync handler that can use block_on for async work
+    ///         if let Ok(handle) = tokio::runtime::Handle::try_current() {
+    ///             handle.block_on(async {
+    ///                 // Async database operations, etc.
+    ///                 tokio::time::sleep(Duration::from_millis(10)).await;
+    ///             });
+    ///         }
     ///         Ok(())
     ///     }
     /// ).await?;
     /// ```
-    pub async fn on_client_async<T, F, Fut>(
+    pub async fn on_client_async<T, F>(
         &self,
         namespace: &str,
         event_name: &str,
@@ -105,8 +109,7 @@ impl EventSystem {
     ) -> Result<(), EventError>
     where
         T: Event + 'static,
-        F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
-        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let event_key = format!("client_async:{namespace}:{event_name}");
         self.register_async_handler(event_key, event_name, handler)
@@ -148,18 +151,17 @@ impl EventSystem {
 
     /// On Core Async handler registration.
     ///
-    /// This registers an asynchronous handler for core events.
-    /// This is useful for events that require async processing,
-    /// such as database operations or network calls.
-    pub async fn on_core_async<T, F, Fut>(
+    /// This registers a handler for core events that will be executed in async context.
+    /// The handler function should be synchronous but will be wrapped in async execution.
+    /// If you need to do async work inside the handler, use tokio::runtime::Handle::current().block_on().
+    pub async fn on_core_async<T, F>(
         &self,
         event_name: &str,
         handler: F,
     ) -> Result<(), EventError>
     where
         T: Event + 'static,
-        F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
-        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let event_key = format!("core:{}", event_name);
         self.register_async_handler(event_key, event_name, handler)
@@ -245,7 +247,10 @@ impl EventSystem {
     }
 
     /// Internal helper for registering async handlers.
-    async fn register_async_handler<T, F, Fut>(
+    /// 
+    /// Takes a sync handler from plugin and wraps it in async context on our side.
+    /// This keeps DLL boundaries safe while still providing async execution.
+    async fn register_async_handler<T, F>(
         &self,
         event_key: String,
         _event_name: &str,
@@ -253,25 +258,21 @@ impl EventSystem {
     ) -> Result<(), EventError>
     where
         T: Event + 'static,
-        F: Fn(T) -> Fut + Send + Sync + Clone + 'static,
-        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let handler_name = format!("{}::{}", event_key, T::type_name());
         
-        // Wrap the async handler to be callable from sync context
-        // High-performance async spawning for better throughput
+        // Wrap the sync handler in async context - this happens on our side of the DLL
         let async_wrapper = move |event: T| -> Result<(), EventError> {
-            let future = handler(event);
+            // Execute the sync handler
+            let result = handler(event);
             
-            // Spawn the async handler without blocking
-            let runtime = tokio::runtime::Handle::current();
-            runtime.spawn(async move {
-                if let Err(e) = future.await {
-                    error!("❌ Async handler failed: {}", e);
-                }
-            });
+            // Log any errors but don't fail the event system
+            if let Err(ref e) = result {
+                error!("❌ Async handler failed: {}", e);
+            }
             
-            Ok(())
+            result
         };
         
         let typed_handler = TypedEventHandler::new(handler_name, async_wrapper);
@@ -291,7 +292,7 @@ impl EventSystem {
     }
 
     /// Internal helper for registering connection-aware handlers.
-    async fn register_connection_aware_handler<T, F, Fut>(
+    async fn register_connection_aware_handler<T, F>(
         &self,
         event_key: String,
         _event_name: &str,
@@ -299,8 +300,7 @@ impl EventSystem {
     ) -> Result<(), EventError>
     where
         T: Event + serde::Serialize + 'static,
-        F: Fn(T, ClientConnectionRef) -> Fut + Send + Sync + Clone + 'static,
-        Fut: std::future::Future<Output = Result<(), EventError>> + Send + 'static,
+        F: Fn(T, ClientConnectionRef) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let handler_name = format!("{}::{}", event_key, T::type_name());
         let client_response_sender = self.client_response_sender.clone();
@@ -348,17 +348,8 @@ impl EventSystem {
                 sender.clone(),
             );
             
-            let future = handler(event, client_ref);
-            let runtime = tokio::runtime::Handle::current();
-            
-            // Spawn the async connection-aware handler
-            runtime.spawn(async move {
-                if let Err(e) = future.await {
-                    error!("❌ Connection-aware handler failed: {}", e);
-                }
-            });
-            
-            Ok(())
+            // Call the sync handler directly - no async spawning needed
+            handler(event, client_ref)
         };
         
         let typed_handler = TypedEventHandler::new(handler_name, conn_aware_wrapper);
