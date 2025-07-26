@@ -138,6 +138,19 @@ pub trait ServerContext: Send + Sync + Debug {
     /// Returns `Ok(())` if the broadcast was initiated, or `Err(ServerError)`
     /// if the broadcast failed.
     async fn broadcast(&self, data: &[u8]) -> Result<(), ServerError>;
+
+    /// Returns the tokio runtime handle if available.
+    /// 
+    /// This provides plugins with access to the tokio runtime for async operations
+    /// that need to be executed within the proper runtime context. This is essential
+    /// for plugins loaded as DLLs where the runtime context may not be automatically
+    /// available.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns `Some(Handle)` if a tokio runtime is available, or `None` if no
+    /// runtime context is accessible.
+    fn tokio_handle(&self) -> Option<tokio::runtime::Handle>;
 }
 
 // ============================================================================

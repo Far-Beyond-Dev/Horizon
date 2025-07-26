@@ -17,6 +17,7 @@ use tracing::{error, info, warn};
 struct BasicServerContext {
     event_system: Arc<EventSystem>,
     region_id: horizon_event_system::types::RegionId,
+    tokio_handle: Option<tokio::runtime::Handle>,
 }
 
 impl BasicServerContext {
@@ -25,12 +26,26 @@ impl BasicServerContext {
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
+            tokio_handle: tokio::runtime::Handle::try_current().ok(),
         }
     }
 
     /// Create a context with a custom region id.
     fn with_region(event_system: Arc<EventSystem>, region_id: horizon_event_system::types::RegionId) -> Self {
-        Self { event_system, region_id }
+        Self { 
+            event_system, 
+            region_id,
+            tokio_handle: tokio::runtime::Handle::try_current().ok(),
+        }
+    }
+
+    /// Create a context with an explicit tokio handle.
+    fn with_tokio_handle(event_system: Arc<EventSystem>, tokio_handle: tokio::runtime::Handle) -> Self {
+        Self {
+            event_system,
+            region_id: horizon_event_system::types::RegionId::default(),
+            tokio_handle: Some(tokio_handle),
+        }
     }
 }
 
@@ -67,6 +82,10 @@ impl ServerContext for BasicServerContext {
         Err(horizon_event_system::context::ServerError::Internal(
             "Broadcast is not available in BasicServerContext".to_string(),
         ))
+    }
+
+    fn tokio_handle(&self) -> Option<tokio::runtime::Handle> {
+        self.tokio_handle.clone()
     }
 }
 

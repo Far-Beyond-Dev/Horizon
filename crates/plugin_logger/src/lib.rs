@@ -194,39 +194,50 @@ impl SimplePlugin for LoggerPlugin {
 
         println!("📝 LoggerPlugin: ✅ Now monitoring all server events!");
 
-        // Set up a periodic summary using async event emission instead of tokio::spawn
-let events_clone = context.events();
-let events_ref = events_clone.clone();
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Arc;
-let tick_counter = Arc::new(AtomicU32::new(0));
-let tick_counter_clone = tick_counter.clone();
-events_clone
-    .on_core_async("server_tick", move |_event: serde_json::Value| {
-        println!("📝 LoggerPlugin: 🕒 Server tick received, updating activity log...");
-        let events_inner = events_ref.clone();
-        let tick_counter = tick_counter_clone.clone();
+        // Set up a periodic summary using async event emission with tokio handle from context
+        let events_clone = context.events();
+        let events_ref = events_clone.clone();
+        let tokio_handle = context.tokio_handle();
+        
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::sync::Arc;
+        let tick_counter = Arc::new(AtomicU32::new(0));
+        let tick_counter_clone = tick_counter.clone();
+        
+        events_clone
+            .on_core_async("server_tick", move |_event: serde_json::Value| {
+                println!("📝 LoggerPlugin: 🕒 Server tick received, updating activity log...");
+                let events_inner = events_ref.clone();
+                let tick_counter = tick_counter_clone.clone();
 
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.block_on(async {
-                // Emit periodic summary every 30 server ticks (assuming ~1 tick per second)
-                let tick = tick_counter.fetch_add(1, Ordering::SeqCst) + 1;
-                if tick % 2 == 0 {
-                    let summary_count = tick / 30;
-                    let _ = events_inner.emit_plugin("logger", "activity_logged", &serde_json::json!({
-                        "activity_type": "periodic_summary",
-                        "details": format!("Summary #{} - Logger still active", summary_count),
-                        "timestamp": current_timestamp()
-                    })).await;
+                // Use the tokio runtime handle passed from the main process via context
+                match &tokio_handle {
+                    Some(handle) => {
+                        handle.block_on(async {
+                            // Emit periodic summary every 30 server ticks (assuming ~1 tick per second)
+                            let tick = tick_counter.fetch_add(1, Ordering::SeqCst) + 1;
+                            if tick % 2 == 0 {
+                                let summary_count = tick / 30;
+                                let _ = events_inner.emit_plugin("logger", "activity_logged", &serde_json::json!({
+                                    "activity_type": "periodic_summary",
+                                    "details": format!("Summary #{} - Logger still active", summary_count),
+                                    "timestamp": current_timestamp()
+                                })).await;
 
-                    println!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count);
+                                println!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count);
+                            }
+                        });
+                    }
+                    None => {
+                        // Tokio runtime context was not properly passed from main process to plugin
+                        eprintln!("❌ LoggerPlugin: No tokio runtime handle available in plugin context");
+                        eprintln!("📝 LoggerPlugin: Main process needs to ensure tokio runtime context is passed to plugins");
+                    }
                 }
-            });
-        }
-        Ok(())
-    })
-    .await
-    .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+                Ok(())
+            })
+            .await
+            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
 
         Ok(())
     }
