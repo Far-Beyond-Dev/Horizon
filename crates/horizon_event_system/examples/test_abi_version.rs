@@ -8,7 +8,8 @@ fn main() {
     assert_ne!(ABI_VERSION, "1", "ABI version should not be the old hardcoded value");
     
     // Verify it starts with the correct crate version
-    assert!(ABI_VERSION.starts_with("0.10.0:"), "ABI version should start with '0.10.0:' for version 0.10.0");
+    let expected_prefix = format!("{}:", env!("CARGO_PKG_VERSION"));
+    assert!(ABI_VERSION.starts_with(&expected_prefix), "ABI version should start with the current crate version prefix");
     
     // Verify it contains the colon separator
     assert!(ABI_VERSION.contains(':'), "ABI version should contain ':' separator");
