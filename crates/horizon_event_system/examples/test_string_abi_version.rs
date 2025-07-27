@@ -15,7 +15,7 @@ fn main() {
         println!("   Rust version: {}", rust_version);
         
         // Verify it's the expected crate version
-        assert_eq!(crate_version, "0.10.0", "Should match the current Cargo.toml version");
+        assert_eq!(crate_version, env!("CARGO_PKG_VERSION"), "Should match the current Cargo.toml version");
         
         println!("✅ All checks passed!");
     } else {
