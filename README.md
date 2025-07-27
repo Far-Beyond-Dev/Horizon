@@ -31,6 +31,35 @@ The server is built around three core principles: modularity through a comprehen
 
 ## Architecture
 
+### System Overview
+
+```mermaid
+graph TB
+    Client[Game Clients] --> WS[WebSocket Layer]
+    WS --> ES[Event System]
+    ES --> PM[Plugin Manager]
+    ES --> GORC[GORC System]
+    ES --> NL[Network Layer]
+    
+    PM --> P1[Chat Plugin]
+    PM --> P2[Movement Plugin]
+    PM --> P3[Combat Plugin]
+    PM --> PN[...Other Plugins]
+    
+    GORC --> SP[Spatial Partitioning]
+    GORC --> RC[Replication Channels]
+    
+    ES --> Core[Core Systems]
+    Core --> Config[Configuration]
+    Core --> Security[Security & Rate Limiting]
+    Core --> Health[Health Monitoring]
+    
+    P1 -.-> ES
+    P2 -.-> ES
+    P3 -.-> ES
+    PN -.-> ES
+```
+
 ### Core Components
 
 The server architecture consists of several interconnected systems that work together to provide a complete multiplayer gaming infrastructure. The EventSystem serves as the central nervous system, routing messages between different components using a type-safe event handling mechanism. This design ensures that different parts of the system can communicate efficiently while maintaining strict boundaries between concerns.
@@ -106,6 +135,36 @@ Configuration options cover network settings, security parameters, plugin manage
 
 ## Plugin Development
 
+### Plugin Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant S as Server
+    participant PM as Plugin Manager
+    participant P as Plugin
+    participant ES as Event System
+    
+    S->>PM: Start Server
+    PM->>P: Load Plugin Library
+    P->>PM: create_plugin()
+    PM->>P: pre_init(context)
+    P->>ES: Register Event Handlers
+    PM->>P: init(context)
+    P->>P: Initialize Resources
+    
+    Note over S,ES: Server Running - Event Processing
+    
+    ES->>P: Handle Events
+    P->>ES: Emit Events
+    
+    Note over S,ES: Server Shutdown
+    
+    S->>PM: Shutdown Signal
+    PM->>P: shutdown(context)
+    P->>P: Clean Resources
+    PM->>P: Unload Plugin
+```
+
 ### Plugin Structure
 
 Plugins are dynamic libraries that implement the Plugin trait from the horizon_event_system crate. Each plugin operates independently and communicates with the server and other plugins through the event system. This design ensures that plugin crashes or errors don't affect other components.
@@ -173,6 +232,38 @@ Each example plugin includes extensive documentation and demonstrates best pract
 ## Event System
 
 The event system is the backbone of the server architecture, providing type-safe communication between all components. Events are strongly typed using Rust's type system, preventing runtime errors and ensuring that data contracts between components are maintained correctly.
+
+### Event Flow
+
+```mermaid
+flowchart TD
+    C[Game Client] -->|WebSocket Message| NL[Network Layer]
+    NL -->|Parse & Validate| ES[Event System]
+    
+    ES -->|Route by Type| CE{Event Type?}
+    
+    CE -->|Core Event| CH[Core Handler]
+    CE -->|Client Event| PH[Plugin Handler]
+    CE -->|Plugin Event| PE[Plugin-to-Plugin]
+    CE -->|GORC Event| GH[GORC Handler]
+    
+    CH --> SL[System Logic]
+    PH --> PL[Plugin Logic]
+    PE --> P2[Target Plugin]
+    GH --> GO[Game Objects]
+    
+    SL --> R1[Response/Action]
+    PL --> R2[Response/Action]
+    P2 --> R3[Response/Action]
+    GO --> R4[State Update]
+    
+    R1 --> BC[Broadcast to Clients]
+    R2 --> BC
+    R3 --> BC
+    R4 --> BC
+    
+    BC --> C
+```
 
 ### Event Categories
 
