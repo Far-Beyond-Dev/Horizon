@@ -68,7 +68,7 @@ use {
 ///     fn name(&self) -> &str { "my_plugin" }
 ///     fn version(&self) -> &str { "1.0.0" }
 ///     
-///     async fn register_handlers(&mut self, _events: Arc<EventSystem>) -> Result<(), PluginError> {
+///     async fn register_handlers(&mut self, _events: Arc<EventSystem>, _context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
 ///         Ok(())
 ///     }
 /// }
@@ -138,7 +138,7 @@ macro_rules! create_simple_plugin {
             ) -> Result<(), PluginError> {
                 // Run directly on the current thread using the current runtime handle
                 catch_unwind(AssertUnwindSafe(|| {
-                    futures::executor::block_on(self.inner.register_handlers(context.events()))
+                    futures::executor::block_on(self.inner.register_handlers(context.events(), context.clone()))
                 }))
                 .map_err(Self::panic_to_error)?
             }

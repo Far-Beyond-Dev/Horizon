@@ -64,7 +64,7 @@ impl SimplePlugin for LoggerPlugin {
         "1.0.0"
     }
 
-    async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+    async fn register_handlers(&mut self, events: Arc<EventSystem>, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
         println!("📝 LoggerPlugin: Registering comprehensive event logging...");
 
         // Use individual registrations to show different API styles
