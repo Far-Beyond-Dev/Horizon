@@ -281,11 +281,12 @@ impl PluginManager {
 
         // Validate plugin version
         let plugin_version = unsafe { get_plugin_version() };
-        const EXPECTED_PLUGIN_VERSION: u32 = 1; // Define the expected version
-        if plugin_version != EXPECTED_PLUGIN_VERSION {
+        // Use the ABI version from horizon_event_system crate - no hardcoded versions!
+        let expected_version = horizon_event_system::ABI_VERSION;
+        if plugin_version != expected_version {
             return Err(PluginSystemError::VersionMismatch(format!(
                 "expected {}, got {}",
-                EXPECTED_PLUGIN_VERSION, plugin_version
+                expected_version, plugin_version
             )));
         }
 
@@ -474,10 +475,15 @@ mod tests {
 
     #[test]
     fn test_expected_plugin_version_constant() {
-        // Verify that the expected plugin version constant is correctly defined
-        // This test ensures that the constant used in load_single_plugin is accessible
-        // and has the expected value of 1
-        const EXPECTED_PLUGIN_VERSION: u32 = 1;
-        assert_eq!(EXPECTED_PLUGIN_VERSION, 1);
+        // Verify that the expected plugin version is using the ABI_VERSION from horizon_event_system
+        // This test ensures that we're using the same version that plugins will report
+        let expected_version = horizon_event_system::ABI_VERSION;
+        
+        // The current version should be derived from horizon_event_system's Cargo.toml
+        // For version "0.9.0", this should be 900 (0*10000 + 9*100 + 0)
+        assert!(expected_version > 0, "ABI version should be greater than 0");
+        
+        // Verify the version makes sense (not hardcoded to 1 anymore)
+        assert_ne!(expected_version, 1, "ABI version should not be the old hardcoded value of 1");
     }
 }

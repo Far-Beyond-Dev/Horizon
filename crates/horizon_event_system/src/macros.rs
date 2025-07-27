@@ -169,10 +169,12 @@ macro_rules! create_simple_plugin {
         /// 
         /// # Returns
         /// 
-        /// Returns the plugin ABI version number.
+        /// Returns the plugin ABI version number derived from the horizon_event_system crate version.
         #[no_mangle]
         pub unsafe extern "C" fn get_plugin_version() -> u32 {
-            1 // Current plugin ABI version
+            // Use the ABI version from the horizon_event_system crate
+            // This ensures plugins compiled against different versions report different ABI versions
+            $crate::ABI_VERSION
         }
 
         /// Plugin creation function with panic protection - required export.

@@ -223,6 +223,47 @@ pub use std::sync::Arc;
 pub use serde::{Deserialize, Serialize};
 pub use futures;
 
+/// ABI version for plugin compatibility validation.
+/// This is derived from the crate version to ensure plugins are compatible.
+pub const ABI_VERSION: u32 = {
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    
+    // Parse version string (e.g., "0.9.0") into a u32 at compile time
+    // We'll use a simple scheme: major.minor.patch -> major*10000 + minor*100 + patch
+    let version_bytes = VERSION.as_bytes();
+    let mut major = 0u32;
+    let mut minor = 0u32;
+    let mut patch = 0u32;
+    let mut current_num = 0u32;
+    let mut part = 0; // 0=major, 1=minor, 2=patch
+    
+    let mut i = 0;
+    while i < version_bytes.len() {
+        let byte = version_bytes[i];
+        if byte == b'.' {
+            match part {
+                0 => { major = current_num; part = 1; current_num = 0; }
+                1 => { minor = current_num; part = 2; current_num = 0; }
+                _ => break,
+            }
+        } else if byte >= b'0' && byte <= b'9' {
+            current_num = current_num * 10 + (byte - b'0') as u32;
+        }
+        i += 1;
+    }
+    
+    // Handle the last part (patch)
+    if part == 2 {
+        patch = current_num;
+    } else if part == 1 {
+        minor = current_num;
+    } else if part == 0 {
+        major = current_num;
+    }
+    
+    major * 10000 + minor * 100 + patch
+};
+
 /// Returns build info string with version and Rust compiler version (if available)
 pub fn horizon_build_info() -> String {
     format!(
