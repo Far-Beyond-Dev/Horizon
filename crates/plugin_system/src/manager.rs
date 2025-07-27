@@ -297,12 +297,6 @@ impl PluginManager {
             })?
         };
 
-        // Validate the function pointer
-        if get_plugin_version.is_null() {
-            return Err(PluginSystemError::LoadingError(
-                "The 'get_plugin_version' function pointer is null".to_string(),
-            ));
-        }
         // Get plugin version string
         let plugin_version_ptr = unsafe { get_plugin_version() };
         let plugin_version = if plugin_version_ptr.is_null() {
