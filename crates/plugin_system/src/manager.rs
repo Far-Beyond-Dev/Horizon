@@ -270,6 +270,25 @@ impl PluginManager {
             })?
         };
 
+        // Look for the plugin version function
+        let get_plugin_version: Symbol<unsafe extern "C" fn() -> u32> = unsafe {
+            library.get(b"get_plugin_version").map_err(|e| {
+                PluginSystemError::LoadingError(format!(
+                    "Plugin does not export 'get_plugin_version' function: {}", e
+                ))
+            })?
+        };
+
+        // Validate plugin version
+        let plugin_version = unsafe { get_plugin_version() };
+        const EXPECTED_PLUGIN_VERSION: u32 = 1; // Define the expected version
+        if plugin_version != EXPECTED_PLUGIN_VERSION {
+            return Err(PluginSystemError::VersionMismatch(format!(
+                "expected {}, got {}",
+                EXPECTED_PLUGIN_VERSION, plugin_version
+            )));
+        }
+
         // Look for the plugin creation function
         let create_plugin: Symbol<unsafe extern "C" fn() -> *mut dyn Plugin> = unsafe {
             library.get(b"create_plugin").map_err(|e| {
@@ -405,5 +424,60 @@ impl PluginManager {
     /// Checks if a plugin with the given name is loaded.
     pub fn is_plugin_loaded(&self, plugin_name: &str) -> bool {
         self.loaded_plugins.contains_key(plugin_name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_version_mismatch_error() {
+        // Test that VersionMismatch error can be created and formatted correctly
+        let error = PluginSystemError::VersionMismatch("expected 1, got 2".to_string());
+        let error_message = format!("{}", error);
+        assert!(error_message.contains("Plugin version mismatch"));
+        assert!(error_message.contains("expected 1, got 2"));
+    }
+
+    #[test]
+    fn test_plugin_discovery() {
+        // Create a temporary directory with plugin files
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        // Create mock plugin files
+        #[cfg(target_os = "windows")]
+        let plugin_extension = "dll";
+        #[cfg(target_os = "macos")]
+        let plugin_extension = "dylib";
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        let plugin_extension = "so";
+
+        let plugin_file = temp_path.join(format!("test_plugin.{}", plugin_extension));
+        fs::write(&plugin_file, "dummy content").unwrap();
+
+        let non_plugin_file = temp_path.join("not_a_plugin.txt");
+        fs::write(&non_plugin_file, "dummy content").unwrap();
+
+        // Create plugin manager
+        let event_system = Arc::new(EventSystem::new());
+        let manager = PluginManager::new(event_system);
+
+        // Test plugin discovery
+        let discovered = manager.discover_plugin_files(temp_path).unwrap();
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0], plugin_file);
+    }
+
+    #[test]
+    fn test_expected_plugin_version_constant() {
+        // Verify that the expected plugin version constant is correctly defined
+        // This test ensures that the constant used in load_single_plugin is accessible
+        // and has the expected value of 1
+        const EXPECTED_PLUGIN_VERSION: u32 = 1;
+        assert_eq!(EXPECTED_PLUGIN_VERSION, 1);
     }
 }

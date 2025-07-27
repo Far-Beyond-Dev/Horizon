@@ -24,4 +24,7 @@ pub enum PluginSystemError {
     
     #[error("Plugin already exists: {0}")]
     PluginAlreadyExists(String),
+    
+    #[error("Plugin version mismatch: {0}")]
+    VersionMismatch(String),
 }

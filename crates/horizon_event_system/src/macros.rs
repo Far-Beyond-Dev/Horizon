@@ -161,6 +161,20 @@ macro_rules! create_simple_plugin {
             }
         }
 
+        /// Plugin version function - required export for ABI compatibility.
+        /// 
+        /// This function returns the ABI version that this plugin was compiled against.
+        /// It is used by the plugin loader to validate ABI compatibility before
+        /// attempting to create the plugin instance.
+        /// 
+        /// # Returns
+        /// 
+        /// Returns the plugin ABI version number.
+        #[no_mangle]
+        pub unsafe extern "C" fn get_plugin_version() -> u32 {
+            1 // Current plugin ABI version
+        }
+
         /// Plugin creation function with panic protection - required export.
         /// 
         /// This function is called by the plugin loader to create a new instance
