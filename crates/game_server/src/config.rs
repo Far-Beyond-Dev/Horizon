@@ -4,6 +4,7 @@
 //! used to initialize and customize the game server behavior.
 
 use horizon_event_system::RegionBounds;
+use plugin_system::PluginSafetyConfig;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
@@ -37,6 +38,9 @@ pub struct ServerConfig {
     
     /// Security configuration settings
     pub security: SecurityConfig,
+    
+    /// Plugin safety configuration settings
+    pub plugin_safety: PluginSafetyConfig,
 }
 
 /// Security configuration for input validation and protection
@@ -89,6 +93,7 @@ impl Default for ServerConfig {
             use_reuse_port: false,
             tick_interval_ms: 50, // 20 ticks per second by default
             security: SecurityConfig::default(),
+            plugin_safety: PluginSafetyConfig::default(),
         }
     }
 }

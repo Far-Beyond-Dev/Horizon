@@ -169,12 +169,19 @@ macro_rules! create_simple_plugin {
         /// 
         /// # Returns
         /// 
-        /// Returns the plugin ABI version number derived from the horizon_event_system crate version.
+        /// Returns the plugin ABI version string derived from the horizon_event_system crate version.
+        /// Format: "crate_version:rust_version" (e.g., "0.10.0:1.75.0")
         #[no_mangle]
-        pub unsafe extern "C" fn get_plugin_version() -> u32 {
+        pub unsafe extern "C" fn get_plugin_version() -> *const std::os::raw::c_char {
             // Use the ABI version from the horizon_event_system crate
             // This ensures plugins compiled against different versions report different ABI versions
-            $crate::ABI_VERSION
+            let version_cstring = std::ffi::CString::new($crate::ABI_VERSION).unwrap_or_else(|_| {
+                std::ffi::CString::new("invalid_version").unwrap()
+            });
+            
+            // Leak the CString to ensure it remains valid for the caller
+            // This is safe because plugin loading is a one-time operation per plugin
+            version_cstring.into_raw()
         }
 
         /// Plugin creation function with panic protection - required export.
