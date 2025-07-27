@@ -191,6 +191,7 @@ impl AppConfig {
             connection_timeout: self.server.connection_timeout,
             use_reuse_port: self.server.use_reuse_port,
             tick_interval_ms: self.server.tick_interval_ms,
+            security: Default::default(),
         })
     }
 

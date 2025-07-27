@@ -10,9 +10,9 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 
 
+//TODO: provide real region and player communication.
 /// Minimal server context for plugin initialization and testing.
 ///
-/// In production, use a context that provides real region and player communication.
 #[derive(Debug, Clone)]
 struct BasicServerContext {
     event_system: Arc<EventSystem>,

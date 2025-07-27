@@ -4,14 +4,15 @@
 //! used to initialize and customize the game server behavior.
 
 use horizon_event_system::RegionBounds;
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
 
 /// Configuration structure for the game server.
 /// 
 /// Contains all necessary parameters to configure server behavior including
 /// network settings, region boundaries, plugin management, and connection limits.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerConfig {
     /// The socket address to bind the server to
     pub bind_address: SocketAddr,
@@ -33,12 +34,47 @@ pub struct ServerConfig {
     
     /// Server tick interval in milliseconds (0 to disable)
     pub tick_interval_ms: u64,
+    
+    /// Security configuration settings
+    pub security: SecurityConfig,
+}
+
+/// Security configuration for input validation and protection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityConfig {
+    /// Enable rate limiting
+    pub enable_rate_limiting: bool,
+    
+    /// Maximum requests per minute per IP
+    pub max_requests_per_minute: u32,
+    
+    /// Maximum message size in bytes
+    pub max_message_size: usize,
+    
+    /// Maximum allowed nesting depth for JSON messages
+    pub max_json_depth: usize,
+    
+    /// Maximum allowed string length in JSON
+    pub max_string_length: usize,
+    
+    /// Maximum allowed array/object size
+    pub max_collection_size: usize,
+    
+    /// Enable DDoS protection
+    pub enable_ddos_protection: bool,
+    
+    /// Banned IP addresses
+    pub banned_ips: Vec<IpAddr>,
+    
+    /// Maximum concurrent connections per IP
+    pub max_connections_per_ip: u32,
+    
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
-            bind_address: "127.0.0.1:8080".parse().expect("Attempted to use ServerConfig.default(), but field `bind_address` is not parsable in the source code"),
+            bind_address: "127.0.0.1:8080".parse().expect("Invalid default bind address"),
             region_bounds: RegionBounds {
                 min_x: -1000.0,
                 max_x: 1000.0,
@@ -52,6 +88,23 @@ impl Default for ServerConfig {
             connection_timeout: 60,
             use_reuse_port: false,
             tick_interval_ms: 50, // 20 ticks per second by default
+            security: SecurityConfig::default(),
+        }
+    }
+}
+
+impl Default for SecurityConfig {
+    fn default() -> Self {
+        Self {
+            enable_rate_limiting: true,
+            max_requests_per_minute: 60,
+            max_message_size: 64 * 1024, // 64KB
+            max_json_depth: 10,
+            max_string_length: 1024,
+            max_collection_size: 100,
+            enable_ddos_protection: true,
+            banned_ips: Vec::new(),
+            max_connections_per_ip: 10,
         }
     }
 }

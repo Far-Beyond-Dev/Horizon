@@ -1,0 +1,83 @@
+# Production Configuration for Horizon Game Server
+# This file contains recommended settings for production deployment
+
+[server]
+bind_address = "0.0.0.0:8080"
+max_connections = 10000
+connection_timeout = 120
+use_reuse_port = true
+tick_interval_ms = 16  # 60 FPS
+
+[server.region]
+min_x = -5000.0
+max_x = 5000.0
+min_y = -5000.0
+max_y = 5000.0
+min_z = -500.0
+max_z = 500.0
+
+[server.security]
+enable_rate_limiting = true
+max_requests_per_minute = 100
+max_message_size = 32768  # 32KB
+max_json_depth = 8
+max_string_length = 512
+max_collection_size = 50
+enable_ddos_protection = true
+banned_ips = []
+max_connections_per_ip = 5
+
+[plugins]
+directory = "/opt/horizon/plugins"
+auto_load = true
+whitelist = [
+    "plugin_logger",
+    "plugin_greeter", 
+    "plugin_stars_beyond"
+]
+
+[logging]
+level = "info"
+json_format = true
+file_path = "/var/log/horizon/server.log"
+
+[health]
+enable_health_checks = true
+health_check_interval_seconds = 30
+enable_metrics = true
+metrics_port = 9090
+enable_circuit_breakers = true
+
+[monitoring]
+enable_prometheus = true
+prometheus_port = 9090
+enable_jaeger = false
+jaeger_endpoint = "http://localhost:14268/api/traces"
+
+[database]
+# Database configuration for persistent storage
+enabled = false
+url = "postgresql://horizon:password@localhost:5432/horizon"
+max_connections = 10
+connection_timeout_seconds = 30
+
+[tls]
+# TLS configuration for secure connections
+enabled = false
+cert_file = "/etc/horizon/tls/server.crt"
+key_file = "/etc/horizon/tls/server.key"
+require_client_auth = false
+
+[performance]
+# Performance tuning settings
+worker_threads = 0  # 0 = auto-detect based on CPU cores
+blocking_threads = 512
+max_blocking_threads = 1024
+thread_keep_alive_seconds = 10
+
+[limits]
+# Resource limits
+max_memory_mb = 2048
+max_cpu_percent = 80.0
+max_file_descriptors = 65536
+max_network_bandwidth_mbps = 1000

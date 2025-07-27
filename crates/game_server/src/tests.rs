@@ -303,6 +303,7 @@ mod tests {
             connection_timeout: 300,
             use_reuse_port: true,
             tick_interval_ms: 16, // 60 FPS
+            security: Default::default(),
         };
 
         assert_eq!(config.bind_address.to_string(), "0.0.0.0:3000");
@@ -378,6 +379,7 @@ mod tests {
             max_connections: 1000,
             connection_timeout: 60,
             use_reuse_port: false,
+            security: Default::default(),
         };
 
         let server = create_server_with_config(config);
