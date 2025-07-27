@@ -29,6 +29,7 @@ fn create_test_config(tick_interval_ms: u64, port: u16) -> ServerConfig {
         use_reuse_port: false,
         tick_interval_ms,
         security: Default::default(),
+        plugin_safety: Default::default(),
     }
 }
 

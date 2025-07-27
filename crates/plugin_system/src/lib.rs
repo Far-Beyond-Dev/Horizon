@@ -7,7 +7,7 @@
 mod manager;
 mod error;
 
-pub use manager::PluginManager;
+pub use manager::{PluginManager, PluginSafetyConfig};
 pub use error::PluginSystemError;
 
 use horizon_event_system::plugin::{Plugin, SimplePlugin};

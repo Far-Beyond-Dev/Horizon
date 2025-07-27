@@ -9,6 +9,20 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
+/// Configuration for plugin loading safety checks.
+/// 
+/// These flags allow users to override safety validations when they understand the risks.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PluginSafetyConfig {
+    /// Ignore Rust compiler version differences between plugin and server.
+    /// WARNING: This may cause crashes due to ABI incompatibilities.
+    pub allow_unsafe_plugins: bool,
+    
+    /// Ignore crate version differences between plugin and server.
+    /// WARNING: This may cause crashes or undefined behavior.
+    pub allow_abi_mismatch: bool,
+}
+
 
 //TODO: provide real region and player communication.
 /// Minimal server context for plugin initialization and testing.
@@ -112,22 +126,26 @@ pub struct PluginManager {
     event_system: Arc<EventSystem>,
     /// Map of loaded plugins by name
     loaded_plugins: DashMap<String, LoadedPlugin>,
+    /// Safety configuration for plugin loading
+    safety_config: PluginSafetyConfig,
 }
 
 impl PluginManager {
-    /// Creates a new plugin manager with the given event system.
+    /// Creates a new plugin manager with the given event system and safety configuration.
     ///
     /// # Arguments
     ///
     /// * `event_system` - The event system that plugins will use for communication
+    /// * `safety_config` - Configuration for plugin loading safety checks
     ///
     /// # Returns
     ///
     /// A new `PluginManager` instance ready to load plugins.
-    pub fn new(event_system: Arc<EventSystem>) -> Self {
+    pub fn new(event_system: Arc<EventSystem>, safety_config: PluginSafetyConfig) -> Self {
         Self {
             event_system,
             loaded_plugins: DashMap::new(),
+            safety_config,
         }
     }
 
@@ -270,6 +288,51 @@ impl PluginManager {
             })?
         };
 
+        // Look for the plugin version function
+        let get_plugin_version: Symbol<unsafe extern "C" fn() -> *const std::os::raw::c_char> = unsafe {
+            library.get(b"get_plugin_version").map_err(|e| {
+                PluginSystemError::LoadingError(format!(
+                    "Plugin does not export 'get_plugin_version' function: {}", e
+                ))
+            })?
+        };
+
+        // Validate the function pointer
+        if get_plugin_version.is_null() {
+            return Err(PluginSystemError::LoadingError(
+                "The 'get_plugin_version' function pointer is null".to_string(),
+            ));
+        }
+        // Get plugin version string
+        let plugin_version_ptr = unsafe { get_plugin_version() };
+        let plugin_version = if plugin_version_ptr.is_null() {
+            return Err(PluginSystemError::LoadingError(
+                "Plugin returned null version string".to_string()
+            ));
+        } else {
+            {
+                // Validate the pointer and ensure it is null-terminated
+                const MAX_PLUGIN_VERSION_LENGTH: usize = 1024; // Define a reasonable maximum length
+                let plugin_version = unsafe {
+                    let slice = std::slice::from_raw_parts(plugin_version_ptr as *const u8, MAX_PLUGIN_VERSION_LENGTH);
+                    if let Some(null_pos) = slice.iter().position(|&c| c == 0) {
+                        std::ffi::CStr::from_ptr(plugin_version_ptr)
+                            .to_string_lossy()
+                            .to_string()
+                    } else {
+                        return Err(PluginSystemError::LoadingError(
+                            "Plugin version string is not null-terminated".to_string(),
+                        ));
+                    }
+                };
+                plugin_version
+            }
+        };
+
+        // Parse versions and validate compatibility
+        let expected_version = horizon_event_system::ABI_VERSION;
+        self.validate_plugin_compatibility(&plugin_version, expected_version)?;
+
         // Look for the plugin creation function
         let create_plugin: Symbol<unsafe extern "C" fn() -> *mut dyn Plugin> = unsafe {
             library.get(b"create_plugin").map_err(|e| {
@@ -405,5 +468,195 @@ impl PluginManager {
     /// Checks if a plugin with the given name is loaded.
     pub fn is_plugin_loaded(&self, plugin_name: &str) -> bool {
         self.loaded_plugins.contains_key(plugin_name)
+    }
+
+    /// Validates plugin compatibility based on ABI version string.
+    /// 
+    /// ABI version format: "crate_version:rust_version" (e.g., "0.10.0:1.75.0")
+    /// 
+    /// This function checks:
+    /// 1. Crate version compatibility (exact match required)
+    /// 2. Rust compiler version compatibility (can be bypassed with --danger-allow-unsafe-plugins)
+    /// 
+    /// # Safety Flags
+    /// - `--danger-allow-unsafe-plugins`: Ignore Rust compiler version differences (already implemented in CLI)
+    /// - `--danger-allow-abi-mismatch`: Ignore crate version differences (already implemented in CLI)
+    /// - Both flags can be combined to disable all version checking
+    /// Validates plugin compatibility using ABI version strings.
+    /// 
+    /// Checks both crate version and Rust compiler version for safety.
+    /// Can be overridden with CLI safety flags.
+    fn validate_plugin_compatibility(&self, plugin_version: &str, expected_version: &str) -> Result<(), PluginSystemError> {
+        // Parse both versions
+        let plugin_parts: Vec<&str> = plugin_version.split(':').collect();
+        let expected_parts: Vec<&str> = expected_version.split(':').collect();
+        
+        if plugin_parts.len() != 2 || expected_parts.len() != 2 {
+            return Err(PluginSystemError::VersionMismatch(format!(
+                "Invalid version format. Expected 'crate:rust', got plugin='{}', expected='{}'",
+                plugin_version, expected_version
+            )));
+        }
+        
+        let plugin_crate_version = plugin_parts[0];
+        let plugin_rust_version = plugin_parts[1];
+        let expected_crate_version = expected_parts[0];
+        let expected_rust_version = expected_parts[1];
+        
+        // Check crate version compatibility (can be overridden with --danger-allow-abi-mismatch)
+        if plugin_crate_version != expected_crate_version && !self.safety_config.allow_abi_mismatch {
+            return Err(PluginSystemError::VersionMismatch(format!(
+                "ABI version mismatch: plugin compiled against horizon_event_system v{}, but server uses v{}. \
+                This plugin is incompatible and may cause crashes or undefined behavior. \
+                Recompile the plugin against the correct version, or use --danger-allow-abi-mismatch to override (NOT RECOMMENDED).",
+                plugin_crate_version, expected_crate_version
+            )));
+        }
+        
+        // Check Rust compiler version compatibility (can be overridden with --danger-allow-unsafe-plugins)
+        if plugin_rust_version != expected_rust_version && 
+           plugin_rust_version != "unknown" && 
+           expected_rust_version != "unknown" && 
+           !self.safety_config.allow_unsafe_plugins {
+            return Err(PluginSystemError::VersionMismatch(format!(
+                "Rust compiler version mismatch: plugin compiled with Rust {}, but server compiled with Rust {}. \
+                This may cause ABI incompatibilities due to different trait object layouts or calling conventions. \
+                Recompile with the same Rust version, or use --danger-allow-unsafe-plugins to override (MAY CAUSE CRASHES).",
+                plugin_rust_version, expected_rust_version
+            )));
+        }
+        
+        // Log warnings if safety overrides are in use
+        if self.safety_config.allow_abi_mismatch && plugin_crate_version != expected_crate_version {
+            warn!("Loading plugin with ABI version mismatch (override enabled): plugin v{} != server v{}", 
+                  plugin_crate_version, expected_crate_version);
+        }
+        
+        if self.safety_config.allow_unsafe_plugins && 
+           plugin_rust_version != expected_rust_version && 
+           plugin_rust_version != "unknown" && 
+           expected_rust_version != "unknown" {
+            warn!("Loading plugin with Rust compiler version mismatch (override enabled): plugin {} != server {}", 
+                  plugin_rust_version, expected_rust_version);
+        }
+        
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_version_mismatch_error() {
+        // Test that VersionMismatch error can be created and formatted correctly
+        let error = PluginSystemError::VersionMismatch("expected 1, got 2".to_string());
+        let error_message = format!("{}", error);
+        assert!(error_message.contains("Plugin version mismatch"));
+        assert!(error_message.contains("expected 1, got 2"));
+    }
+
+    #[test]
+    fn test_plugin_discovery() {
+        // Create a temporary directory with plugin files
+        let temp_dir = TempDir::new().unwrap();
+        let temp_path = temp_dir.path();
+
+        // Create mock plugin files
+        #[cfg(target_os = "windows")]
+        let plugin_extension = "dll";
+        #[cfg(target_os = "macos")]
+        let plugin_extension = "dylib";
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        let plugin_extension = "so";
+
+        let plugin_file = temp_path.join(format!("test_plugin.{}", plugin_extension));
+        fs::write(&plugin_file, "dummy content").unwrap();
+
+        let non_plugin_file = temp_path.join("not_a_plugin.txt");
+        fs::write(&non_plugin_file, "dummy content").unwrap();
+
+        // Create plugin manager
+        let event_system = Arc::new(EventSystem::new());
+        let manager = PluginManager::new(event_system, PluginSafetyConfig::default());
+
+        // Test plugin discovery
+        let discovered = manager.discover_plugin_files(temp_path).unwrap();
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0], plugin_file);
+    }
+
+    #[test]
+    fn test_expected_plugin_version_constant() {
+        // Verify that the expected plugin version is using the ABI_VERSION from horizon_event_system
+        // This test ensures that we're using the same version that plugins will report
+        let expected_version = horizon_event_system::ABI_VERSION;
+        
+        // The current version should be in format "crate_version:rust_version"
+        assert!(expected_version.contains(':'), "ABI version should contain ':' separator");
+        
+        let parts: Vec<&str> = expected_version.split(':').collect();
+        assert_eq!(parts.len(), 2, "ABI version should have exactly 2 parts separated by ':'");
+        
+        let crate_version = parts[0];
+        let rust_version = parts[1];
+        
+        // Verify the crate version is not empty and looks like a semantic version
+        assert!(!crate_version.is_empty(), "Crate version should not be empty");
+        assert!(crate_version.contains('.'), "Crate version should contain '.' separators");
+        
+        // Verify the rust version is not empty
+        assert!(!rust_version.is_empty(), "Rust version should not be empty");
+        
+        // Verify the version makes sense (not the old hardcoded format)
+        assert_ne!(expected_version, "1", "ABI version should not be the old hardcoded value of '1'");
+        
+        println!("✅ ABI version format is correct: {}", expected_version);
+    }
+
+    #[test]
+    fn test_plugin_compatibility_validation() {
+        let event_system = Arc::new(EventSystem::new());
+        
+        // Test exact match - should pass
+        let manager_strict = PluginManager::new(event_system.clone(), PluginSafetyConfig::default());
+        assert!(manager_strict.validate_plugin_compatibility("0.10.0:1.75.0", "0.10.0:1.75.0").is_ok());
+        
+        // Test crate version mismatch - should fail with strict config
+        let result = manager_strict.validate_plugin_compatibility("0.9.0:1.75.0", "0.10.0:1.75.0");
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(matches!(error, PluginSystemError::VersionMismatch(_)));
+        
+        // Test Rust version mismatch - should fail with strict config
+        let result = manager_strict.validate_plugin_compatibility("0.10.0:1.74.0", "0.10.0:1.75.0");
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(matches!(error, PluginSystemError::VersionMismatch(_)));
+        
+        // Test with safety overrides enabled
+        let manager_unsafe = PluginManager::new(event_system.clone(), PluginSafetyConfig {
+            allow_unsafe_plugins: true,
+            allow_abi_mismatch: true,
+        });
+        
+        // Should pass with overrides
+        assert!(manager_unsafe.validate_plugin_compatibility("0.9.0:1.74.0", "0.10.0:1.75.0").is_ok());
+        
+        // Test unknown Rust version - should pass (one side unknown)
+        assert!(manager_strict.validate_plugin_compatibility("0.10.0:unknown", "0.10.0:1.75.0").is_ok());
+        assert!(manager_strict.validate_plugin_compatibility("0.10.0:1.75.0", "0.10.0:unknown").is_ok());
+        
+        // Test both unknown Rust versions - should pass
+        assert!(manager_strict.validate_plugin_compatibility("0.10.0:unknown", "0.10.0:unknown").is_ok());
+        
+        // Test invalid format - should fail
+        let result = manager_strict.validate_plugin_compatibility("invalid", "0.10.0:1.75.0");
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        assert!(matches!(error, PluginSystemError::VersionMismatch(_)));
     }
 }

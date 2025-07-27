@@ -1,6 +1,6 @@
 [package]
 name = "horizon_event_system"
-version = "0.9.0"
+version = "0.11.0" # Ensure this matches the version used in tests and examples
 description = "Horizon Event System for handling events in the Horizon game server ecosystem."
 license = "MIT"
 edition = "2021"
@@ -18,3 +18,4 @@ dashmap = "6.1.0"
 lazy_static = "1.4.0"
 flate2 = { workspace = true }
 base64 = { workspace = true }
+const_format = "0.2"

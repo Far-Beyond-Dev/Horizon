@@ -110,7 +110,8 @@ mod tests {
         assert!(config.validate().is_ok());
 
         // Test conversion to ServerConfig
-        let server_config = config.to_server_config()
+        let plugin_safety_config = plugin_system::PluginSafetyConfig::default();
+        let server_config = config.to_server_config(plugin_safety_config)
             .expect("Default config should convert to ServerConfig");
         assert_eq!(server_config.max_connections, 1000);
         assert_eq!(server_config.connection_timeout, 60);
@@ -145,6 +146,8 @@ mod tests {
             bind_address: Some("127.0.0.1:9000".to_string()),
             log_level: Some("debug".to_string()),
             json_logs: true,
+            danger_allow_unsafe_plugins: false,
+            danger_allow_abi_mismatch: false,
         };
 
         assert_eq!(args.config_path, PathBuf::from("test.toml"));
@@ -162,6 +165,8 @@ mod tests {
             bind_address: None,
             log_level: Some("debug".to_string()),
             json_logs: false,
+            danger_allow_unsafe_plugins: false,
+            danger_allow_abi_mismatch: false,
         };
 
         // Create a test config file

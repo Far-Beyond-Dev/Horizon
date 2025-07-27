@@ -5,6 +5,7 @@
 
 use horizon_event_system::RegionBounds;
 use game_server::ServerConfig;
+use plugin_system::PluginSafetyConfig;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::info;
@@ -172,10 +173,14 @@ impl AppConfig {
     /// This method translates the TOML-based configuration into the types
     /// expected by the game server core.
     /// 
+    /// # Arguments
+    /// 
+    /// * `plugin_safety` - Plugin safety configuration from CLI arguments
+    /// 
     /// # Returns
     /// 
     /// A `ServerConfig` instance ready for use with the game server.
-    pub fn to_server_config(&self) -> Result<ServerConfig, Box<dyn std::error::Error>> {
+    pub fn to_server_config(&self, plugin_safety: PluginSafetyConfig) -> Result<ServerConfig, Box<dyn std::error::Error>> {
         Ok(ServerConfig {
             bind_address: self.server.bind_address.parse()?,
             region_bounds: RegionBounds {
@@ -192,6 +197,7 @@ impl AppConfig {
             use_reuse_port: self.server.use_reuse_port,
             tick_interval_ms: self.server.tick_interval_ms,
             security: Default::default(),
+            plugin_safety,
         })
     }
 
@@ -451,7 +457,7 @@ file_path = "/tmp/test.log"
             },
         };
 
-        let server_config = app_config.to_server_config().unwrap();
+        let server_config = app_config.to_server_config(PluginSafetyConfig::default()).unwrap();
         
         assert_eq!(server_config.bind_address.to_string(), "192.168.1.100:8080");
         assert_eq!(server_config.max_connections, 3000);

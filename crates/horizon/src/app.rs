@@ -57,6 +57,9 @@ impl Application {
         
         info!("✅ Configuration loaded successfully from {}", args.config_path.display());
 
+        // Extract plugin safety config before consuming args
+        let plugin_safety_config = args.to_plugin_safety_config();
+
         // Apply CLI overrides
         if let Some(plugin_dir) = args.plugin_dir {
             config.plugins.directory = plugin_dir.to_string_lossy().to_string();
@@ -85,7 +88,7 @@ impl Application {
         display_banner();
 
         // Create server with new architecture
-        let server_config = config.to_server_config()?;
+        let server_config = config.to_server_config(plugin_safety_config)?;
         let server = GameServer::new(server_config);
 
         // Log startup information

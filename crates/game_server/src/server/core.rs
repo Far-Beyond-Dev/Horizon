@@ -115,8 +115,8 @@ impl GameServer {
         let event_system_mut = Arc::get_mut(&mut horizon_event_system).unwrap();
         event_system_mut.set_client_response_sender(response_sender);
 
-        // Initialize plugin manager
-        let plugin_manager = Arc::new(PluginManager::new(horizon_event_system.clone()));
+        // Initialize plugin manager with safety configuration
+        let plugin_manager = Arc::new(PluginManager::new(horizon_event_system.clone(), config.plugin_safety.clone()));
 
         // Initialize GORC components
         let gorc_manager = Arc::new(GorcManager::new());

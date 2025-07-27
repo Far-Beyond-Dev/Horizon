@@ -223,11 +223,26 @@ pub use std::sync::Arc;
 pub use serde::{Deserialize, Serialize};
 pub use futures;
 
+/// ABI version for plugin compatibility validation.
+/// This is derived from the crate version and Rust compiler version to ensure plugins are compatible.
+/// Format: "major.minor.patch:rust_version"
+/// Example: "0.10.0:1.75.0" or "0.10.0:unknown"
+pub const ABI_VERSION: &str = {
+    const CRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
+    
+    // Use the Rust version detected by our build script
+    // This will be set by build.rs after attempting to detect the actual Rust version
+    const RUST_VERSION: &str = env!("HORIZON_RUSTC_VERSION");
+    
+    // Create a compile-time concatenated string with format "crate_version:rust_version"
+    const_format::concatcp!(CRATE_VERSION, ":", RUST_VERSION)
+};
+
 /// Returns build info string with version and Rust compiler version (if available)
 pub fn horizon_build_info() -> String {
     format!(
         "Horizon Event System v{} with Rust compiler v{}",
         env!("CARGO_PKG_VERSION"),
-        option_env!("RUSTC_VERSION").unwrap_or("unknown")
+        env!("HORIZON_RUSTC_VERSION")
     )
 }
