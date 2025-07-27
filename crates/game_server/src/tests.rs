@@ -380,6 +380,7 @@ mod tests {
             connection_timeout: 60,
             use_reuse_port: false,
             security: Default::default(),
+            plugin_safety: Default::default(),
         };
 
         let server = create_server_with_config(config);
