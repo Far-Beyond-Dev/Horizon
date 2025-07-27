@@ -310,10 +310,22 @@ impl PluginManager {
                 "Plugin returned null version string".to_string()
             ));
         } else {
-            unsafe {
-                std::ffi::CStr::from_ptr(plugin_version_ptr)
-                    .to_string_lossy()
-                    .to_string()
+            {
+                // Validate the pointer and ensure it is null-terminated
+                const MAX_PLUGIN_VERSION_LENGTH: usize = 1024; // Define a reasonable maximum length
+                let plugin_version = unsafe {
+                    let slice = std::slice::from_raw_parts(plugin_version_ptr as *const u8, MAX_PLUGIN_VERSION_LENGTH);
+                    if let Some(null_pos) = slice.iter().position(|&c| c == 0) {
+                        std::ffi::CStr::from_ptr(plugin_version_ptr)
+                            .to_string_lossy()
+                            .to_string()
+                    } else {
+                        return Err(PluginSystemError::LoadingError(
+                            "Plugin version string is not null-terminated".to_string(),
+                        ));
+                    }
+                };
+                plugin_version
             }
         };
 
