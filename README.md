@@ -287,6 +287,60 @@ The Game Object Replication Channels (GORC) system manages real-time synchroniza
 
 ### Spatial Partitioning
 
+```mermaid
+graph TB
+    subgraph "Game World"
+        subgraph "Region (0,0)"
+            P1[Player 1]
+            O1[Object A]
+            O2[Object B]
+        end
+        
+        subgraph "Region (1,0)"
+            P2[Player 2]
+            O3[Object C]
+        end
+        
+        subgraph "Region (0,1)"
+            P3[Player 3]
+            O4[Object D]
+        end
+        
+        subgraph "Region (1,1)"
+            O5[Object E]
+        end
+    end
+    
+    subgraph "Replication Channels"
+        HC[High Priority Channel]
+        MC[Medium Priority Channel]
+        LC[Low Priority Channel]
+    end
+    
+    subgraph "Client Subscriptions"
+        C1[Client 1 View]
+        C2[Client 2 View]
+        C3[Client 3 View]
+    end
+    
+    P1 --> HC
+    P2 --> HC
+    P3 --> HC
+    O1 --> MC
+    O3 --> MC
+    O4 --> LC
+    O5 --> LC
+    
+    HC --> C1
+    HC --> C2
+    HC --> C3
+    
+    MC --> C1
+    MC --> C2
+    
+    LC --> C3
+```
+
 GORC uses spatial partitioning to efficiently manage large game worlds with thousands of objects. The world is divided into regions, and objects are tracked based on their position. This allows the server to send updates only to players who are in proximity to changed objects, significantly reducing network bandwidth requirements.
 
 The spatial partitioning system supports dynamic resizing and load balancing, ensuring that performance remains consistent even as players cluster in specific areas of the game world. The system also handles edge cases like objects that span multiple regions or move rapidly between regions.
