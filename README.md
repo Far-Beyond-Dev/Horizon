@@ -133,7 +133,7 @@ impl SimplePlugin for MyPlugin {
     fn name(&self) -> &str { &self.name }
     fn version(&self) -> &str { "1.0.0" }
     
-    async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+    async fn register_handlers(&mut self, events: Arc<EventSystem>, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
         // Handle player connections
         events.on_core("player_connected", |event: serde_json::Value| {
             println!("New player connected!");
