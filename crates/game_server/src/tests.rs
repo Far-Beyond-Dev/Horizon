@@ -304,6 +304,7 @@ mod tests {
             use_reuse_port: true,
             tick_interval_ms: 16, // 60 FPS
             security: Default::default(),
+            plugin_safety: Default::default(),
         };
 
         assert_eq!(config.bind_address.to_string(), "0.0.0.0:3000");
