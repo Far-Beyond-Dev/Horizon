@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-horizon_event_system = { path = "../horizon_event_system" }
+horizon_event_system = { workspace = true }
 libloading = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
