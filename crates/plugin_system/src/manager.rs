@@ -460,9 +460,9 @@ impl PluginManager {
     /// 1. Crate version compatibility (exact match required)
     /// 2. Rust compiler version compatibility (can be bypassed with --danger-allow-unsafe-plugins)
     /// 
-    /// # Safety Flags (TODO: implement in CLI)
-    /// - `--danger-allow-unsafe-plugins`: Ignore Rust compiler version differences
-    /// - `--danger-allow-abi-mismatch`: Ignore crate version differences  
+    /// # Safety Flags
+    /// - `--danger-allow-unsafe-plugins`: Ignore Rust compiler version differences (already implemented in CLI)
+    /// - `--danger-allow-abi-mismatch`: Ignore crate version differences (already implemented in CLI)
     /// - Both flags can be combined to disable all version checking
     /// Validates plugin compatibility using ABI version strings.
     /// 
