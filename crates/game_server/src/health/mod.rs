@@ -162,15 +162,33 @@ impl HealthManager {
 
     /// Gets current memory usage in MB
     async fn get_memory_usage(&self) -> u64 {
-        // In a real implementation, this would query actual memory usage
-        // For now, return a placeholder value
         #[cfg(target_os = "linux")]
         {
             self.get_linux_memory_usage().await
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(target_os = "windows")]
         {
-            64 // Placeholder value
+            let mut sys = System::new();
+            sys.refresh_process(sysinfo::get_current_pid().unwrap());
+            if let Some(proc) = sys.process(sysinfo::get_current_pid().unwrap()) {
+                (proc.memory() / 1024) as u64 // memory() returns KB
+            } else {
+                64 // Fallback value
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let mut sys = System::new();
+            sys.refresh_process(sysinfo::get_current_pid().unwrap());
+            if let Some(proc) = sys.process(sysinfo::get_current_pid().unwrap()) {
+                (proc.memory() / 1024) as u64
+            } else {
+                64
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+        {
+            64 // Fallback value
         }
     }
 
@@ -244,6 +262,8 @@ impl Default for HealthManager {
 mod tests {
     use super::*;
     use crate::create_server;
+    use sysinfo::{System, SystemExt, ProcessExt};
+    use sysinfo::{System, SystemExt, ProcessExt};
 
     #[tokio::test]
     async fn test_health_check() {
