@@ -148,6 +148,7 @@ mod tests {
             json_logs: true,
             danger_allow_unsafe_plugins: false,
             danger_allow_abi_mismatch: false,
+            strict_versioning: false,
         };
 
         assert_eq!(args.config_path, PathBuf::from("test.toml"));
@@ -167,6 +168,7 @@ mod tests {
             json_logs: false,
             danger_allow_unsafe_plugins: false,
             danger_allow_abi_mismatch: false,
+            strict_versioning: false,
         };
 
         // Create a test config file

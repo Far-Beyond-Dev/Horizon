@@ -21,6 +21,10 @@ pub struct PluginSafetyConfig {
     /// Ignore crate version differences between plugin and server.
     /// WARNING: This may cause crashes or undefined behavior.
     pub allow_abi_mismatch: bool,
+    
+    /// Require exact version matching including patch digits.
+    /// When false, only major.minor must match (ignoring patch).
+    pub strict_versioning: bool,
 }
 
 
@@ -498,12 +502,21 @@ impl PluginManager {
         let expected_rust_version = expected_parts[1];
         
         // Check crate version compatibility (can be overridden with --danger-allow-abi-mismatch)
-        if plugin_crate_version != expected_crate_version && !self.safety_config.allow_abi_mismatch {
+        let versions_compatible = if self.safety_config.strict_versioning {
+            // Strict: exact version match required
+            plugin_crate_version == expected_crate_version
+        } else {
+            // Relaxed: only major.minor must match (ignore patch)
+            self.versions_major_minor_compatible(plugin_crate_version, expected_crate_version)
+        };
+        
+        if !versions_compatible && !self.safety_config.allow_abi_mismatch {
+            let comparison_type = if self.safety_config.strict_versioning { "exact" } else { "major.minor" };
             return Err(PluginSystemError::VersionMismatch(format!(
-                "ABI version mismatch: plugin compiled against horizon_event_system v{}, but server uses v{}. \
+                "ABI version mismatch: plugin compiled against horizon_event_system v{}, but server uses v{} ({} matching required). \
                 This plugin is incompatible and may cause crashes or undefined behavior. \
-                Recompile the plugin against the correct version, or use --danger-allow-abi-mismatch to override (NOT RECOMMENDED).",
-                plugin_crate_version, expected_crate_version
+                Recompile the plugin against the correct version, use --strict-versioning=false for relaxed matching, or use --danger-allow-abi-mismatch to override (NOT RECOMMENDED).",
+                plugin_crate_version, expected_crate_version, comparison_type
             )));
         }
         
@@ -535,6 +548,30 @@ impl PluginManager {
         }
         
         Ok(())
+    }
+    
+    /// Checks if two version strings are compatible using major.minor comparison.
+    /// Ignores patch versions (e.g., "0.11.2" is compatible with "0.11.0").
+    fn versions_major_minor_compatible(&self, plugin_version: &str, expected_version: &str) -> bool {
+        let parse_major_minor = |version: &str| -> Option<(u32, u32)> {
+            let parts: Vec<&str> = version.split('.').collect();
+            if parts.len() >= 2 {
+                if let (Ok(major), Ok(minor)) = (parts[0].parse::<u32>(), parts[1].parse::<u32>()) {
+                    return Some((major, minor));
+                }
+            }
+            None
+        };
+        
+        match (parse_major_minor(plugin_version), parse_major_minor(expected_version)) {
+            (Some((plugin_major, plugin_minor)), Some((expected_major, expected_minor))) => {
+                plugin_major == expected_major && plugin_minor == expected_minor
+            }
+            _ => {
+                // If we can't parse the versions, fall back to exact comparison
+                plugin_version == expected_version
+            }
+        }
     }
 }
 
@@ -635,6 +672,7 @@ mod tests {
         let manager_unsafe = PluginManager::new(event_system.clone(), PluginSafetyConfig {
             allow_unsafe_plugins: true,
             allow_abi_mismatch: true,
+            strict_versioning: false,
         });
         
         // Should pass with overrides
@@ -652,5 +690,60 @@ mod tests {
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert!(matches!(error, PluginSystemError::VersionMismatch(_)));
+    }
+    
+    #[test]
+    fn test_relaxed_versioning() {
+        let event_system = Arc::new(EventSystem::new());
+        
+        // Test relaxed versioning (strict_versioning = false)
+        let manager_relaxed = PluginManager::new(event_system.clone(), PluginSafetyConfig {
+            allow_unsafe_plugins: false,
+            allow_abi_mismatch: false,
+            strict_versioning: false, // Relaxed versioning
+        });
+        
+        // Same major.minor, different patch - should pass with relaxed versioning
+        assert!(manager_relaxed.validate_plugin_compatibility("0.11.2:1.75.0", "0.11.0:1.75.0").is_ok());
+        assert!(manager_relaxed.validate_plugin_compatibility("0.11.0:1.75.0", "0.11.5:1.75.0").is_ok());
+        
+        // Different major version - should fail even with relaxed versioning
+        let result = manager_relaxed.validate_plugin_compatibility("1.11.0:1.75.0", "0.11.0:1.75.0");
+        assert!(result.is_err());
+        
+        // Different minor version - should fail even with relaxed versioning
+        let result = manager_relaxed.validate_plugin_compatibility("0.10.0:1.75.0", "0.11.0:1.75.0");
+        assert!(result.is_err());
+        
+        // Test strict versioning (strict_versioning = true)
+        let manager_strict = PluginManager::new(event_system.clone(), PluginSafetyConfig {
+            allow_unsafe_plugins: false,
+            allow_abi_mismatch: false,
+            strict_versioning: true, // Strict versioning
+        });
+        
+        // Same major.minor, different patch - should fail with strict versioning
+        let result = manager_strict.validate_plugin_compatibility("0.11.2:1.75.0", "0.11.0:1.75.0");
+        assert!(result.is_err());
+        
+        // Exact match - should pass with strict versioning
+        assert!(manager_strict.validate_plugin_compatibility("0.11.0:1.75.0", "0.11.0:1.75.0").is_ok());
+    }
+    
+    #[test]
+    fn test_major_minor_version_parsing() {
+        let event_system = Arc::new(EventSystem::new());
+        let manager = PluginManager::new(event_system, PluginSafetyConfig::default());
+        
+        // Test valid version parsing
+        assert!(manager.versions_major_minor_compatible("1.2.3", "1.2.0"));
+        assert!(manager.versions_major_minor_compatible("1.2.0", "1.2.999"));
+        assert!(!manager.versions_major_minor_compatible("1.2.0", "1.3.0"));
+        assert!(!manager.versions_major_minor_compatible("1.2.0", "2.2.0"));
+        
+        // Test invalid versions - should fall back to exact comparison
+        assert!(manager.versions_major_minor_compatible("invalid", "invalid"));
+        assert!(!manager.versions_major_minor_compatible("invalid", "1.2.0"));
+        assert!(!manager.versions_major_minor_compatible("1.2.0", "invalid"));
     }
 }

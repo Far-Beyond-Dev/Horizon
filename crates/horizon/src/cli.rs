@@ -27,6 +27,8 @@ pub struct CliArgs {
     pub danger_allow_unsafe_plugins: bool,
     /// Whether to allow plugins with different ABI versions (DANGEROUS)
     pub danger_allow_abi_mismatch: bool,
+    /// Whether to require exact version matching including patch digits
+    pub strict_versioning: bool,
 }
 
 impl CliArgs {
@@ -95,6 +97,12 @@ impl CliArgs {
                     .help("Allow loading plugins with different ABI versions (MAY CAUSE CRASHES OR UNDEFINED BEHAVIOR)")
                     .action(clap::ArgAction::SetTrue),
             )
+            .arg(
+                Arg::new("strict-versioning")
+                    .long("strict-versioning")
+                    .help("Require exact version matching including patch digits (default: only major.minor must match)")
+                    .action(clap::ArgAction::SetTrue),
+            )
             .get_matches();
 
         Self {
@@ -109,6 +117,7 @@ impl CliArgs {
             json_logs: matches.get_flag("json-logs"),
             danger_allow_unsafe_plugins: matches.get_flag("danger-allow-unsafe-plugins"),
             danger_allow_abi_mismatch: matches.get_flag("danger-allow-abi-mismatch"),
+            strict_versioning: matches.get_flag("strict-versioning"),
         }
     }
 
@@ -124,6 +133,7 @@ impl CliArgs {
         PluginSafetyConfig {
             allow_unsafe_plugins: self.danger_allow_unsafe_plugins,
             allow_abi_mismatch: self.danger_allow_abi_mismatch,
+            strict_versioning: self.strict_versioning,
         }
     }
 }
