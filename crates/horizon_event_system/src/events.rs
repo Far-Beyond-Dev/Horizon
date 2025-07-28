@@ -24,8 +24,7 @@
 
 use crate::types::{PlayerId, RegionId, RegionBounds, DisconnectReason, AuthenticationStatus};
 use async_trait::async_trait;
-use serde::{de::{self, DeserializeOwned}, Deserialize, Serialize};
-use core::error;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::{any::{Any, TypeId}, fmt::Debug};
 
 // ============================================================================

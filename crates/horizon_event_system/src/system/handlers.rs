@@ -372,7 +372,7 @@ impl EventSystem {
     async fn register_gorc_instance_handler<F>(
         &self,
         event_key: String,
-        event_name: &str,
+        _event_name: &str,
         handler: F,
     ) -> Result<(), EventError>
     where

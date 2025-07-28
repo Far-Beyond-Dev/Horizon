@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
+use sysinfo::{System, Pid};
 
 pub mod metrics;
 pub mod circuit_breaker;
@@ -168,20 +169,20 @@ impl HealthManager {
         }
         #[cfg(target_os = "windows")]
         {
-            let mut sys = System::new();
-            sys.refresh_process(sysinfo::get_current_pid().unwrap());
-            if let Some(proc) = sys.process(sysinfo::get_current_pid().unwrap()) {
-                (proc.memory() / 1024) as u64 // memory() returns KB
+            let mut sys = System::new_all();
+            sys.refresh_all();
+            if let Some(proc) = sys.process(Pid::from(std::process::id() as usize)) {
+                (proc.memory() / 1024 / 1024) as u64 // memory() returns bytes, convert to MB
             } else {
                 64 // Fallback value
             }
         }
         #[cfg(target_os = "macos")]
         {
-            let mut sys = System::new();
-            sys.refresh_process(sysinfo::get_current_pid().unwrap());
-            if let Some(proc) = sys.process(sysinfo::get_current_pid().unwrap()) {
-                (proc.memory() / 1024) as u64
+            let mut sys = System::new_all();
+            sys.refresh_all();
+            if let Some(proc) = sys.process(Pid::from(std::process::id() as usize)) {
+                (proc.memory() / 1024 / 1024) as u64 // memory() returns bytes, convert to MB
             } else {
                 64
             }
@@ -262,8 +263,6 @@ impl Default for HealthManager {
 mod tests {
     use super::*;
     use crate::create_server;
-    use sysinfo::{System, SystemExt, ProcessExt};
-    use sysinfo::{System, SystemExt, ProcessExt};
 
     #[tokio::test]
     async fn test_health_check() {
