@@ -513,10 +513,10 @@ impl PluginManager {
         if !versions_compatible && !self.safety_config.allow_abi_mismatch {
             let comparison_type = if self.safety_config.strict_versioning { "exact" } else { "major.minor" };
             return Err(PluginSystemError::VersionMismatch(format!(
-                "ABI version mismatch: plugin compiled against horizon_event_system v{}, but server uses v{} ({} matching required). \
+                "ABI version mismatch: plugin compiled against horizon_event_system v{}, but server uses v{} ({} matching required when flag --strict-versioning is {}). \
                 This plugin is incompatible and may cause crashes or undefined behavior. \
                 Recompile the plugin against the correct version, use --strict-versioning=false for relaxed matching, or use --danger-allow-abi-mismatch to override (NOT RECOMMENDED).",
-                plugin_crate_version, expected_crate_version, comparison_type
+                plugin_crate_version, expected_crate_version, comparison_type, self.safety_config.strict_versioning
             )));
         }
         
