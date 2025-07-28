@@ -427,8 +427,9 @@ impl PluginManager {
 
         let context = Arc::new(BasicServerContext::new(self.event_system.clone()));
 
-        // Call shutdown on all plugins
+        // Call shutdown on all plugins and collect libraries for controlled cleanup
         let plugin_names: Vec<String> = self.loaded_plugins.iter().map(|entry| entry.key().clone()).collect();
+        let mut libraries_to_unload = Vec::new();
         
         for plugin_name in &plugin_names {
             info!("🛑 Shutting down plugin: {}", plugin_name);
@@ -446,8 +447,51 @@ impl PluginManager {
             }
         }
 
-        // Clear all loaded plugins
-        self.loaded_plugins.clear();
+        // Remove plugins from map and collect libraries for controlled unloading
+        for plugin_name in &plugin_names {
+            if let Some((_, loaded_plugin)) = self.loaded_plugins.remove(plugin_name) {
+                info!("🔌 Dropping plugin instance for: {}", plugin_name);
+                // Drop the plugin instance first (this drops the Box<dyn Plugin>)
+                drop(loaded_plugin.plugin);
+                
+                // Keep the library for later controlled unloading
+                libraries_to_unload.push((plugin_name.clone(), loaded_plugin.library));
+                info!("📚 Library queued for cleanup: {}", plugin_name);
+            }
+        }
+
+        // Give some time for any remaining references to be cleaned up
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        // Now unload libraries in reverse order (LIFO)
+        libraries_to_unload.reverse();
+        
+        info!("📚 Unloading {} plugin libraries...", libraries_to_unload.len());
+        
+        // On Windows, aggressive library unloading can sometimes cause access violations
+        // if there are still references in the system. We can disable unloading for safety.
+        #[cfg(windows)]
+        let should_unload_libraries = std::env::var("HORIZON_UNLOAD_PLUGIN_LIBRARIES")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        
+        #[cfg(not(windows))]
+        let should_unload_libraries = true;
+        
+        if should_unload_libraries {
+            for (plugin_name, library) in libraries_to_unload {
+                info!("📚 Unloading library for plugin: {}", plugin_name);
+                // The library will be dropped automatically here, but we're doing it
+                // in a controlled manner after ensuring plugin instances are dropped
+                drop(library);
+            }
+        } else {
+            info!("📚 Skipping library unloading for safety (set HORIZON_UNLOAD_PLUGIN_LIBRARIES=true to enable)");
+            // Let the libraries leak - the OS will clean them up on process exit
+            // This is safer than risking access violations during shutdown
+            std::mem::forget(libraries_to_unload);
+        }
+
         info!("🧹 Plugin cleanup completed");
 
         Ok(())

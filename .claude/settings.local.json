@@ -7,7 +7,9 @@
       "Bash(mkdir:*)",
       "Bash(rm:*)",
       "Bash(find:*)",
-      "Bash(RUST_BACKTRACE=1 cargo run)"
+      "Bash(RUST_BACKTRACE=1 cargo run)",
+      "Bash(.targetdebughorizon.exe)",
+      "Bash(./target/debug/horizon.exe)"
     ],
     "deny": []
   }

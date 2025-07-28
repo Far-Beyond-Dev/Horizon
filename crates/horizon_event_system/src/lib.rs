@@ -148,6 +148,7 @@ pub mod gorc_macros;
 pub mod macros;
 pub mod monitoring;
 pub mod plugin;
+pub mod shutdown;
 pub mod system;
 pub mod traits;
 pub mod types;
@@ -171,6 +172,7 @@ pub use events::{
 };
 pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use plugin::{Plugin, PluginError, SimplePlugin};
+pub use shutdown::ShutdownState;
 pub use system::{EventSystem, EventSystemStats,
     DetailedEventSystemStats, HandlerCategoryStats,
     ClientConnectionRef, ClientResponseSender, ClientConnectionInfo

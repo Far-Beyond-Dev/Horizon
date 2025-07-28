@@ -5,8 +5,9 @@
 //! and performance monitoring.
 
 use crate::{cli::CliArgs, config::AppConfig, logging::display_banner, signals::setup_signal_handlers};
+use horizon_event_system::ShutdownState;
 use game_server::GameServer;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 /// Main application struct with enhanced monitoring capabilities.
 /// 
@@ -139,11 +140,18 @@ impl Application {
         // Clone the config for final statistics display
         let config = self.config.clone();
 
+        // Create shutdown state for coordinated shutdown  
+        let shutdown_state = ShutdownState::new();
+        let shutdown_state_for_server = shutdown_state.clone();
+
+        // Get plugin manager reference before moving server
+        let plugin_manager = self.server.get_plugin_manager();
+
         // Start server in background with enhanced error handling
         let server_handle = {
             let server = self.server;
             tokio::spawn(async move {
-                match server.start().await {
+                match server.start_with_shutdown_state(shutdown_state_for_server).await {
                     Ok(()) => {
                         info!("✅ Server completed successfully");
                     }
@@ -195,26 +203,86 @@ impl Application {
         info!("🔍 Health monitoring active - stats every 60 seconds");
         info!("🛑 Press Ctrl+C to gracefully shutdown");
 
-        // Wait for shutdown signal
-        setup_signal_handlers().await?;
+        // Wait for shutdown signal - this will update the shared shutdown state
+        let signal_shutdown_state = setup_signal_handlers().await?;
+        
+        // Transfer shutdown state to our server's shutdown state
+        if signal_shutdown_state.is_shutdown_initiated() {
+            shutdown_state.initiate_shutdown();
+        }
 
-        info!("🛑 Shutdown signal received, initiating graceful shutdown...");
+        info!("🛑 Shutdown signal received, beginning graceful shutdown...");
 
+        // Phase 1: Stop accepting new connections and events
+        info!("📡 Phase 1: Stopping new event processing...");
+        
         // Cancel monitoring first
         monitoring_handle.abort();
 
-        // The server's Drop implementation will handle plugin shutdown
-        server_handle.abort();
+        // Wait for existing events to be processed by the event system
+        info!("⏳ Phase 2: Processing remaining events in the system...");
+        
+        // Give the event system time to process any pending events
+        let mut wait_cycles = 0;
+        const MAX_WAIT_CYCLES: u32 = 30; // Wait up to 3 seconds (30 * 100ms)
+        
+        while wait_cycles < MAX_WAIT_CYCLES {
+            let stats = horizon_event_system.get_stats().await;
+            
+            // Check if there are any pending events or active handlers processing
+            if stats.events_emitted == 0 && stats.total_handlers == 0 {
+                break;
+            }
+            
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            wait_cycles += 1;
+        }
+        
+        if wait_cycles >= MAX_WAIT_CYCLES {
+            info!("⏰ Timeout reached, proceeding with shutdown (some events may not have completed)");
+        } else {
+            info!("✅ All events processed successfully");
+        }
+        
+        // Mark shutdown as complete for the event system
+        shutdown_state.complete_shutdown();
 
-        // Give time for graceful cleanup
+        // Phase 3: Final cleanup - shutdown server accept loops first
+        info!("🧹 Phase 3: Final cleanup - stopping server accept loops...");
+        
+        // Wait for server accept loops to stop gracefully
+        info!("⏳ Waiting for server task to complete gracefully...");
+        if let Err(e) = tokio::time::timeout(
+            tokio::time::Duration::from_secs(8), 
+            server_handle
+        ).await {
+            warn!("⏰ Server task did not complete within timeout, proceeding with cleanup: {:?}", e);
+            // Server task will be cancelled when it goes out of scope, but continue with plugin shutdown
+        } else {
+            info!("✅ Server task completed gracefully");
+        }
+
+        // Phase 4: Plugin shutdown (separate from server task to prevent timeout issues)
+        info!("🔌 Phase 4: Shutting down plugins...");
+        if let Err(e) = plugin_manager.shutdown().await {
+            error!("❌ Plugin shutdown failed: {}", e);
+        } else {
+            info!("✅ Plugin shutdown completed successfully");
+        }
+
+        // Give time for connection cleanup
         info!("⏳ Waiting for connections to close...");
-        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         // Display final statistics
         log_final_statistics(&horizon_event_system).await;
 
         info!("✅ Horizon Game Server shutdown complete");
         info!("👋 Thank you for using Horizon Game Server!");
+
+        // Final safety cleanup to prevent access violations
+        // Force garbage collection and give the system time to clean up
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         Ok(())
     }

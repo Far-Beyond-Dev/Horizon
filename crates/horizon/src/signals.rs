@@ -1,16 +1,19 @@
 //! Signal handling for graceful server shutdown.
 //!
 //! This module provides cross-platform signal handling to allow the server
-//! to shut down gracefully when receiving termination signals.
+//! to shut down gracefully when receiving termination signals. It supports
+//! a two-phase shutdown process: first stopping new events, then processing
+//! existing events before final cleanup.
 
+use horizon_event_system::ShutdownState;
 use tokio::signal;
 use tracing::info;
 
 /// Sets up graceful shutdown signal handling for the application.
 /// 
 /// Listens for termination signals (SIGINT, SIGTERM on Unix; Ctrl+C on Windows)
-/// and returns when one is received, allowing the application to perform
-/// cleanup operations before exiting.
+/// and returns when one is received, along with a shutdown state for coordinating
+/// graceful shutdown across components.
 /// 
 /// # Platform Support
 /// 
@@ -19,8 +22,8 @@ use tracing::info;
 /// 
 /// # Returns
 /// 
-/// `Ok(())` when a shutdown signal is received, or an error if signal
-/// handling setup failed.
+/// `Ok(shutdown_state)` when a shutdown signal is received, containing the
+/// shutdown coordination state, or an error if signal handling setup failed.
 /// 
 /// # Example
 /// 
@@ -32,14 +35,16 @@ use tracing::info;
 ///     // Start your server...
 ///     
 ///     // Wait for shutdown signal
-///     setup_signal_handlers().await?;
+///     let shutdown_state = setup_signal_handlers().await?;
 ///     
-///     // Perform cleanup...
+///     // Use shutdown_state to coordinate graceful shutdown...
 ///     
 ///     Ok(())
 /// }
 /// ```
-pub async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
+pub async fn setup_signal_handlers() -> Result<ShutdownState, Box<dyn std::error::Error>> {
+    let shutdown_state = ShutdownState::new();
+
     #[cfg(unix)]
     {
         use signal::unix::{signal, SignalKind};
@@ -49,10 +54,10 @@ pub async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
 
         tokio::select! {
             _ = sigint.recv() => {
-                info!("📡 Received SIGINT");
+                info!("📡 Received SIGINT - initiating graceful shutdown");
             }
             _ = sigterm.recv() => {
-                info!("📡 Received SIGTERM");
+                info!("📡 Received SIGTERM - initiating graceful shutdown");
             }
         }
     }
@@ -60,8 +65,9 @@ pub async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
     {
         signal::ctrl_c().await?;
-        info!("📡 Received Ctrl+C");
+        info!("📡 Received Ctrl+C - initiating graceful shutdown");
     }
 
-    Ok(())
+    shutdown_state.initiate_shutdown();
+    Ok(shutdown_state)
 }

@@ -16,7 +16,7 @@ use horizon_event_system::{
     create_horizon_event_system, current_timestamp, EventSystem, GorcManager, MulticastManager,
     PlayerConnectedEvent, PlayerDisconnectedEvent, RegionId, RegionStartedEvent, SpatialPartition,
     SubscriptionManager, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
-    AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent,
+    AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent, ShutdownState,
 };
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::TcpListener as StdTcpListener;
@@ -112,8 +112,13 @@ impl GameServer {
 
         // Set up connection-aware response sender
         let response_sender = Arc::new(GameServerResponseSender::new(connection_manager.clone()));
-        let event_system_mut = Arc::get_mut(&mut horizon_event_system).unwrap();
-        event_system_mut.set_client_response_sender(response_sender);
+        if let Some(event_system_mut) = Arc::get_mut(&mut horizon_event_system) {
+            event_system_mut.set_client_response_sender(response_sender);
+        } else {
+            // This should not happen in normal circumstances, but log it if it does
+            tracing::error!("⚠️ Failed to get mutable reference to event system during initialization");
+            // Continue with initialization anyway - the system may still work without this
+        }
 
         // Initialize plugin manager with safety configuration
         let plugin_manager = Arc::new(PluginManager::new(horizon_event_system.clone(), config.plugin_safety.clone()));
@@ -136,6 +141,41 @@ impl GameServer {
             multicast_manager,
             spatial_partition,
         }
+    }
+
+    /// Starts the game server and begins accepting connections with graceful shutdown support.
+    /// 
+    /// This method performs the complete server startup sequence including
+    /// plugin loading, event handler registration, network binding, and
+    /// the main accept loop. The server runs until shutdown is requested through
+    /// the provided shutdown state.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `shutdown_state` - Shared shutdown state for coordinating graceful shutdown
+    /// 
+    /// # Startup Sequence
+    /// 
+    /// 1. Register core infrastructure event handlers
+    /// 2. Load and initialize all plugins from the plugin directory
+    /// 3. Emit region started event to notify plugins
+    /// 4. Create TCP listeners (potentially multiple for multi-threading)
+    /// 5. Start accept loops to handle incoming connections
+    /// 6. Monitor shutdown state and gracefully halt when shutdown is initiated
+    /// 7. Clean shutdown of all plugins
+    /// 
+    /// # Multi-threading
+    /// 
+    /// If `use_reuse_port` is enabled in configuration, the server will
+    /// create multiple accept loops equal to the number of CPU cores for
+    /// improved performance under high load.
+    /// 
+    /// # Returns
+    /// 
+    /// `Ok(())` if the server started and stopped cleanly, or a `ServerError`
+    /// if there was a failure during startup or operation.
+    pub async fn start_with_shutdown_state(&self, shutdown_state: ShutdownState) -> Result<(), ServerError> {
+        self.start_internal(Some(shutdown_state)).await
     }
 
     /// Starts the game server and begins accepting connections.
@@ -165,6 +205,11 @@ impl GameServer {
     /// `Ok(())` if the server started and stopped cleanly, or a `ServerError`
     /// if there was a failure during startup or operation.
     pub async fn start(&self) -> Result<(), ServerError> {
+        self.start_internal(None).await
+    }
+
+    /// Internal method for starting the server with optional shutdown state.
+    async fn start_internal(&self, shutdown_state: Option<ShutdownState>) -> Result<(), ServerError> {
         info!("🚀 Starting game server on {}", self.config.bind_address);
         info!("🌍 Region ID: {}", self.region_id.0);
 
@@ -190,7 +235,7 @@ impl GameServer {
 
         // Start server tick if configured
         if self.config.tick_interval_ms > 0 {
-            self.start_server_tick().await;
+            self.start_server_tick_with_shutdown(shutdown_state.clone()).await;
             info!("🕒 Server tick started with interval: {}ms", self.config.tick_interval_ms);
         } else {
             info!("⏸️ Server tick disabled (interval: 0ms)");
@@ -300,15 +345,24 @@ impl GameServer {
         // Main server accept loops
         let mut shutdown_receiver = self.shutdown_sender.subscribe();
 
-        // Create futures for all accept loops
+        // Create futures for all accept loops with shutdown monitoring
         let mut accept_futures = listeners
             .into_iter()
             .map(|listener| {
                 let connection_manager = self.connection_manager.clone();
                 let horizon_event_system = self.horizon_event_system.clone();
+                let shutdown_state_clone = shutdown_state.clone();
                 
                 async move {
                     loop {
+                        // Check if shutdown has been initiated
+                        if let Some(ref shutdown_state) = shutdown_state_clone {
+                            if shutdown_state.is_shutdown_initiated() {
+                                info!("🛑 Accept loop stopping - shutdown initiated");
+                                break;
+                            }
+                        }
+
                         match listener.accept().await {
                             Ok((stream, addr)) => {
                                 let connection_manager = connection_manager.clone();
@@ -336,21 +390,19 @@ impl GameServer {
             })
             .collect::<FuturesUnordered<_>>();
 
-        // Run until shutdown
+        // Run until shutdown is initiated or internal shutdown signal
         tokio::select! {
             _ = accept_futures.next() => {} // Accept loop(s) will run until error or shutdown
             _ = shutdown_receiver.recv() => {
-                info!("Shutdown signal received");
+                info!("Internal shutdown signal received");
             }
         }
 
         // Server shutdown cleanup
         info!("🧹 Performing server cleanup...");
         
-        // Shutdown plugins first
-        if let Err(e) = self.plugin_manager.shutdown().await {
-            error!("Plugin shutdown failed: {}", e);
-        }
+        // Note: Plugin shutdown is now handled by the application layer
+        // to ensure it happens even if the server task times out
         
         info!("✅ Server cleanup completed");
 
@@ -522,20 +574,24 @@ impl GameServer {
                 }
 
                 Ok(())
-        }).await.unwrap();
+        }).await.map_err(|e| ServerError::Internal(e.to_string()))?;
 
         Ok(())
     }
 
-    /// Starts the server tick loop that emits periodic tick events.
+    /// Starts the server tick loop that emits periodic tick events with shutdown support.
     /// 
     /// Creates a background task that emits `server_tick` events at the configured
     /// interval. This allows plugins and other components to perform periodic
     /// operations like game state updates, cleanup, or maintenance tasks.
     /// 
-    /// The tick system is non-blocking and runs independently of the main
-    /// server accept loops.
-    async fn start_server_tick(&self) {
+    /// The tick system monitors the shutdown state and gracefully stops when
+    /// shutdown is initiated, ensuring no new tick events are processed.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `shutdown_state` - Optional shutdown state for coordinated shutdown
+    async fn start_server_tick_with_shutdown(&self, shutdown_state: Option<ShutdownState>) {
         if self.config.tick_interval_ms == 0 {
             return; // Tick disabled
         }
@@ -548,7 +604,24 @@ impl GameServer {
             let mut tick_count: u64 = 0;
             
             loop {
+                // Check for shutdown before each tick
+                if let Some(ref shutdown_state) = shutdown_state {
+                    if shutdown_state.is_shutdown_initiated() {
+                        info!("🕒 Server tick stopping - shutdown initiated");
+                        break;
+                    }
+                }
+
                 ticker.tick().await;
+                
+                // Double-check shutdown state after tick wait (in case shutdown happened during wait)
+                if let Some(ref shutdown_state) = shutdown_state {
+                    if shutdown_state.is_shutdown_initiated() {
+                        info!("🕒 Server tick stopping - shutdown initiated during tick wait");
+                        break;
+                    }
+                }
+                
                 tick_count += 1;
                 
                 let tick_event = serde_json::json!({
@@ -561,7 +634,21 @@ impl GameServer {
                     // Continue ticking even if emission fails
                 }
             }
+            
+            info!("✅ Server tick loop completed gracefully");
         });
+    }
+
+    /// Starts the server tick loop that emits periodic tick events.
+    /// 
+    /// Creates a background task that emits `server_tick` events at the configured
+    /// interval. This allows plugins and other components to perform periodic
+    /// operations like game state updates, cleanup, or maintenance tasks.
+    /// 
+    /// The tick system is non-blocking and runs independently of the main
+    /// server accept loops.
+    async fn start_server_tick(&self) {
+        self.start_server_tick_with_shutdown(None).await;
     }
 
     /// Initiates server shutdown.
