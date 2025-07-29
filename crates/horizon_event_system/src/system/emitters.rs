@@ -6,6 +6,19 @@ use super::stats::{DetailedEventSystemStats, HandlerCategoryStats};
 use futures;
 use tracing::{debug, error, warn};
 
+/// Helper function to extract namespace from event key for debugging
+fn namespace_from_key(event_key: &str) -> &str {
+    if let Some(colon_pos) = event_key.find(':') {
+        if let Some(second_colon) = event_key[colon_pos + 1..].find(':') {
+            &event_key[colon_pos + 1..colon_pos + 1 + second_colon]
+        } else {
+            &event_key[colon_pos + 1..]
+        }
+    } else {
+        ""
+    }
+}
+
 impl EventSystem {
     /// Emits a core server event to all registered handlers.
     pub async fn emit_core<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
@@ -28,6 +41,37 @@ impl EventSystem {
     {
         let event_key = format!("client:{namespace}:{event_name}");
         self.emit_event(&event_key, event).await
+    }
+
+    /// Emits a client event with connection context for connection-aware handlers.
+    /// 
+    /// This method wraps the event data with player context information, allowing
+    /// connection-aware handlers to respond directly to the originating client.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `namespace` - The client event namespace
+    /// * `event_name` - The specific event name
+    /// * `player_id` - The player ID of the client that triggered the event
+    /// * `event` - The event data
+    pub async fn emit_client_with_context<T>(
+        &self,
+        namespace: &str,
+        event_name: &str,
+        player_id: crate::types::PlayerId,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event + serde::Serialize,
+    {
+        // Create a wrapper that includes the player context
+        let context_event = serde_json::json!({
+            "player_id": player_id,
+            "data": event
+        });
+        
+        let event_key = format!("client:{namespace}:{event_name}");
+        self.emit_event(&event_key, &context_event).await
     }
 
     /// Emits a plugin event to all registered handlers.
@@ -170,11 +214,21 @@ impl EventSystem {
             if event_key.as_bytes().get(0) == Some(&b'g') && event_key.starts_with("gorc") {
                 stats.gorc_events_emitted += 1;
             }
-        } else if cfg!(debug_assertions) {
-            // Only warn in debug builds to reduce production overhead
-            // Exempt core:server_tick from warning spam
+        } else {
+            // Show debugging info for missing handlers (except server_tick spam)
             if event_key != "core:server_tick" {
-                warn!("⚠️ No handlers for event: {}", event_key);
+                // Show available handlers for debugging
+                let handlers = self.handlers.read().await;
+                let available_keys: Vec<String> = handlers.keys()
+                    .filter(|k| k.contains(&namespace_from_key(event_key)))
+                    .cloned()
+                    .collect();
+                
+                if !available_keys.is_empty() {
+                    warn!("⚠️ No handlers for event: {} (similar keys available: {:?})", event_key, available_keys);
+                } else {
+                    warn!("⚠️ No handlers for event: {} (no similar handlers found)", event_key);
+                }
             }
         }
 

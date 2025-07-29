@@ -76,9 +76,9 @@ pub async fn route_client_message(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    // Generic routing using client-specified namespace and event
+    // Generic routing using client-specified namespace and event with connection context
     horizon_event_system
-        .emit_client(&message.namespace, &message.event, &message.data)
+        .emit_client_with_context(&message.namespace, &message.event, player_id, &message.data)
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 

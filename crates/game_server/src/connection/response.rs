@@ -58,10 +58,14 @@ impl ClientResponseSender for GameServerResponseSender {
     fn send_to_client(&self, player_id: PlayerId, data: Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
         let connection_manager = self.connection_manager.clone();
         Box::pin(async move {
+            tracing::debug!("🔧 GameServerResponseSender: Attempting to send to player {}", player_id);
             if let Some(connection_id) = connection_manager.get_connection_id_by_player(player_id).await {
+                tracing::debug!("🔧 GameServerResponseSender: Found connection {} for player {}", connection_id, player_id);
                 connection_manager.send_to_connection(connection_id, data).await;
+                tracing::debug!("🔧 GameServerResponseSender: Message sent to connection {}", connection_id);
                 Ok(())
             } else {
+                tracing::error!("🔧 GameServerResponseSender: Player {} not found or not connected", player_id);
                 Err(format!("Player {} not found or not connected", player_id))
             }
         })

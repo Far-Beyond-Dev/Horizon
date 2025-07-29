@@ -139,7 +139,9 @@ impl ConnectionManager {
     /// * `connection_id` - The target connection
     /// * `message` - The message data to send
     pub async fn send_to_connection(&self, connection_id: ConnectionId, message: Vec<u8>) {
-        let _ = self.sender.send((connection_id, message));
+        if let Err(e) = self.sender.send((connection_id, message)) {
+            tracing::error!("Failed to send message to connection {}: {:?}", connection_id, e);
+        }
     }
 
     /// Creates a new receiver for outgoing messages.

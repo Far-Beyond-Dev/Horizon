@@ -224,7 +224,7 @@ impl GameServer {
             error!("Failed to load plugins: {}", e);
             return Err(ServerError::Internal(format!("Plugin loading failed: {}", e)));
         }
-        
+
         let plugin_count = self.plugin_manager.plugin_count();
         if plugin_count > 0 {
             info!("🎉 Successfully loaded {} plugin(s): {:?}", 
@@ -274,7 +274,7 @@ impl GameServer {
             let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
                 .map_err(|e| ServerError::Network(format!("Socket creation failed: {e}")))?;
             socket.set_reuse_address(true).ok();
-            
+
             // Enable SO_REUSEPORT if supported and configured
             if self.config.use_reuse_port {
                 #[cfg(any(target_os = "linux", target_os = "android"))]

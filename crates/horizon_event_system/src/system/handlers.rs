@@ -74,7 +74,7 @@ impl EventSystem {
         T: Event + serde::Serialize + 'static,
         F: Fn(T, ClientConnectionRef) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let event_key = format!("client_conn_aware:{namespace}:{event_name}");
+        let event_key = format!("client:{namespace}:{event_name}");
         self.register_connection_aware_handler(event_key, event_name, handler)
             .await
     }
@@ -111,7 +111,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let event_key = format!("client_async:{namespace}:{event_name}");
+        let event_key = format!("client:{namespace}:{event_name}");
         self.register_async_handler(event_key, event_name, handler)
             .await
     }
@@ -312,22 +312,26 @@ impl EventSystem {
             })?;
             
             // Extract player ID from the event data by attempting to serialize/deserialize
-            // This works for events that have a player_id field
+            // This works for events that have a player_id field (wrapped by emit_client_with_context)
             let player_id = match serde_json::to_value(&event) {
                 Ok(json_value) => {
                     if let Some(player_id_value) = json_value.get("player_id") {
                         if let Ok(player_id) = serde_json::from_value::<crate::types::PlayerId>(player_id_value.clone()) {
+                            tracing::debug!("🔧 ConnectionAwareHandler: Extracted player ID: {}", player_id);
                             player_id
                         } else {
+                            tracing::warn!("🔧 ConnectionAwareHandler: Failed to deserialize player_id, using new ID");
                             // Fallback to new ID if deserialization fails
                             crate::types::PlayerId::new()
                         }
                     } else {
+                        tracing::warn!("🔧 ConnectionAwareHandler: No player_id field found, using new ID");
                         // Event doesn't have player_id field, use new ID
                         crate::types::PlayerId::new()
                     }
                 }
                 Err(_) => {
+                    tracing::warn!("🔧 ConnectionAwareHandler: Event is not serializable, using new ID");
                     // Event is not serializable, use new ID
                     crate::types::PlayerId::new()
                 }
