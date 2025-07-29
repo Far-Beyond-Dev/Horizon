@@ -60,9 +60,6 @@ game_server = { path = "crates/game_server" }
 horizon_event_system = { path = "crates/horizon_event_system" }
 plugin_system = { path = "crates/plugin_system" }
 
-[dev-dependencies]
-tokio-test = "0.4"
-
 [profile.profiling]
 inherits = "release"
 debug = true
