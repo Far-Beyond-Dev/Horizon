@@ -159,27 +159,34 @@ pub mod gorc;
 
 // Re-export commonly used items for convenience
 pub use api::{create_complete_horizon_system, create_simple_horizon_system};
+pub use utils::{create_horizon_event_system, current_timestamp};
+pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
+pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use context::{LogLevel, ServerContext, ServerError};
+pub use plugin::{Plugin, PluginError, SimplePlugin};
+pub use shutdown::ShutdownState;
+pub use types::*;
+
 pub use events::{
     Event, EventError, EventHandler, GorcEvent,
     PlayerConnectedEvent, PlayerDisconnectedEvent,
     RawClientMessageEvent, RegionStartedEvent,
     RegionStoppedEvent, TypedEventHandler,
     PluginLoadedEvent, PluginUnloadedEvent,
-    AuthenticationStatusSetEvent,
-    AuthenticationStatusGetEvent, AuthenticationStatusGetResponseEvent,
+    AuthenticationStatusGetResponseEvent,
     AuthenticationStatusChangedEvent,
+    AuthenticationStatusSetEvent,
+    AuthenticationStatusGetEvent,
 };
-pub use monitoring::{HorizonMonitor, HorizonSystemReport};
-pub use plugin::{Plugin, PluginError, SimplePlugin};
-pub use shutdown::ShutdownState;
-pub use system::{EventSystem, EventSystemStats,
-    DetailedEventSystemStats, HandlerCategoryStats,
-    ClientConnectionRef, ClientResponseSender, ClientConnectionInfo
+
+pub use system::{
+    EventSystem, EventSystemStats,
+    DetailedEventSystemStats,
+    HandlerCategoryStats,
+    ClientConnectionRef,
+    ClientResponseSender,
+    ClientConnectionInfo
 };
-pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
-pub use types::*;
-pub use utils::{create_horizon_event_system, current_timestamp};
 
 // Re-export GORC components for easy access
 pub use gorc::{
