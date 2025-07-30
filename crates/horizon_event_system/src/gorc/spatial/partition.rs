@@ -50,11 +50,11 @@ impl SpatialPartition {
 
     /// Queries players within a radius
     pub async fn query_radius(&self, center: Position, radius: f32) -> Vec<QueryResult> {
-        let regions = self.regions.read().await;
+        let mut regions = self.regions.write().await;
         let mut results = Vec::new();
         
         // Query all regions (simplified)
-        for region in regions.values() {
+        for region in regions.values_mut() {
             results.extend(region.query_radius(center, radius));
         }
         

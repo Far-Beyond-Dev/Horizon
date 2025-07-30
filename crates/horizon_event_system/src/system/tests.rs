@@ -61,14 +61,16 @@ mod tests {
         events.on_client_with_connection("test", "message", 
             move |_event: RawClientMessageEvent, client: ClientConnectionRef| {
                 let response_received = response_received_clone.clone();
-                async move {
-                    // Mark that we received the event
-                    *response_received.lock().unwrap() = true;
-                    
-                    // Send a response back to the client
-                    client.respond(b"Hello back!").await?;
-                    Ok(())
+                // Mark that we received the event
+                *response_received.lock().unwrap() = true;
+                
+                // Use tokio handle to execute async response
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        let _ = client.respond(b"Hello back!").await;
+                    });
                 }
+                Ok(())
             }
         ).await.unwrap();
         
@@ -114,9 +116,13 @@ mod tests {
         
         // Now test that we can register async handlers (even if we can't easily test execution)
         let async_result = events.on_core_async("test_async_event",
-            move |_event: serde_json::Value| async move {
-                // This would be called if properly triggered
-                tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+            move |_event: serde_json::Value| {
+                // Use tokio handle to execute async code within sync handler
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(1)).await;
+                    });
+                }
                 Ok(())
             }
         ).await;

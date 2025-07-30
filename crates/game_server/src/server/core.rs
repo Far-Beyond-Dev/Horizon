@@ -10,19 +10,20 @@ use crate::{
     error::ServerError,
     server::handlers::handle_connection,
 };
+use plugin_system::PluginManager;
 use futures::stream::{FuturesUnordered, StreamExt as FuturesStreamExt};
 use horizon_event_system::{
     create_horizon_event_system, current_timestamp, EventSystem, GorcManager, MulticastManager,
     PlayerConnectedEvent, PlayerDisconnectedEvent, RegionId, RegionStartedEvent, SpatialPartition,
     SubscriptionManager, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
-    AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent,
+    AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent, ShutdownState,
 };
-use plugin_system::{create_plugin_manager_with_events, PluginManager};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::TcpListener as StdTcpListener;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
+use tokio::time::{interval, Duration};
 use tracing::{error, info, warn};
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
@@ -58,7 +59,7 @@ pub struct GameServer {
     /// Manager for client connections and messaging
     connection_manager: Arc<ConnectionManager>,
     
-    /// Plugin system for dynamic game logic
+    /// Manager for loading and managing plugins
     plugin_manager: Arc<PluginManager>,
     
     /// Channel for coordinating server shutdown
@@ -111,15 +112,16 @@ impl GameServer {
 
         // Set up connection-aware response sender
         let response_sender = Arc::new(GameServerResponseSender::new(connection_manager.clone()));
-        Arc::get_mut(&mut horizon_event_system).unwrap()
-            .set_client_response_sender(response_sender);
+        if let Some(event_system_mut) = Arc::get_mut(&mut horizon_event_system) {
+            event_system_mut.set_client_response_sender(response_sender);
+        } else {
+            // This should not happen in normal circumstances, but log it if it does
+            tracing::error!("⚠️ Failed to get mutable reference to event system during initialization");
+            // Continue with initialization anyway - the system may still work without this
+        }
 
-        // Create plugin manager with the event system
-        let plugin_manager = Arc::new(create_plugin_manager_with_events(
-            horizon_event_system.clone(),
-            &config.plugin_directory,
-            region_id,
-        ));
+        // Initialize plugin manager with safety configuration
+        let plugin_manager = Arc::new(PluginManager::new(horizon_event_system.clone(), config.plugin_safety.clone()));
 
         // Initialize GORC components
         let gorc_manager = Arc::new(GorcManager::new());
@@ -139,6 +141,41 @@ impl GameServer {
             multicast_manager,
             spatial_partition,
         }
+    }
+
+    /// Starts the game server and begins accepting connections with graceful shutdown support.
+    /// 
+    /// This method performs the complete server startup sequence including
+    /// plugin loading, event handler registration, network binding, and
+    /// the main accept loop. The server runs until shutdown is requested through
+    /// the provided shutdown state.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `shutdown_state` - Shared shutdown state for coordinating graceful shutdown
+    /// 
+    /// # Startup Sequence
+    /// 
+    /// 1. Register core infrastructure event handlers
+    /// 2. Load and initialize all plugins from the plugin directory
+    /// 3. Emit region started event to notify plugins
+    /// 4. Create TCP listeners (potentially multiple for multi-threading)
+    /// 5. Start accept loops to handle incoming connections
+    /// 6. Monitor shutdown state and gracefully halt when shutdown is initiated
+    /// 7. Clean shutdown of all plugins
+    /// 
+    /// # Multi-threading
+    /// 
+    /// If `use_reuse_port` is enabled in configuration, the server will
+    /// create multiple accept loops equal to the number of CPU cores for
+    /// improved performance under high load.
+    /// 
+    /// # Returns
+    /// 
+    /// `Ok(())` if the server started and stopped cleanly, or a `ServerError`
+    /// if there was a failure during startup or operation.
+    pub async fn start_with_shutdown_state(&self, shutdown_state: ShutdownState) -> Result<(), ServerError> {
+        self.start_internal(Some(shutdown_state)).await
     }
 
     /// Starts the game server and begins accepting connections.
@@ -168,41 +205,41 @@ impl GameServer {
     /// `Ok(())` if the server started and stopped cleanly, or a `ServerError`
     /// if there was a failure during startup or operation.
     pub async fn start(&self) -> Result<(), ServerError> {
+        self.start_internal(None).await
+    }
+
+    /// Internal method for starting the server with optional shutdown state.
+    async fn start_internal(&self, shutdown_state: Option<ShutdownState>) -> Result<(), ServerError> {
         info!("🚀 Starting game server on {}", self.config.bind_address);
         info!("🌍 Region ID: {}", self.region_id.0);
+
+        info!("🔧 Runtime handle configured for async handlers");
 
         // Register minimal core event handlers
         self.register_core_handlers().await?;
 
-        info!(
-            "🔌 Loading plugins from: {}",
-            self.config.plugin_directory.display()
-        );
-        match self.plugin_manager.load_all_plugins().await {
-            Ok(loaded_plugins) => {
-                info!(
-                    "✅ Successfully loaded {} plugins: {:?}",
-                    loaded_plugins.len(),
-                    loaded_plugins
-                );
-            }
-            Err(e) => {
-                warn!(
-                    "⚠️ Plugin loading failed: {}. Server will continue without plugins.",
-                    e
-                );
-            }
+        // Load and initialize plugins
+        info!("🔌 Loading plugins from: {}", self.config.plugin_directory.display());
+        if let Err(e) = self.plugin_manager.load_plugins_from_directory(&self.config.plugin_directory).await {
+            error!("Failed to load plugins: {}", e);
+            return Err(ServerError::Internal(format!("Plugin loading failed: {}", e)));
         }
 
-        // Display plugin statistics
-        let plugin_stats = self.plugin_manager.get_plugin_stats().await;
-        info!("📊 Plugin System Status:");
-        info!("  - Plugins loaded: {}", plugin_stats.total_plugins);
-        info!("  - Total handlers: {}", plugin_stats.total_handlers);
-        info!(
-            "  - Client events routed: {}",
-            plugin_stats.client_events_routed
-        );
+        let plugin_count = self.plugin_manager.plugin_count();
+        if plugin_count > 0 {
+            info!("🎉 Successfully loaded {} plugin(s): {:?}", 
+                  plugin_count, self.plugin_manager.plugin_names());
+        } else {
+            info!("📭 No plugins loaded");
+        }
+
+        // Start server tick if configured
+        if self.config.tick_interval_ms > 0 {
+            self.start_server_tick_with_shutdown(shutdown_state.clone()).await;
+            info!("🕒 Server tick started with interval: {}ms", self.config.tick_interval_ms);
+        } else {
+            info!("⏸️ Server tick disabled (interval: 0ms)");
+        }
 
         // Emit region started event (for plugins)
         self.horizon_event_system
@@ -237,7 +274,7 @@ impl GameServer {
             let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
                 .map_err(|e| ServerError::Network(format!("Socket creation failed: {e}")))?;
             socket.set_reuse_address(true).ok();
-            
+
             // Enable SO_REUSEPORT if supported and configured
             if self.config.use_reuse_port {
                 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -308,15 +345,24 @@ impl GameServer {
         // Main server accept loops
         let mut shutdown_receiver = self.shutdown_sender.subscribe();
 
-        // Create futures for all accept loops
+        // Create futures for all accept loops with shutdown monitoring
         let mut accept_futures = listeners
             .into_iter()
             .map(|listener| {
                 let connection_manager = self.connection_manager.clone();
                 let horizon_event_system = self.horizon_event_system.clone();
+                let shutdown_state_clone = shutdown_state.clone();
                 
                 async move {
                     loop {
+                        // Check if shutdown has been initiated
+                        if let Some(ref shutdown_state) = shutdown_state_clone {
+                            if shutdown_state.is_shutdown_initiated() {
+                                info!("🛑 Accept loop stopping - shutdown initiated");
+                                break;
+                            }
+                        }
+
                         match listener.accept().await {
                             Ok((stream, addr)) => {
                                 let connection_manager = connection_manager.clone();
@@ -344,21 +390,21 @@ impl GameServer {
             })
             .collect::<FuturesUnordered<_>>();
 
-        // Run until shutdown
+        // Run until shutdown is initiated or internal shutdown signal
         tokio::select! {
             _ = accept_futures.next() => {} // Accept loop(s) will run until error or shutdown
             _ = shutdown_receiver.recv() => {
-                info!("Shutdown signal received");
+                info!("Internal shutdown signal received");
             }
         }
 
-        // Shutdown plugins when server stops
-        info!("🔌 Shutting down plugins...");
-        if let Err(e) = self.plugin_manager.shutdown_all().await {
-            error!("Error shutting down plugins: {}", e);
-        } else {
-            info!("✅ All plugins shut down successfully");
-        }
+        // Server shutdown cleanup
+        info!("🧹 Performing server cleanup...");
+        
+        // Note: Plugin shutdown is now handled by the application layer
+        // to ensure it happens even if the server task times out
+        
+        info!("✅ Server cleanup completed");
 
         info!("Server stopped");
         Ok(())
@@ -417,33 +463,37 @@ impl GameServer {
             .on_core_async("auth_status_set", move |event: AuthenticationStatusSetEvent| {
                 let conn_mgr = connection_manager_for_set.clone();
                 let event_system = horizon_event_system_for_set.clone();
-                async move {
-                    // Get old status before setting new one
-                    let old_status = conn_mgr.get_auth_status_by_player(event.player_id).await;
-                    
-                    let success = conn_mgr.set_auth_status_by_player(event.player_id, event.status).await;
-                    if success {
-                        info!("🔐 Updated auth status for player {} to {:?}", event.player_id, event.status);
+                
+                // Use block_on to execute async code in sync handler
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.block_on(async move {
+                        // Get old status before setting new one
+                        let old_status = conn_mgr.get_auth_status_by_player(event.player_id).await;
                         
-                        // Emit status changed event if status actually changed
-                        if let Some(old_status) = old_status {
-                            if old_status != event.status {
-                                let auth_status_changed_event = AuthenticationStatusChangedEvent {
-                                    player_id: event.player_id,
-                                    old_status,
-                                    new_status: event.status,
-                                    timestamp: current_timestamp(),
-                                };
-                                if let Err(e) = event_system.emit_core("auth_status_changed", &auth_status_changed_event).await {
-                                    warn!("⚠️ Failed to emit auth status changed event for player {}: {:?}", event.player_id, e);
+                        let success = conn_mgr.set_auth_status_by_player(event.player_id, event.status).await;
+                        if success {
+                            info!("🔐 Updated auth status for player {} to {:?}", event.player_id, event.status);
+                            
+                            // Emit status changed event if status actually changed
+                            if let Some(old_status) = old_status {
+                                if old_status != event.status {
+                                    let auth_status_changed_event = AuthenticationStatusChangedEvent {
+                                        player_id: event.player_id,
+                                        old_status,
+                                        new_status: event.status,
+                                        timestamp: current_timestamp(),
+                                    };
+                                    if let Err(e) = event_system.emit_core("auth_status_changed", &auth_status_changed_event).await {
+                                        warn!("⚠️ Failed to emit auth status changed event for player {}: {:?}", event.player_id, e);
+                                    }
                                 }
                             }
+                        } else {
+                            warn!("⚠️ Failed to update auth status for player {} - player not found", event.player_id);
                         }
-                    } else {
-                        warn!("⚠️ Failed to update auth status for player {} - player not found", event.player_id);
-                    }
-                    Ok(())
+                    });
                 }
+                Ok(())
             })
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -454,26 +504,30 @@ impl GameServer {
             .on_core_async("auth_status_get", move |event: AuthenticationStatusGetEvent| {
                 let conn_mgr = connection_manager_for_get.clone();
                 let event_system = horizon_event_system_for_get.clone();
-                async move {
-                    let status = conn_mgr.get_auth_status_by_player(event.player_id).await;
-                    
-                    // Emit response event with the queried status
-                    let response_event = AuthenticationStatusGetResponseEvent {
-                        player_id: event.player_id,
-                        request_id: event.request_id.clone(),
-                        status,
-                        timestamp: current_timestamp(),
-                    };
-                    
-                    if let Err(e) = event_system.emit_core("auth_status_get_response", &response_event).await {
-                        warn!("⚠️ Failed to emit auth status response for player {} request {}: {:?}", 
-                              event.player_id, event.request_id, e);
-                    } else {
-                        info!("🔍 Auth status query response for player {}: {:?} (request: {})", 
-                              event.player_id, status, event.request_id);
-                    }
-                    Ok(())
+                
+                // Use block_on to execute async code in sync handler
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.block_on(async move {
+                        let status = conn_mgr.get_auth_status_by_player(event.player_id).await;
+                        
+                        // Emit response event with the queried status
+                        let response_event = AuthenticationStatusGetResponseEvent {
+                            player_id: event.player_id,
+                            request_id: event.request_id.clone(),
+                            status,
+                            timestamp: current_timestamp(),
+                        };
+                        
+                        if let Err(e) = event_system.emit_core("auth_status_get_response", &response_event).await {
+                            warn!("⚠️ Failed to emit auth status response for player {} request {}: {:?}", 
+                                  event.player_id, event.request_id, e);
+                        } else {
+                            info!("🔍 Auth status query response for player {}: {:?} (request: {})", 
+                                  event.player_id, status, event.request_id);
+                        }
+                    });
                 }
+                Ok(())
             })
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
@@ -489,7 +543,112 @@ impl GameServer {
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
+
+        // Register a simple ping handler for testing validity of the client connection
+        self.horizon_event_system
+            .on_client_with_connection("system", "ping", |data: serde_json::Value, conn| {
+                info!("🔧 GameServer: Received 'ping' event with connection: {:?}, data: {:?}", conn, data);
+
+                let response = serde_json::json!({
+                    "timestamp": current_timestamp(),
+                    "message": "pong",
+                });
+
+                println!("🔧 GameServer: Responding to 'ping' event with response: {:?}", response);
+
+                // Use block_on to execute async response in sync handler
+                if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                    handle.block_on(async {
+                        let response_bytes = match serde_json::to_vec(&response) {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                error!("Failed to serialize ping response: {}", e);
+                                return;
+                            }
+                        };
+
+                        if let Err(e) = conn.respond(&response_bytes).await {
+                            error!("Failed to send ping response: {}", e);
+                        }
+                    });
+                }
+
+                Ok(())
+        }).await.map_err(|e| ServerError::Internal(e.to_string()))?;
+
         Ok(())
+    }
+
+    /// Starts the server tick loop that emits periodic tick events with shutdown support.
+    /// 
+    /// Creates a background task that emits `server_tick` events at the configured
+    /// interval. This allows plugins and other components to perform periodic
+    /// operations like game state updates, cleanup, or maintenance tasks.
+    /// 
+    /// The tick system monitors the shutdown state and gracefully stops when
+    /// shutdown is initiated, ensuring no new tick events are processed.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `shutdown_state` - Optional shutdown state for coordinated shutdown
+    async fn start_server_tick_with_shutdown(&self, shutdown_state: Option<ShutdownState>) {
+        if self.config.tick_interval_ms == 0 {
+            return; // Tick disabled
+        }
+
+        let event_system = self.horizon_event_system.clone();
+        let tick_interval = Duration::from_millis(self.config.tick_interval_ms);
+        
+        tokio::spawn(async move {
+            let mut ticker = interval(tick_interval);
+            let mut tick_count: u64 = 0;
+            
+            loop {
+                // Check for shutdown before each tick
+                if let Some(ref shutdown_state) = shutdown_state {
+                    if shutdown_state.is_shutdown_initiated() {
+                        info!("🕒 Server tick stopping - shutdown initiated");
+                        break;
+                    }
+                }
+
+                ticker.tick().await;
+                
+                // Double-check shutdown state after tick wait (in case shutdown happened during wait)
+                if let Some(ref shutdown_state) = shutdown_state {
+                    if shutdown_state.is_shutdown_initiated() {
+                        info!("🕒 Server tick stopping - shutdown initiated during tick wait");
+                        break;
+                    }
+                }
+                
+                tick_count += 1;
+                
+                let tick_event = serde_json::json!({
+                    "tick_count": tick_count,
+                    "timestamp": current_timestamp()
+                });
+                
+                if let Err(e) = event_system.emit_core("server_tick", &tick_event).await {
+                    error!("Failed to emit server_tick event: {}", e);
+                    // Continue ticking even if emission fails
+                }
+            }
+            
+            info!("✅ Server tick loop completed gracefully");
+        });
+    }
+
+    /// Starts the server tick loop that emits periodic tick events.
+    /// 
+    /// Creates a background task that emits `server_tick` events at the configured
+    /// interval. This allows plugins and other components to perform periodic
+    /// operations like game state updates, cleanup, or maintenance tasks.
+    /// 
+    /// The tick system is non-blocking and runs independently of the main
+    /// server accept loops.
+    async fn start_server_tick(&self) {
+        self.start_server_tick_with_shutdown(None).await;
     }
 
     /// Initiates server shutdown.
@@ -553,4 +712,14 @@ impl GameServer {
     pub fn get_spatial_partition(&self) -> Arc<SpatialPartition> {
         self.spatial_partition.clone()
     }
+
+    /// Gets the plugin manager for plugin lifecycle management.
+    /// 
+    /// # Returns
+    /// 
+    /// An `Arc<PluginManager>` for managing dynamic plugins.
+    pub fn get_plugin_manager(&self) -> Arc<PluginManager> {
+        self.plugin_manager.clone()
+    }
+
 }

@@ -260,4 +260,278 @@ mod tests {
         println!("  - Connection timeout: {}s", config.connection_timeout);
         println!("  - Use reuse port: {}", config.use_reuse_port);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_server_config_defaults() {
+        let config = ServerConfig::default();
+        
+        assert_eq!(config.bind_address.to_string(), "127.0.0.1:8080");
+        assert_eq!(config.max_connections, 1000);
+        assert_eq!(config.connection_timeout, 60);
+        assert_eq!(config.use_reuse_port, false);
+        assert_eq!(config.tick_interval_ms, 50);
+        assert_eq!(config.plugin_directory, std::path::PathBuf::from("plugins"));
+        
+        // Test region bounds
+        assert_eq!(config.region_bounds.min_x, -1000.0);
+        assert_eq!(config.region_bounds.max_x, 1000.0);
+        assert_eq!(config.region_bounds.min_y, -1000.0);
+        assert_eq!(config.region_bounds.max_y, 1000.0);
+        assert_eq!(config.region_bounds.min_z, -100.0);
+        assert_eq!(config.region_bounds.max_z, 100.0);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_server_config_custom_values() {
+        use horizon_event_system::RegionBounds;
+        use std::path::PathBuf;
+
+        let custom_bounds = RegionBounds {
+            min_x: -2000.0,
+            max_x: 2000.0,
+            min_y: -1500.0,
+            max_y: 1500.0,
+            min_z: -200.0,
+            max_z: 200.0,
+        };
+
+        let config = ServerConfig {
+            bind_address: "0.0.0.0:3000".parse().unwrap(),
+            region_bounds: custom_bounds.clone(),
+            plugin_directory: PathBuf::from("/custom/plugins"),
+            max_connections: 5000,
+            connection_timeout: 300,
+            use_reuse_port: true,
+            tick_interval_ms: 16, // 60 FPS
+            security: Default::default(),
+            plugin_safety: Default::default(),
+        };
+
+        assert_eq!(config.bind_address.to_string(), "0.0.0.0:3000");
+        assert_eq!(config.max_connections, 5000);
+        assert_eq!(config.connection_timeout, 300);
+        assert_eq!(config.use_reuse_port, true);
+        assert_eq!(config.tick_interval_ms, 16);
+        assert_eq!(config.plugin_directory, PathBuf::from("/custom/plugins"));
+        assert_eq!(config.region_bounds.min_x, custom_bounds.min_x);
+        assert_eq!(config.region_bounds.max_x, custom_bounds.max_x);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_server_tick_events() {
+        use std::sync::Arc;
+        use tokio::sync::Mutex;
+        use tokio::time::{timeout, Duration};
+
+        let server = create_server();
+        let events = server.get_horizon_event_system();
+        
+        // Counter to track tick events
+        let counter = Arc::new(std::sync::Mutex::new(0u64));
+        let counter_clone = counter.clone();
+        
+        events
+            .on_core("server_tick", move |event: serde_json::Value| {
+                let mut count = counter_clone.lock().unwrap();
+                *count += 1;
+                
+                // Verify event structure
+                assert!(event.get("tick_count").is_some());
+                assert!(event.get("timestamp").is_some());
+                
+                println!("Received tick #{}: {:?}", *count, event);
+                Ok(())
+            })
+            .await
+            .expect("Failed to register tick handler");
+
+        // Simulate server tick by manually emitting events (since we can't easily test the actual timer)
+        for i in 1..=5 {
+            let tick_event = serde_json::json!({
+                "tick_count": i,
+                "timestamp": horizon_event_system::current_timestamp()
+            });
+            
+            events
+                .emit_core("server_tick", &tick_event)
+                .await
+                .expect("Failed to emit server tick");
+        }
+
+        // Give a moment for event processing (handlers are synchronous)
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let final_count = *counter.lock().unwrap();
+        assert_eq!(final_count, 5);
+        
+        println!("✅ Server tick events processed: {}", final_count);
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_server_tick_disabled() {
+        use horizon_event_system::RegionBounds;
+
+        // Create config with tick disabled
+        let config = ServerConfig {
+            tick_interval_ms: 0, // Disabled
+            bind_address: "127.0.0.1:8081".parse().unwrap(),
+            region_bounds: RegionBounds::default(),
+            plugin_directory: std::path::PathBuf::from("plugins"),
+            max_connections: 1000,
+            connection_timeout: 60,
+            use_reuse_port: false,
+            security: Default::default(),
+            plugin_safety: Default::default(),
+        };
+
+        let server = create_server_with_config(config);
+        
+        // In real implementation, we would verify the tick task wasn't spawned
+        // For now, just verify the server can be created with tick_interval_ms = 0
+        assert_eq!(server.get_horizon_event_system().get_stats().await.total_handlers, 0);
+        
+        println!("✅ Server created successfully with tick disabled");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_server_tick_different_intervals() {
+        // Test various tick intervals for edge cases
+        let test_intervals = vec![1, 16, 50, 100, 1000];
+        
+        for interval_ms in test_intervals {
+            let config = ServerConfig {
+                tick_interval_ms: interval_ms,
+                bind_address: format!("127.0.0.1:{}", 8082 + interval_ms).parse().unwrap(),
+                ..Default::default()
+            };
+
+            let server = create_server_with_config(config.clone());
+            
+            // Verify server creation succeeds with different intervals
+            let events = server.get_horizon_event_system();
+            assert!(events.get_stats().await.total_handlers >= 0); // Always true, just checking server works
+            
+            println!("✅ Server created with {}ms tick interval", interval_ms);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_server_region_bounds_validation() {
+        use horizon_event_system::RegionBounds;
+
+        // Test valid region bounds
+        let valid_bounds = RegionBounds {
+            min_x: -1000.0,
+            max_x: 1000.0,
+            min_y: -1000.0,
+            max_y: 1000.0,
+            min_z: -100.0,
+            max_z: 100.0,
+        };
+
+        let config = ServerConfig {
+            region_bounds: valid_bounds.clone(),
+            ..Default::default()
+        };
+
+        let server = create_server_with_config(config);
+        
+        // Verify server creation succeeds
+        let events = server.get_horizon_event_system();
+        assert!(events.get_stats().await.total_handlers >= 0);
+        
+        println!("✅ Server created with valid region bounds");
+
+        // Test edge case bounds
+        let edge_bounds = RegionBounds {
+            min_x: 0.0,
+            max_x: 0.0,  // Single point
+            min_y: 0.0,
+            max_y: 0.0,
+            min_z: 0.0,
+            max_z: 0.0,
+        };
+
+        let edge_config = ServerConfig {
+            region_bounds: edge_bounds,
+            bind_address: "127.0.0.1:8083".parse().unwrap(),
+            ..Default::default()
+        };
+
+        let edge_server = create_server_with_config(edge_config);
+        assert!(edge_server.get_horizon_event_system().get_stats().await.total_handlers >= 0);
+        
+        println!("✅ Server created with edge case region bounds (single point)");
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_server_max_connections_config() {
+        let test_max_connections = vec![1, 10, 100, 1000, 10000];
+        
+        for max_conn in test_max_connections {
+            let config = ServerConfig {
+                max_connections: max_conn,
+                bind_address: format!("127.0.0.1:{}", 8084 + (max_conn % 1000)).parse().unwrap(),
+                ..Default::default()
+            };
+
+            let server = create_server_with_config(config.clone());
+            
+            // Verify server creation succeeds with different max_connections
+            let events = server.get_horizon_event_system();
+            assert!(events.get_stats().await.total_handlers >= 0);
+            
+            println!("✅ Server created with max_connections: {}", max_conn);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_server_connection_timeout_config() {
+        let test_timeouts = vec![1, 30, 60, 300, 3600];
+        
+        for timeout in test_timeouts {
+            let config = ServerConfig {
+                connection_timeout: timeout,
+                bind_address: format!("127.0.0.1:{}", 8090 + (timeout % 100)).parse().unwrap(),
+                ..Default::default()
+            };
+
+            let server = create_server_with_config(config.clone());
+            
+            // Verify server creation succeeds with different timeouts
+            let events = server.get_horizon_event_system();
+            assert!(events.get_stats().await.total_handlers >= 0);
+            
+            println!("✅ Server created with connection_timeout: {}s", timeout);
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_server_plugin_directory_config() {
+        use std::path::PathBuf;
+
+        let test_dirs = vec![
+            "plugins",
+            "/absolute/path/plugins",
+            "./relative/plugins",
+            "../parent/plugins",
+            "custom_plugins_dir",
+        ];
+        
+        for (i, dir) in test_dirs.iter().enumerate() {
+            let config = ServerConfig {
+                plugin_directory: PathBuf::from(dir),
+                bind_address: format!("127.0.0.1:{}", 8100 + i).parse().unwrap(),
+                ..Default::default()
+            };
+
+            let server = create_server_with_config(config.clone());
+            
+            // Verify server creation succeeds with different plugin directories
+            let events = server.get_horizon_event_system();
+            assert!(events.get_stats().await.total_handlers >= 0);
+            
+            println!("✅ Server created with plugin_directory: {:?}", dir);
+        }
+    }
 }

@@ -84,7 +84,6 @@ impl EventSystem {
     /// Gets the UDP event system if available
     pub fn get_udp_system(&self) -> Option<Arc<UdpEventSystem>> {
         self.udp_system.clone()
-    }
 
     /// Gets the current event system statistics
     pub async fn get_stats(&self) -> EventSystemStats {

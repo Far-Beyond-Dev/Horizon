@@ -1,7 +1,7 @@
 /// Client connection and response handling
 use crate::events::EventError;
 use crate::types::{PlayerId, AuthenticationStatus};
-use serde::{Deserialize, Serialize};
+// use serde::{Deserialize, Serialize}; // Unused
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -99,7 +99,7 @@ pub trait ClientResponseSender: std::fmt::Debug {
     fn get_auth_status(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<AuthenticationStatus>> + Send + '_>>;
     
     /// Get connection information for a client (optional implementation)
-    fn get_connection_info(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<ClientConnectionInfo>> + Send + '_>> {
+    fn get_connection_info(&self, _player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<ClientConnectionInfo>> + Send + '_>> {
         // Default implementation returns None to maintain backwards compatibility
         Box::pin(async move { None::<ClientConnectionInfo> })
     }

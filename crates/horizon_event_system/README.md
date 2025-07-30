@@ -170,7 +170,7 @@ impl SimplePlugin for WeatherPlugin {
     fn name(&self) -> &str { "weather_system" }
     fn version(&self) -> &str { "1.0.0" }
     
-    async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+    async fn register_handlers(&mut self, events: Arc<EventSystem>, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
         // Listen for time progression
         events.on_core("game_tick", |event: GameTickEvent| {
             if should_update_weather(event.timestamp) {
@@ -206,7 +206,7 @@ The `create_simple_plugin!` macro handles all the complex foreign function inter
 For more complex plugins, you can use the bulk registration macro to set up many handlers at once:
 
 ```rust
-async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError> {
+async fn register_handlers(&mut self, events: Arc<EventSystem>, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
     register_handlers!(events;
         core {
             "player_connected" => |event: PlayerConnectedEvent| {

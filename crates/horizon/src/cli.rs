@@ -5,6 +5,7 @@
 
 use clap::{Arg, Command};
 use std::path::PathBuf;
+use plugin_system::PluginSafetyConfig;
 
 /// Command line arguments parsed from user input.
 /// 
@@ -22,6 +23,12 @@ pub struct CliArgs {
     pub log_level: Option<String>,
     /// Whether to force JSON log output
     pub json_logs: bool,
+    /// Whether to allow plugins with different Rust compiler versions (DANGEROUS)
+    pub danger_allow_unsafe_plugins: bool,
+    /// Whether to allow plugins with different ABI versions (DANGEROUS)
+    pub danger_allow_abi_mismatch: bool,
+    /// Whether to require exact version matching including patch digits
+    pub strict_versioning: bool,
 }
 
 impl CliArgs {
@@ -78,6 +85,24 @@ impl CliArgs {
                     .help("Output logs in JSON format")
                     .action(clap::ArgAction::SetTrue),
             )
+            .arg(
+                Arg::new("danger-allow-unsafe-plugins")
+                    .long("danger-allow-unsafe-plugins")
+                    .help("Allow loading plugins compiled with different Rust compiler versions (MAY CAUSE CRASHES)")
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                Arg::new("danger-allow-abi-mismatch")
+                    .long("danger-allow-abi-mismatch")
+                    .help("Allow loading plugins with different ABI versions (MAY CAUSE CRASHES OR UNDEFINED BEHAVIOR)")
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                Arg::new("strict-versioning")
+                    .long("strict-versioning")
+                    .help("Require exact version matching including patch digits (default: only major.minor must match)")
+                    .action(clap::ArgAction::SetTrue),
+            )
             .get_matches();
 
         Self {
@@ -90,6 +115,25 @@ impl CliArgs {
             bind_address: matches.get_one::<String>("bind").cloned(),
             log_level: matches.get_one::<String>("log-level").cloned(),
             json_logs: matches.get_flag("json-logs"),
+            danger_allow_unsafe_plugins: matches.get_flag("danger-allow-unsafe-plugins"),
+            danger_allow_abi_mismatch: matches.get_flag("danger-allow-abi-mismatch"),
+            strict_versioning: matches.get_flag("strict-versioning"),
+        }
+    }
+
+    /// Converts CLI arguments to plugin safety configuration.
+    /// 
+    /// This extracts the safety-related flags and creates a `PluginSafetyConfig`
+    /// that can be used by the plugin manager.
+    /// 
+    /// # Returns
+    /// 
+    /// A `PluginSafetyConfig` with flags set based on command-line arguments.
+    pub fn to_plugin_safety_config(&self) -> PluginSafetyConfig {
+        PluginSafetyConfig {
+            allow_unsafe_plugins: self.danger_allow_unsafe_plugins,
+            allow_abi_mismatch: self.danger_allow_abi_mismatch,
+            strict_versioning: self.strict_versioning,
         }
     }
 }

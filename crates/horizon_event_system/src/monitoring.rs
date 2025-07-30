@@ -1,6 +1,6 @@
 /// Performance monitoring utilities
 use crate::*;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Performance monitor for the entire Horizon system
 pub struct HorizonMonitor {

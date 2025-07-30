@@ -31,6 +31,10 @@ impl ServerContext for MockServerContext {
     async fn broadcast(&self, _data: &[u8]) -> Result<(), ServerError> {
         Ok(())
     }
+
+    fn tokio_handle(&self) -> Option<tokio::runtime::Handle> {
+        tokio::runtime::Handle::try_current().ok()
+    }
 }
 
 #[tokio::test]
