@@ -77,7 +77,7 @@ use std::sync::Arc;
 ///     fn name(&self) -> &str { "chat_system" }
 ///     fn version(&self) -> &str { "1.0.0" }
 ///     
-///     async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), plugin::PluginError> {
+///     async fn register_handlers(&mut self, events: Arc<EventSystem>, context: Arc<dyn ServerContext>) -> Result<(), plugin::PluginError> {
 ///         events.on_client("chat", "message", |event: RawClientMessageEvent| {
 ///             // Process chat message
 ///             Ok(())
@@ -110,12 +110,13 @@ pub trait SimplePlugin: Send + Sync + 'static {
     /// # Arguments
     /// 
     /// * `events` - Reference to the event system for handler registration
+    /// * `context` - Server context providing access to core services
     /// 
     /// # Returns
     /// 
     /// Returns `Ok(())` if all handlers were registered successfully, or
     /// `Err(PluginError)` if registration failed.
-    async fn register_handlers(&mut self, events: Arc<EventSystem>) -> Result<(), PluginError>;
+    async fn register_handlers(&mut self, events: Arc<EventSystem>, context: Arc<dyn ServerContext>) -> Result<(), PluginError>;
 
     /// Initialize the plugin with server context.
     /// 

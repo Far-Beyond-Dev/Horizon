@@ -49,5 +49,6 @@ dhat-heap.json
 .vs/
 *.dll
 /crates/stars_beyond
-/crates/Horizon-Stars-Beyond
 config.toml
+/crates/.claude
+/crates/plugin_stars_beyond

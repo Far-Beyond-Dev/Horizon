@@ -154,6 +154,7 @@ pub mod macros;
 pub mod monitoring;
 pub mod plugin;
 pub mod protocol;
+pub mod shutdown;
 pub mod system;
 pub mod traits;
 pub mod types;
@@ -164,16 +165,24 @@ pub mod gorc;
 
 // Re-export commonly used items for convenience
 pub use api::{create_complete_horizon_system, create_simple_horizon_system};
+pub use utils::{create_horizon_event_system, current_timestamp};
+pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
+pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use context::{LogLevel, ServerContext, ServerError};
+pub use plugin::{Plugin, PluginError, SimplePlugin};
+pub use shutdown::ShutdownState;
+pub use types::*;
+
 pub use events::{
     Event, EventError, EventHandler, GorcEvent,
     PlayerConnectedEvent, PlayerDisconnectedEvent,
     RawClientMessageEvent, RegionStartedEvent,
     RegionStoppedEvent, TypedEventHandler,
     PluginLoadedEvent, PluginUnloadedEvent,
-    AuthenticationStatusSetEvent,
-    AuthenticationStatusGetEvent, AuthenticationStatusGetResponseEvent,
+    AuthenticationStatusGetResponseEvent,
     AuthenticationStatusChangedEvent,
+    AuthenticationStatusSetEvent,
+    AuthenticationStatusGetEvent,
 };
 pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use plugin::{Plugin, PluginError, SimplePlugin};
@@ -194,9 +203,14 @@ pub use binary::{
     BinaryEvent, BinaryPositionUpdate, BinaryActionEvent,
     BinaryPositionEvent, BinaryPlayerActionEvent, event_types
 };
-pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
-pub use types::*;
-pub use utils::{create_horizon_event_system, current_timestamp};
+pub use system::{
+    EventSystem, EventSystemStats,
+    DetailedEventSystemStats,
+    HandlerCategoryStats,
+    ClientConnectionRef,
+    ClientResponseSender,
+    ClientConnectionInfo
+};
 
 // Re-export GORC components for easy access
 pub use gorc::{
@@ -242,11 +256,26 @@ pub use std::sync::Arc;
 pub use serde::{Deserialize, Serialize};
 pub use futures;
 
+/// ABI version for plugin compatibility validation.
+/// This is derived from the crate version and Rust compiler version to ensure plugins are compatible.
+/// Format: "major.minor.patch:rust_version"
+/// Example: "0.10.0:1.75.0" or "0.10.0:unknown"
+pub const ABI_VERSION: &str = {
+    const CRATE_VERSION: &str = env!("CARGO_PKG_VERSION");
+    
+    // Use the Rust version detected by our build script
+    // This will be set by build.rs after attempting to detect the actual Rust version
+    const RUST_VERSION: &str = env!("HORIZON_RUSTC_VERSION");
+    
+    // Create a compile-time concatenated string with format "crate_version:rust_version"
+    const_format::concatcp!(CRATE_VERSION, ":", RUST_VERSION)
+};
+
 /// Returns build info string with version and Rust compiler version (if available)
 pub fn horizon_build_info() -> String {
     format!(
         "Horizon Event System v{} with Rust compiler v{}",
         env!("CARGO_PKG_VERSION"),
-        option_env!("RUSTC_VERSION").unwrap_or("unknown")
+        env!("HORIZON_RUSTC_VERSION")
     )
 }

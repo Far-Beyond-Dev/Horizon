@@ -6,7 +6,12 @@
       "Bash(cargo:*)",
       "Bash(mkdir:*)",
       "Bash(rm:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(RUST_BACKTRACE=1 cargo run)",
+      "Bash(.targetdebughorizon.exe)",
+      "Bash(./target/debug/horizon.exe)",
+      "Bash(copy targetreleasestars_beyond.dll plugins)",
+      "Bash(cp:*)"
     ],
     "deny": []
   }

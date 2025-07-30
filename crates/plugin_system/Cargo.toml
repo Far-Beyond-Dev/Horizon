@@ -4,10 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-libloading = {workspace = true}
-tracing = {workspace = true}
-tokio = {workspace = true}
+horizon_event_system = { workspace = true }
+libloading = { workspace = true }
+tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-horizon_event_system = { path = "../horizon_event_system" }
+thiserror = { workspace = true }
+tracing = { workspace = true }
 async-trait = { workspace = true }
+dashmap = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -127,7 +127,7 @@ impl LodRoom {
 
     /// Updates member position and moves them between rooms if needed
     pub fn update_member_position(&mut self, player_id: PlayerId, new_position: Position) {
-        let target_lod = self.get_lod_for_position(new_position);
+        let _target_lod = self.get_lod_for_position(new_position);
         
         // Remove from current rooms
         self.remove_member(player_id);

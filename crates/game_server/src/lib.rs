@@ -103,6 +103,8 @@ pub mod config;
 pub mod error;
 pub mod server;
 pub mod utils;
+pub mod security;
+pub mod health;
 
 // Internal modules (not part of public API)
 mod connection;
