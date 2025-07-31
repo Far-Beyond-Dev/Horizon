@@ -49,6 +49,7 @@ mod signals;
 use app::Application;
 use cli::CliArgs;
 use config::AppConfig;
+use horizon_event_system::async_logging;
 
 /// Main entry point for the Horizon Game Server.
 /// 
@@ -78,6 +79,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("❌ Failed to setup logging: {e}");
         std::process::exit(1);
     }
+    
+    // Initialize async logging system
+    async_logging::init_global_async_logger();
 
     // Create and run application
     match Application::new(args).await {

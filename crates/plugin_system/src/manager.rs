@@ -74,13 +74,9 @@ impl ServerContext for BasicServerContext {
     }
 
     fn log(&self, level: LogLevel, message: &str) {
-        match level {
-            LogLevel::Error => error!("{}", message),
-            LogLevel::Warn => warn!("{}", message),
-            LogLevel::Info => info!("{}", message),
-            LogLevel::Debug => tracing::debug!("{}", message),
-            LogLevel::Trace => tracing::trace!("{}", message),
-        }
+        // Use async logger to prevent blocking hot threads
+        let async_logger = horizon_event_system::async_logging::global_async_logger();
+        async_logger.log_with_target(level, message, Some("plugin_system"));
     }
 
 
