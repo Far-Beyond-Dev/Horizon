@@ -1,24 +1,24 @@
 /// Core EventSystem implementation
-use crate::events::{Event, EventHandler, TypedEventHandler, EventError, GorcEvent};
-use crate::gorc::instance::{GorcObjectId, GorcInstanceManager, ObjectInstance};
-use crate::types::PlayerId;
-use super::client::{ClientConnectionRef, ClientResponseSender};
+use crate::events::EventHandler;
+use crate::gorc::instance::GorcInstanceManager;
+use super::client::ClientResponseSender;
 use super::stats::EventSystemStats;
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use dashmap::DashMap;
 
 /// The core event system that manages event routing and handler execution.
 /// 
 /// This is the central hub for all event processing in the system. It provides
 /// type-safe event registration and emission with support for different event
 /// categories (core, client, plugin, and GORC instance events).
+/// 
+/// Uses DashMap for lock-free concurrent access to handlers, significantly improving
+/// performance under high concurrency by eliminating reader-writer lock contention.
 pub struct EventSystem {
-    /// Map of event keys to their registered handlers
-    pub(super) handlers: RwLock<HashMap<String, Vec<Arc<dyn EventHandler>>>>,
-    /// System statistics for monitoring
-    pub(super) stats: RwLock<EventSystemStats>,
+    /// Lock-free map of event keys to their registered handlers
+    pub(super) handlers: DashMap<String, Vec<Arc<dyn EventHandler>>>,
+    /// System statistics for monitoring (kept as RwLock for atomic updates)
+    pub(super) stats: tokio::sync::RwLock<EventSystemStats>,
     /// GORC instance manager for object-specific events
     pub(super) gorc_instances: Option<Arc<GorcInstanceManager>>,
     /// Client response sender for connection-aware handlers
@@ -40,8 +40,8 @@ impl EventSystem {
     /// Creates a new event system with no registered handlers.
     pub fn new() -> Self {
         Self {
-            handlers: RwLock::new(HashMap::new()),
-            stats: RwLock::new(EventSystemStats::default()),
+            handlers: DashMap::new(),
+            stats: tokio::sync::RwLock::new(EventSystemStats::default()),
             gorc_instances: None,
             client_response_sender: None,
         }
@@ -50,8 +50,8 @@ impl EventSystem {
     /// Creates a new event system with GORC instance manager integration
     pub fn with_gorc(gorc_instances: Arc<GorcInstanceManager>) -> Self {
         Self {
-            handlers: RwLock::new(HashMap::new()),
-            stats: RwLock::new(EventSystemStats::default()),
+            handlers: DashMap::new(),
+            stats: tokio::sync::RwLock::new(EventSystemStats::default()),
             gorc_instances: Some(gorc_instances),
             client_response_sender: None,
         }

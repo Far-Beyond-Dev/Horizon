@@ -168,6 +168,7 @@ impl EventSystem {
 
     /// Internal emit implementation that handles the actual event dispatch.
     /// Optimized for high throughput (500k messages/sec target).
+    /// Now uses lock-free DashMap for even better concurrent performance.
     async fn emit_event<T>(&self, event_key: &str, event: &T) -> Result<(), EventError>
     where
         T: Event,
@@ -175,11 +176,8 @@ impl EventSystem {
         // Pre-serialize once for all handlers to avoid duplicate serialization
         let data = event.serialize()?;
         
-        // Use read lock with minimal hold time
-        let event_handlers = {
-            let handlers = self.handlers.read().await;
-            handlers.get(event_key).cloned()
-        };
+        // Lock-free read from DashMap - no contention!
+        let event_handlers = self.handlers.get(event_key).map(|entry| entry.value().clone());
 
         if let Some(event_handlers) = event_handlers {
             // Only log debug info if handlers exist to reduce overhead
@@ -217,11 +215,17 @@ impl EventSystem {
         } else {
             // Show debugging info for missing handlers (except server_tick spam)
             if event_key != "core:server_tick" {
-                // Show available handlers for debugging
-                let handlers = self.handlers.read().await;
-                let available_keys: Vec<String> = handlers.keys()
-                    .filter(|k| k.contains(&namespace_from_key(event_key)))
-                    .cloned()
+                // Show available handlers for debugging using DashMap iteration
+                let available_keys: Vec<String> = self.handlers
+                    .iter()
+                    .filter_map(|entry| {
+                        let key = entry.key();
+                        if key.contains(&namespace_from_key(event_key)) {
+                            Some(key.clone())
+                        } else {
+                            None
+                        }
+                    })
                     .collect();
                 
                 if !available_keys.is_empty() {
@@ -253,17 +257,19 @@ impl EventSystem {
         }
     }
 
-    /// Gets handler count breakdown by event category
+    /// Gets handler count breakdown by event category using lock-free DashMap
     async fn get_handler_count_by_category(&self) -> HandlerCategoryStats {
-        let handlers = self.handlers.read().await;
         let mut core_handlers = 0;
         let mut client_handlers = 0;
         let mut plugin_handlers = 0;
         let mut gorc_handlers = 0;
         let mut gorc_instance_handlers = 0;
 
-        for (key, handler_list) in handlers.iter() {
-            let count = handler_list.len();
+        // Lock-free iteration over DashMap
+        for entry in self.handlers.iter() {
+            let key = entry.key();
+            let count = entry.value().len();
+            
             if key.starts_with("core:") {
                 core_handlers += count;
             } else if key.starts_with("client:") {

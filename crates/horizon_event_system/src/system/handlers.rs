@@ -233,12 +233,13 @@ impl EventSystem {
         let typed_handler = TypedEventHandler::new(handler_name, handler);
         let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
 
-        let mut handlers = self.handlers.write().await;
-        handlers
+        // Lock-free insertion using DashMap
+        self.handlers
             .entry(event_key.clone())
             .or_insert_with(Vec::new)
             .push(handler_arc);
 
+        // Update stats atomically
         let mut stats = self.stats.write().await;
         stats.total_handlers += 1;
 
@@ -278,12 +279,13 @@ impl EventSystem {
         let typed_handler = TypedEventHandler::new(handler_name, async_wrapper);
         let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
 
-        let mut handlers = self.handlers.write().await;
-        handlers
+        // Lock-free insertion using DashMap
+        self.handlers
             .entry(event_key.clone())
             .or_insert_with(Vec::new)
             .push(handler_arc);
 
+        // Update stats atomically
         let mut stats = self.stats.write().await;
         stats.total_handlers += 1;
 
@@ -359,12 +361,13 @@ impl EventSystem {
         let typed_handler = TypedEventHandler::new(handler_name, conn_aware_wrapper);
         let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
 
-        let mut handlers = self.handlers.write().await;
-        handlers
+        // Lock-free insertion using DashMap
+        self.handlers
             .entry(event_key.clone())
             .or_insert_with(Vec::new)
             .push(handler_arc);
 
+        // Update stats atomically
         let mut stats = self.stats.write().await;
         stats.total_handlers += 1;
 
@@ -424,12 +427,13 @@ impl EventSystem {
 
         let handler_arc: Arc<dyn EventHandler> = Arc::new(gorc_handler);
 
-        let mut handlers = self.handlers.write().await;
-        handlers
+        // Lock-free insertion using DashMap
+        self.handlers
             .entry(event_key.clone())
             .or_insert_with(Vec::new)
             .push(handler_arc);
 
+        // Update stats atomically
         let mut stats = self.stats.write().await;
         stats.total_handlers += 1;
 
