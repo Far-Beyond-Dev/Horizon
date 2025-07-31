@@ -12,6 +12,7 @@ use tracing::{debug, error, info, trace, warn};
 #[derive(Debug, Clone)]
 pub struct LogMessage {
     pub level: LogLevel,
+    pub message: String,
     pub target: Option<String>,
 }
 
