@@ -141,16 +141,19 @@ impl EventSystem {
     }
 
     /// Gets all registered event keys using lock-free DashMap
+    #[inline]
     pub async fn get_registered_events(&self) -> Vec<String> {
-        self.handlers.iter().map(|entry| entry.key().clone()).collect()
+        self.handlers.iter().map(|entry| entry.key().to_string()).collect()
     }
 
     /// Checks if handlers are registered for a specific event using lock-free DashMap
+    #[inline]
     pub async fn has_handlers(&self, event_key: &str) -> bool {
         self.handlers.contains_key(event_key)
     }
 
     /// Gets the number of handlers for a specific event using lock-free DashMap
+    #[inline]
     pub async fn get_handler_count(&self, event_key: &str) -> usize {
         self.handlers.get(event_key).map(|entry| entry.value().len()).unwrap_or(0)
     }

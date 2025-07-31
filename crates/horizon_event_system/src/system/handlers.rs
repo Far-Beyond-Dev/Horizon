@@ -5,6 +5,7 @@ use super::core::EventSystem;
 use super::client::ClientConnectionRef;
 use std::sync::Arc;
 use tracing::{error, info};
+use compact_str::CompactString;
 
 impl EventSystem {
     /// Registers a handler for core server events.
@@ -13,7 +14,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let event_key = format!("core:{event_name}");
+        let event_key = CompactString::new_inline("core:") + event_name;
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
@@ -29,7 +30,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let event_key = format!("client:{namespace}:{event_name}");
+        let event_key = CompactString::new_inline("client:") + namespace + ":" + event_name;
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
@@ -74,7 +75,7 @@ impl EventSystem {
         T: Event + serde::Serialize + 'static,
         F: Fn(T, ClientConnectionRef) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let event_key = format!("client:{namespace}:{event_name}");
+        let event_key = CompactString::new_inline("client:") + namespace + ":" + event_name;
         self.register_connection_aware_handler(event_key, event_name, handler)
             .await
     }
@@ -111,7 +112,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let event_key = format!("client:{namespace}:{event_name}");
+        let event_key = CompactString::new_inline("client:") + namespace + ":" + event_name;
         self.register_async_handler(event_key, event_name, handler)
             .await
     }
@@ -127,7 +128,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let event_key = format!("plugin:{plugin_name}:{event_name}");
+        let event_key = CompactString::new_inline("plugin:") + plugin_name + ":" + event_name;
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
@@ -144,7 +145,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
+        let event_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
         self.register_typed_handler(event_key, event_name, handler)
             .await
     }
@@ -163,7 +164,7 @@ impl EventSystem {
         T: Event + 'static,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let event_key = format!("core:{}", event_name);
+        let event_key = CompactString::new_inline("core:") + event_name;
         self.register_async_handler(event_key, event_name, handler)
             .await
     }
@@ -213,7 +214,7 @@ impl EventSystem {
             + Clone
             + 'static,
     {
-        let event_key = format!("gorc_instance:{}:{}:{}", object_type, channel, event_name);
+        let event_key = CompactString::new_inline("gorc_instance:") + object_type + ":" + &channel.to_string() + ":" + event_name;
         self.register_gorc_instance_handler(event_key, event_name, handler)
             .await
     }
@@ -221,7 +222,7 @@ impl EventSystem {
     /// Internal helper for registering typed handlers.
     async fn register_typed_handler<T, F>(
         &self,
-        event_key: String,
+        event_key: CompactString,
         _event_name: &str,
         handler: F,
     ) -> Result<(), EventError>
@@ -233,10 +234,10 @@ impl EventSystem {
         let typed_handler = TypedEventHandler::new(handler_name, handler);
         let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
 
-        // Lock-free insertion using DashMap
+        // Lock-free insertion using DashMap with SmallVec optimization
         self.handlers
             .entry(event_key.clone())
-            .or_insert_with(Vec::new)
+            .or_insert_with(smallvec::SmallVec::new)
             .push(handler_arc);
 
         // Update stats atomically
@@ -253,7 +254,7 @@ impl EventSystem {
     /// This keeps DLL boundaries safe while still providing async execution.
     async fn register_async_handler<T, F>(
         &self,
-        event_key: String,
+        event_key: CompactString,
         _event_name: &str,
         handler: F,
     ) -> Result<(), EventError>
@@ -279,10 +280,10 @@ impl EventSystem {
         let typed_handler = TypedEventHandler::new(handler_name, async_wrapper);
         let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
 
-        // Lock-free insertion using DashMap
+        // Lock-free insertion using DashMap with SmallVec optimization
         self.handlers
             .entry(event_key.clone())
-            .or_insert_with(Vec::new)
+            .or_insert_with(smallvec::SmallVec::new)
             .push(handler_arc);
 
         // Update stats atomically
@@ -296,7 +297,7 @@ impl EventSystem {
     /// Internal helper for registering connection-aware handlers.
     async fn register_connection_aware_handler<T, F>(
         &self,
-        event_key: String,
+        event_key: CompactString,
         _event_name: &str,
         handler: F,
     ) -> Result<(), EventError>
@@ -361,10 +362,10 @@ impl EventSystem {
         let typed_handler = TypedEventHandler::new(handler_name, conn_aware_wrapper);
         let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
 
-        // Lock-free insertion using DashMap
+        // Lock-free insertion using DashMap with SmallVec optimization
         self.handlers
             .entry(event_key.clone())
-            .or_insert_with(Vec::new)
+            .or_insert_with(smallvec::SmallVec::new)
             .push(handler_arc);
 
         // Update stats atomically
@@ -378,7 +379,7 @@ impl EventSystem {
     /// Internal helper for registering GORC instance handlers.
     async fn register_gorc_instance_handler<F>(
         &self,
-        event_key: String,
+        event_key: CompactString,
         _event_name: &str,
         handler: F,
     ) -> Result<(), EventError>
@@ -427,10 +428,10 @@ impl EventSystem {
 
         let handler_arc: Arc<dyn EventHandler> = Arc::new(gorc_handler);
 
-        // Lock-free insertion using DashMap
+        // Lock-free insertion using DashMap with SmallVec optimization
         self.handlers
             .entry(event_key.clone())
-            .or_insert_with(Vec::new)
+            .or_insert_with(smallvec::SmallVec::new)
             .push(handler_arc);
 
         // Update stats atomically

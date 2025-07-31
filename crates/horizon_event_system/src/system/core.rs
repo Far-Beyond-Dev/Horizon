@@ -5,6 +5,9 @@ use super::client::ClientResponseSender;
 use super::stats::EventSystemStats;
 use std::sync::Arc;
 use dashmap::DashMap;
+use smallvec::SmallVec;
+use compact_str::CompactString;
+use super::cache::SerializationBufferPool;
 
 /// The core event system that manages event routing and handler execution.
 /// 
@@ -14,11 +17,14 @@ use dashmap::DashMap;
 /// 
 /// Uses DashMap for lock-free concurrent access to handlers, significantly improving
 /// performance under high concurrency by eliminating reader-writer lock contention.
+/// Uses SmallVec to eliminate heap allocations for the common case of 1-4 handlers per event.
 pub struct EventSystem {
-    /// Lock-free map of event keys to their registered handlers
-    pub(super) handlers: DashMap<String, Vec<Arc<dyn EventHandler>>>,
+    /// Lock-free map of event keys to their registered handlers (optimized with SmallVec + CompactString)  
+    pub(super) handlers: DashMap<CompactString, SmallVec<[Arc<dyn EventHandler>; 4]>>,
     /// System statistics for monitoring (kept as RwLock for atomic updates)
     pub(super) stats: tokio::sync::RwLock<EventSystemStats>,
+    /// High-performance serialization buffer pool to reduce allocations
+    pub(super) serialization_pool: SerializationBufferPool,
     /// GORC instance manager for object-specific events
     pub(super) gorc_instances: Option<Arc<GorcInstanceManager>>,
     /// Client response sender for connection-aware handlers
@@ -42,6 +48,7 @@ impl EventSystem {
         Self {
             handlers: DashMap::new(),
             stats: tokio::sync::RwLock::new(EventSystemStats::default()),
+            serialization_pool: SerializationBufferPool::default(),
             gorc_instances: None,
             client_response_sender: None,
         }
@@ -52,6 +59,7 @@ impl EventSystem {
         Self {
             handlers: DashMap::new(),
             stats: tokio::sync::RwLock::new(EventSystemStats::default()),
+            serialization_pool: SerializationBufferPool::default(),
             gorc_instances: Some(gorc_instances),
             client_response_sender: None,
         }
@@ -69,11 +77,13 @@ impl EventSystem {
 
 
     /// Gets the client response sender if available
+    #[inline]
     pub fn get_client_response_sender(&self) -> Option<Arc<dyn ClientResponseSender + Send + Sync>> {
         self.client_response_sender.clone()
     }
 
     /// Gets the current event system statistics
+    #[inline]
     pub async fn get_stats(&self) -> EventSystemStats {
         self.stats.read().await.clone()
     }

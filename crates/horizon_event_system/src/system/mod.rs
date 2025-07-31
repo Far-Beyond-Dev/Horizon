@@ -5,6 +5,7 @@ mod emitters;
 mod handlers;
 mod management;
 mod stats;
+mod cache;
 mod tests;
 
 // Re-export all public items from submodules
