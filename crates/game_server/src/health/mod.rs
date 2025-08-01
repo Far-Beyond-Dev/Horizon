@@ -1,9 +1,9 @@
 //! Health check and monitoring endpoints for production deployment.
 
-use crate::{ServerError, GameServer};
+use crate::GameServer;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use sysinfo::{System, Pid};
 
@@ -264,7 +264,7 @@ mod tests {
     use super::*;
     use crate::create_server;
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_health_check() {
         let health_manager = HealthManager::new();
         let server = create_server();
@@ -286,7 +286,7 @@ mod tests {
         assert!(health_manager.liveness_check().await);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_readiness_check() {
         let health_manager = HealthManager::new();
         let server = create_server();

@@ -92,4 +92,87 @@ mod tests {
         let success = connection_manager.set_auth_status_by_player(nonexistent_player, AuthenticationStatus::Authenticated).await;
         assert!(!success);
     }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_auth_status_set_event_integration() {
+        use horizon_event_system::create_horizon_event_system;
+        
+        let horizon_event_system = create_horizon_event_system();
+        let player_id = PlayerId::new();
+        let timestamp = current_timestamp();
+        
+        // Test setting authentication status via event
+        let auth_event = AuthenticationStatusSetEvent {
+            player_id,
+            status: AuthenticationStatus::Authenticating,
+            timestamp,
+        };
+        
+        // Emit the event - this tests that the event can be created and emitted
+        horizon_event_system.emit_core("auth_status_set", &auth_event).await.unwrap();
+        
+        // Test different status types
+        let statuses = [
+            AuthenticationStatus::Authenticated,
+            AuthenticationStatus::AuthenticationFailed,
+            AuthenticationStatus::Unauthenticated,
+        ];
+        
+        for status in statuses {
+            let auth_event = AuthenticationStatusSetEvent {
+                player_id,
+                status,
+                timestamp: current_timestamp(),
+            };
+            
+            // Each emission should succeed
+            horizon_event_system.emit_core("auth_status_set", &auth_event).await.unwrap();
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_auth_status_event_workflow() {
+        use horizon_event_system::create_horizon_event_system;
+        
+        let horizon_event_system = create_horizon_event_system();
+        let player_id = PlayerId::new();
+        
+        // Test event-driven authentication workflow by emitting events
+        // This tests that the event system can handle auth status events in sequence
+        let events = vec![
+            (AuthenticationStatus::Authenticating, current_timestamp()),
+            (AuthenticationStatus::Authenticated, current_timestamp() + 1000),
+            (AuthenticationStatus::AuthenticationFailed, current_timestamp() + 2000),
+        ];
+        
+        for (status, timestamp) in events {
+            let auth_event = AuthenticationStatusSetEvent {
+                player_id,
+                status,
+                timestamp,
+            };
+            
+            // Emit the event - this tests the event handling pipeline
+            let result = horizon_event_system.emit_core("auth_status_set", &auth_event).await;
+            assert!(result.is_ok(), "Event emission should succeed for status: {:?}", status);
+        }
+        
+        // Test that we can also emit multiple events concurrently
+        let concurrent_events = vec![
+            AuthenticationStatusSetEvent {
+                player_id: PlayerId::new(),
+                status: AuthenticationStatus::Authenticating,
+                timestamp: current_timestamp(),
+            },
+            AuthenticationStatusSetEvent {
+                player_id: PlayerId::new(),
+                status: AuthenticationStatus::Authenticated,
+                timestamp: current_timestamp(),
+            },
+        ];
+        
+        for event in concurrent_events {
+            horizon_event_system.emit_core("auth_status_set", &event).await.unwrap();
+        }
+    }
 }

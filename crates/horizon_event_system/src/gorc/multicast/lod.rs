@@ -1,6 +1,6 @@
 /// Level of Detail (LOD) room management
 use super::types::{MulticastGroupId, LodLevel};
-use crate::types::{PlayerId, Position, Vec3};
+use crate::types::{PlayerId, Position};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use tokio::time::Instant;

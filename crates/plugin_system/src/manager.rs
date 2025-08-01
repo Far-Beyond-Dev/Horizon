@@ -49,6 +49,7 @@ impl BasicServerContext {
     }
 
     /// Create a context with a custom region id.
+    #[allow(dead_code)]
     fn with_region(event_system: Arc<EventSystem>, region_id: horizon_event_system::types::RegionId) -> Self {
         Self { 
             event_system, 
@@ -58,6 +59,7 @@ impl BasicServerContext {
     }
 
     /// Create a context with an explicit tokio handle.
+    #[allow(dead_code)]
     fn with_tokio_handle(event_system: Arc<EventSystem>, tokio_handle: tokio::runtime::Handle) -> Self {
         Self {
             event_system,
@@ -106,6 +108,7 @@ impl ServerContext for BasicServerContext {
 /// Information about a loaded plugin
 pub struct LoadedPlugin {
     /// The name of the plugin
+    #[allow(dead_code)]
     pub name: String,
     /// The loaded library
     pub library: Library,
@@ -309,7 +312,7 @@ impl PluginManager {
                 const MAX_PLUGIN_VERSION_LENGTH: usize = 1024; // Define a reasonable maximum length
                 let plugin_version = unsafe {
                     let slice = std::slice::from_raw_parts(plugin_version_ptr as *const u8, MAX_PLUGIN_VERSION_LENGTH);
-                    if let Some(null_pos) = slice.iter().position(|&c| c == 0) {
+                    if let Some(_null_pos) = slice.iter().position(|&c| c == 0) {
                         std::ffi::CStr::from_ptr(plugin_version_ptr)
                             .to_string_lossy()
                             .to_string()

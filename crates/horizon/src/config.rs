@@ -393,7 +393,7 @@ json_format = true
 file_path = "/tmp/test.log"
 "#;
 
-        let mut temp_file = NamedTempFile::new().unwrap();
+        let temp_file = NamedTempFile::new().unwrap();
         fs::write(temp_file.path(), toml_content).await.unwrap();
 
         let result = AppConfig::load_from_file(&temp_file.path().to_path_buf()).await;

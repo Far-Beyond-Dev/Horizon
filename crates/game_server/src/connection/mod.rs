@@ -7,7 +7,6 @@ pub mod client;
 pub mod manager;
 pub mod response;
 
-pub use client::ClientConnection;
 pub use manager::ConnectionManager;
 pub use response::GameServerResponseSender;
 

@@ -5,7 +5,7 @@
 //! handshaking, message processing, and cleanup.
 
 use crate::{
-    connection::{ConnectionId, ConnectionManager},
+    connection::ConnectionManager,
     error::ServerError,
     messaging::route_client_message,
 };

@@ -4,7 +4,7 @@
 //! to the appropriate plugin handlers through the event system.
 
 use crate::{connection::ConnectionId, error::ServerError, messaging::ClientMessage};
-use horizon_event_system::{current_timestamp, EventSystem, PlayerId, RawClientMessageEvent};
+use horizon_event_system::{current_timestamp, EventSystem, RawClientMessageEvent};
 use tracing::{debug, info};
 
 /// Routes a raw client message to the appropriate plugin handlers.

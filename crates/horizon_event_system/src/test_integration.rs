@@ -1,15 +1,19 @@
+#[cfg(test)]
 use super::*;
 
 // Mock server context for testing
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MockServerContext;
 
+#[cfg(test)]
 impl MockServerContext {
     fn new() -> Self {
         Self
     }
 }
 
+#[cfg(test)]
 #[async_trait]
 impl ServerContext for MockServerContext {
     fn events(&self) -> Arc<crate::system::EventSystem> {

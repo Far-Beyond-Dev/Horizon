@@ -647,6 +647,7 @@ impl GameServer {
     /// 
     /// The tick system is non-blocking and runs independently of the main
     /// server accept loops.
+    #[allow(dead_code)]
     async fn start_server_tick(&self) {
         self.start_server_tick_with_shutdown(None).await;
     }
