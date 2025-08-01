@@ -1,0 +1,53 @@
+[package]
+name = "universal_plugin_system"
+version = "0.1.0"
+edition = "2021"
+authors = ["Horizon Team"]
+description = "A flexible, reusable plugin system that can be used across multiple applications with custom event propagation support"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-org/universal-plugin-system"
+keywords = ["plugin", "event", "system", "dynamic", "modular"]
+categories = ["development-tools", "api-bindings"]
+
+[dependencies]
+# Core dependencies
+async-trait = "0.1"
+tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "1.0"
+tracing = "0.1"
+
+# Performance and concurrency
+dashmap = "5.0"
+smallvec = "1.11"
+compact_str = { version = "0.7", features = ["serde"] }
+futures = "0.3"
+
+# Dynamic loading
+libloading = "0.8"
+
+# Memory management
+arc-swap = "1.6"
+
+# Utilities
+uuid = { version = "1.0", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3.0"
+test-log = "0.2"
+
+[features]
+default = ["spatial-propagation"]
+
+# Enable spatial/proximity-based event propagation (like GORC)
+spatial-propagation = []
+
+# Enable network-aware event propagation
+network-propagation = []
+
+# Enable advanced performance metrics
+metrics = []
+
+# Enable debug logging and tracing
+debug = []
