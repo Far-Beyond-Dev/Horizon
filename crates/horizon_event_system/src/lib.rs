@@ -158,6 +158,11 @@ pub mod utils;
 // GORC (Game Object Replication Channels) module
 pub mod gorc;
 
+// Communication stack modules
+pub mod transport;
+pub mod serialization;
+pub mod communication;
+
 // Re-export commonly used items for convenience
 pub use api::{create_complete_horizon_system, create_simple_horizon_system};
 pub use utils::{create_horizon_event_system, current_timestamp};
@@ -225,6 +230,25 @@ pub use gorc::{
     
     // Constants
     GORC_VERSION, MAX_CHANNELS,
+};
+
+// Communication stack re-exports
+pub use transport::{
+    TransportProtocol, TcpTransport, UdpTransport,
+    Connection, ServerListener, TransportFactory,
+    TcpServerListener, TcpConnection, UdpServerListener, UdpConnection,
+};
+
+pub use serialization::{
+    SerializationFormat, JsonFormat, BinaryFormat,
+    JsonSerializer, BinarySerializer, SerializerFactory,
+    SerializationError, FormatCompatible, TypeErasedSerializer,
+};
+
+pub use communication::{
+    CommunicationEndpoint, CommunicationError, CommunicationFactory,
+    EndpointBuilder, ProtocolCompatible, TransportInfo, FormatInfo,
+    TcpJsonEndpoint, TcpBinaryEndpoint, UdpJsonEndpoint, UdpBinaryEndpoint,
 };
 
 // External dependencies that plugins commonly need
