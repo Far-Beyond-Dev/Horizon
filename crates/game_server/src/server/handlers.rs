@@ -8,6 +8,7 @@ use crate::{
     connection::ConnectionManager,
     error::ServerError,
     messaging::route_client_message,
+    server::core::{PlayerConnectedEvent, PlayerDisconnectedEvent},
 };
 use futures::{SinkExt, StreamExt};
 use universal_plugin_system::{
@@ -18,13 +19,6 @@ use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, trace};
-
-fn current_timestamp() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-}
 
 /// Handles a single client connection from establishment to cleanup.
 /// 
@@ -85,10 +79,10 @@ pub async fn handle_connection(
 
     // Emit core infrastructure event
     event_bus
-        .emit("core", "player_connected", &serde_json::json!({
-            "player_id": player_id,
-            "remote_addr": addr.to_string(),
-        }))
+        .emit("core", "player_connected", &PlayerConnectedEvent {
+            player_id,
+            remote_addr: addr.to_string(),
+        })
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
@@ -164,10 +158,10 @@ pub async fn handle_connection(
     // Emit disconnection event
     if let Some(player_id) = connection_manager.get_player_id(connection_id).await {
         event_bus
-            .emit("core", "player_disconnected", &serde_json::json!({
-                "player_id": player_id,
-                "reason": "client_disconnect",
-            }))
+            .emit("core", "player_disconnected", &PlayerDisconnectedEvent {
+                player_id,
+                reason: "client_disconnect".to_string(),
+            })
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
     }

@@ -22,9 +22,73 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
 use tracing::{error, info, warn};
+use serde::{Serialize, Deserialize};
+use universal_plugin_system::event::Event;
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
 use std::os::fd::AsRawFd;
+
+/// Event definitions for the server
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerConnectedEvent {
+    pub player_id: u64,
+    pub remote_addr: String,
+}
+
+impl Event for PlayerConnectedEvent {
+    fn event_type() -> &'static str {
+        "player_connected"
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerDisconnectedEvent {
+    pub player_id: u64,
+    pub reason: String,
+}
+
+impl Event for PlayerDisconnectedEvent {
+    fn event_type() -> &'static str {
+        "player_disconnected"
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegionStartedEvent {
+    pub region_id: String,
+    pub bounds: Option<crate::config::RegionBounds>,
+    pub timestamp: u64,
+}
+
+impl Event for RegionStartedEvent {
+    fn event_type() -> &'static str {
+        "region_started"
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PingResponseEvent {
+    pub timestamp: u64,
+    pub message: String,
+}
+
+impl Event for PingResponseEvent {
+    fn event_type() -> &'static str {
+        "ping_response"
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ServerTickEvent {
+    pub tick_count: u64,
+    pub timestamp: u64,
+}
+
+impl Event for ServerTickEvent {
+    fn event_type() -> &'static str {
+        "server_tick"
+    }
+}
 
 /// Event utility functions
 fn current_timestamp() -> u64 {
@@ -189,11 +253,11 @@ impl GameServer {
 
         // Emit region started event (for plugins)
         self.event_bus
-            .emit("core", "region_started", &serde_json::json!({
-                "region_id": self.region_id.clone(),
-                "bounds": self.config.region_bounds.clone(),
-                "timestamp": current_timestamp(),
-            }))
+            .emit("core", "region_started", &RegionStartedEvent {
+                region_id: self.region_id.clone(),
+                bounds: Some(self.config.region_bounds.clone()),
+                timestamp: current_timestamp(),
+            })
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
@@ -451,10 +515,10 @@ impl GameServer {
                 
                 tick_count += 1;
                 
-                let tick_event = serde_json::json!({
-                    "tick_count": tick_count,
-                    "timestamp": current_timestamp()
-                });
+                let tick_event = ServerTickEvent {
+                    tick_count,
+                    timestamp: current_timestamp(),
+                };
                 
                 if let Err(e) = event_bus.emit("core", "server_tick", &tick_event).await {
                     error!("Failed to emit server_tick event: {}", e);
