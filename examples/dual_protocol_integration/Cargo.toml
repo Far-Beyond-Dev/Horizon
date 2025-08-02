@@ -1,0 +1,18 @@
+[package]
+name = "dual_protocol_integration"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "dual_protocol_server"
+path = "src/main.rs"
+
+[dependencies]
+game_server = { path = "../../crates/game_server" }
+horizon_event_system = { path = "../../crates/horizon_event_system" }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }

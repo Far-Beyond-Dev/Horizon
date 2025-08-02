@@ -4,6 +4,7 @@ members = [
     "crates/*",
     # Examples
     "examples/gorc_example_plugin",
+    "examples/dual_protocol_integration",
 ]
 
 [workspace.dependencies]
