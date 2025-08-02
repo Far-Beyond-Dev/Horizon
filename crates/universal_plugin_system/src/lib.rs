@@ -28,51 +28,65 @@
 //!
 //! ```rust,no_run
 //! use universal_plugin_system::*;
+//! use std::sync::Arc;
 //!
-//! // Define your event types
-//! #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-//! struct PlayerJoinedEvent {
-//!     player_id: u64,
-//!     name: String,
-//! }
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     // Define your event types
+//!     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+//!     struct PlayerJoinedEvent {
+//!         player_id: u64,
+//!         name: String,
+//!     }
 //!
-//! impl Event for PlayerJoinedEvent {
-//!     fn event_type() -> &'static str { "player_joined" }
-//! }
+//!     impl Event for PlayerJoinedEvent {
+//!         fn event_type() -> &'static str { "player_joined" }
+//!     }
 //!
-//! // Create an event bus with default propagation
-//! let mut event_bus = EventBus::new();
+//!     // Create an event bus with default propagation
+//!     let propagator = AllEqPropagator::new();
+//!     let mut event_bus = EventBus::with_propagator(propagator);
 //!
-//! // Register a handler
-//! event_bus.on("player", "joined", |event: PlayerJoinedEvent| {
-//!     println!("Player {} joined!", event.name);
+//!     // Create an event key
+//!     let player_joined_key = StructuredEventKey::domain_event("player", "joined");
+//!
+//!     // Register a handler
+//!     event_bus.on_key(player_joined_key.clone(), |event: PlayerJoinedEvent| {
+//!         println!("Player {} joined!", event.name);
+//!         Ok(())
+//!     }).await?;
+//!
+//!     // Emit an event
+//!     event_bus.emit_key(player_joined_key, &PlayerJoinedEvent {
+//!         player_id: 123,
+//!         name: "Alice".to_string(),
+//!     }).await?;
+//!     
 //!     Ok(())
-//! }).await?;
-//!
-//! // Emit an event
-//! event_bus.emit("player", "joined", &PlayerJoinedEvent {
-//!     player_id: 123,
-//!     name: "Alice".to_string(),
-//! }).await?;
+//! }
 //! ```
 //!
 //! ### Custom Propagation Logic
 //!
 //! ```rust,no_run
 //! use universal_plugin_system::*;
+//! use std::sync::Arc;
 //!
 //! // Define custom propagation logic (like GORC spatial propagation)
-//! struct SpatialPropagator {
-//!     // Your spatial logic here
+//! struct SpatialPropagator;
+//!
+//! impl SpatialPropagator {
+//!     fn new() -> Self { Self }
 //! }
 //!
-//! impl EventPropagator for SpatialPropagator {
-//!     async fn should_propagate(&self, event_key: &str, context: &PropagationContext) -> bool {
+//! #[async_trait::async_trait]
+//! impl EventPropagator<StructuredEventKey> for SpatialPropagator {
+//!     async fn should_propagate(&self, _event_key: &StructuredEventKey, _context: &PropagationContext<StructuredEventKey>) -> bool {
 //!         // Custom logic to determine if event should reach specific handlers
 //!         true
 //!     }
 //!
-//!     async fn transform_event(&self, event: Arc<EventData>, context: &PropagationContext) -> Option<Arc<EventData>> {
+//!     async fn transform_event(&self, event: Arc<EventData>, _context: &PropagationContext<StructuredEventKey>) -> Option<Arc<EventData>> {
 //!         // Optional event transformation based on context
 //!         Some(event)
 //!     }
@@ -95,23 +109,89 @@ pub mod utils;
 // Re-exports for convenience
 pub use event::{
     Event, EventData, EventHandler, EventBus, EventKey, EventKeyType, 
-    StructuredEventKey, EventNamespace, TypedEventKey
+    StructuredEventKey, TypedEventKey
 };
 pub use plugin::{Plugin, SimplePlugin, PluginWrapper};
 pub use manager::{PluginManager, PluginConfig, LoadedPlugin};
 pub use context::{PluginContext, ContextProvider};
 pub use propagation::{
-    EventPropagator, DefaultPropagator, AllEqPropagator, NamespacePropagator, 
+    EventPropagator, DefaultPropagator, AllEqPropagator, DomainPropagator, 
     PropagationContext
 };
 pub use error::{PluginSystemError, EventError};
 // pub use macros::*; // TODO: Fix macros
+
+// Re-export the universal event system
+// (defined below)
 
 /// Version information for ABI compatibility
 pub const UNIVERSAL_PLUGIN_SYSTEM_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Default event bus type with AllEq propagation (most common use case)
 pub type DefaultEventBus = EventBus<StructuredEventKey, AllEqPropagator>;
+
+/// Universal event system that can be used by any application
+/// 
+/// This is the main entry point for the universal plugin system. It provides
+/// a complete event system with context and propagation that can be customized
+/// by the host application.
+pub struct UniversalEventSystem<C, P> 
+where
+    P: EventPropagator<StructuredEventKey>,
+{
+    /// The underlying event bus
+    pub event_bus: std::sync::Arc<EventBus<StructuredEventKey, P>>,
+    /// Application context
+    pub context: std::sync::Arc<C>,
+}
+
+impl<C, P> UniversalEventSystem<C, P> 
+where
+    P: EventPropagator<StructuredEventKey>,
+{
+    /// Create a new universal event system
+    pub fn new(context: std::sync::Arc<C>, propagator: P) -> Self {
+        let event_bus = std::sync::Arc::new(EventBus::with_propagator(propagator));
+        Self {
+            event_bus,
+            context,
+        }
+    }
+
+    /// Register an event handler using domain and event name
+    pub async fn on<T, F>(
+        &self,
+        domain: &str,
+        event_name: &str,
+        handler: F,
+    ) -> Result<()>
+    where
+        T: Event + for<'de> serde::Deserialize<'de>,
+        F: Fn(T) -> std::result::Result<(), EventError> + Send + Sync + Clone + 'static,
+    {
+        self.event_bus.on(domain, event_name, handler).await?;
+        Ok(())
+    }
+
+    /// Emit an event using domain and event name
+    pub async fn emit<T>(
+        &self,
+        domain: &str,
+        event_name: &str,
+        event: &T,
+    ) -> Result<()>
+    where
+        T: Event + serde::Serialize,
+    {
+        self.event_bus.emit(domain, event_name, event).await?;
+        Ok(())
+    }
+
+    /// Get the context
+    pub fn context(&self) -> std::sync::Arc<C> {
+        self.context.clone()
+    }
+}
 
 /// Result type used throughout the system
 pub type Result<T> = std::result::Result<T, PluginSystemError>;

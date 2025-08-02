@@ -134,64 +134,61 @@ impl<K: crate::event::EventKeyType> EventPropagator<K> for DefaultPropagator {
     }
 }
 
-/// Namespace-based propagator that filters by event namespace
+/// Domain-based propagator that filters by the first segment (domain) of structured event keys
 /// 
-/// Works with StructuredEventKey to provide efficient namespace filtering
+/// This propagator works with StructuredEventKey to provide efficient domain filtering.
+/// It uses the first segment of the key as the domain identifier.
 #[derive(Debug)]
-pub struct NamespacePropagator {
-    /// Allowed namespaces
-    allowed_namespaces: Vec<crate::event::EventNamespace>,
-    /// Blocked namespaces
-    blocked_namespaces: Vec<crate::event::EventNamespace>,
+pub struct DomainPropagator {
+    /// Allowed domains (whitelist mode)
+    allowed_domains: Vec<String>,
+    /// Blocked domains (blacklist mode) 
+    blocked_domains: Vec<String>,
 }
 
-impl NamespacePropagator {
-    /// Create a new namespace propagator
+impl DomainPropagator {
+    /// Create a new domain propagator
     pub fn new() -> Self {
         Self {
-            allowed_namespaces: Vec::new(),
-            blocked_namespaces: Vec::new(),
+            allowed_domains: Vec::new(),
+            blocked_domains: Vec::new(),
         }
     }
 
-    /// Allow specific namespaces (whitelist mode)
-    pub fn allow_namespaces(mut self, namespaces: Vec<crate::event::EventNamespace>) -> Self {
-        self.allowed_namespaces = namespaces;
+    /// Allow specific domains (whitelist mode)
+    pub fn allow_domains(mut self, domains: Vec<&str>) -> Self {
+        self.allowed_domains = domains.into_iter().map(|s| s.to_string()).collect();
         self
     }
 
-    /// Block specific namespaces (blacklist mode)
-    pub fn block_namespaces(mut self, namespaces: Vec<crate::event::EventNamespace>) -> Self {
-        self.blocked_namespaces = namespaces;
+    /// Block specific domains (blacklist mode)
+    pub fn block_domains(mut self, domains: Vec<&str>) -> Self {
+        self.blocked_domains = domains.into_iter().map(|s| s.to_string()).collect();
         self
     }
 
-    /// Extract namespace from structured event key
-    fn extract_namespace(&self, event_key: &crate::event::StructuredEventKey) -> crate::event::EventNamespace {
-        match event_key {
-            crate::event::StructuredEventKey::Core { .. } => crate::event::EventNamespace::Core,
-            crate::event::StructuredEventKey::Client { .. } => crate::event::EventNamespace::Client,
-            crate::event::StructuredEventKey::Plugin { .. } => crate::event::EventNamespace::Plugin,
-            crate::event::StructuredEventKey::Gorc { .. } => crate::event::EventNamespace::Gorc,
-            crate::event::StructuredEventKey::GorcInstance { .. } => crate::event::EventNamespace::GorcInstance,
-            crate::event::StructuredEventKey::Custom { .. } => crate::event::EventNamespace::Custom(0), // Default custom
-        }
+    /// Extract domain from structured event key (first segment)
+    fn extract_domain<'a>(&self, event_key: &'a crate::event::StructuredEventKey) -> Option<&'a str> {
+        event_key.domain()
     }
 }
 
 #[async_trait]
-impl EventPropagator<crate::event::StructuredEventKey> for NamespacePropagator {
+impl EventPropagator<crate::event::StructuredEventKey> for DomainPropagator {
     async fn should_propagate(&self, event_key: &crate::event::StructuredEventKey, _context: &PropagationContext<crate::event::StructuredEventKey>) -> bool {
-        let namespace = self.extract_namespace(event_key);
+        let domain = match self.extract_domain(event_key) {
+            Some(domain) => domain,
+            None => return false, // No domain means no propagation
+        };
 
         // Check blocklist first
-        if self.blocked_namespaces.contains(&namespace) {
+        if self.blocked_domains.iter().any(|blocked| blocked == domain) {
             return false;
         }
 
         // If allowlist is specified, check it
-        if !self.allowed_namespaces.is_empty() {
-            return self.allowed_namespaces.contains(&namespace);
+        if !self.allowed_domains.is_empty() {
+            return self.allowed_domains.iter().any(|allowed| allowed == domain);
         }
 
         // Default: allow if not blocked

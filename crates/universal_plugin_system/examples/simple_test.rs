@@ -97,9 +97,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("✅ Loaded plugin: {}", plugin_name);
     
     // Test basic event key creation
-    let test_key = StructuredEventKey::Core { 
-        event_name: "test".into() 
-    };
+    let test_key = StructuredEventKey::domain_event("core", "test");
     
     println!("🔑 Created event key: {}", test_key.to_string());
     
@@ -152,21 +150,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_key_creation() -> Result<(), Box<dyn std::error::Error>> {
-        let key1 = StructuredEventKey::Core { 
-            event_name: "test".into() 
-        };
-        let key2 = StructuredEventKey::Client { 
-            namespace: "chat".into(),
-            event_name: "message".into() 
-        };
+        let key1 = StructuredEventKey::domain_event("core", "test");
+        let key2 = StructuredEventKey::domain_category_event("client", "chat", "message");
         
         assert_eq!(key1.to_string(), "core:test");
         assert_eq!(key2.to_string(), "client:chat:message");
         
         // Test equality
-        let key3 = StructuredEventKey::Core { 
-            event_name: "test".into() 
-        };
+        let key3 = StructuredEventKey::domain_event("core", "test");
         assert_eq!(key1, key3);
         assert_ne!(key1, key2);
         
@@ -177,15 +168,9 @@ mod tests {
     async fn test_propagator() -> Result<(), Box<dyn std::error::Error>> {
         let propagator = AllEqPropagator::new();
         
-        let key1 = StructuredEventKey::Core { 
-            event_name: "test".into() 
-        };
-        let key2 = StructuredEventKey::Core { 
-            event_name: "test".into() 
-        };
-        let key3 = StructuredEventKey::Core { 
-            event_name: "different".into() 
-        };
+        let key1 = StructuredEventKey::domain_event("core", "test");
+        let key2 = StructuredEventKey::domain_event("core", "test");
+        let key3 = StructuredEventKey::domain_event("core", "different");
         
         let context1 = PropagationContext::new(key1.clone());
         let context2 = PropagationContext::new(key3.clone());

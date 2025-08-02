@@ -190,25 +190,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("-------------------------------");
     
     // Test different event key types
-    let core_key = StructuredEventKey::Core { 
-        event_name: "server_started".into() 
-    };
+    let core_key = StructuredEventKey::domain_event("core", "server_started");
     
-    let client_key = StructuredEventKey::Client { 
-        namespace: "chat".into(),
-        event_name: "message".into() 
-    };
+    let client_key = StructuredEventKey::domain_category_event("client", "chat", "message");
     
-    let plugin_key = StructuredEventKey::Plugin { 
-        plugin_name: "monitoring".into(),
-        event_name: "stats_update".into() 
-    };
+    let plugin_key = StructuredEventKey::domain_category_event("plugin", "monitoring", "stats_update");
     
-    let gorc_key = StructuredEventKey::Gorc { 
-        object_type: "Player".into(),
-        channel: 0,
-        event_name: "position_update".into() 
-    };
+    let gorc_key = StructuredEventKey::new(vec!["gorc", "Player", "0", "position_update"]);
     
     println!("🔑 Core event key: {}", core_key.to_string());
     println!("🔑 Client event key: {}", client_key.to_string());
@@ -247,9 +235,9 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     
     let propagator = AllEqPropagator::new();
     
-    let test_key1 = StructuredEventKey::Core { event_name: "test".into() };
-    let test_key2 = StructuredEventKey::Core { event_name: "test".into() };
-    let test_key3 = StructuredEventKey::Core { event_name: "different".into() };
+    let test_key1 = StructuredEventKey::domain_event("core", "test");
+    let test_key2 = StructuredEventKey::domain_event("core", "test");
+    let test_key3 = StructuredEventKey::domain_event("core", "different");
     
     let context1 = PropagationContext::new(test_key1.clone());
     let context2 = PropagationContext::new(test_key3.clone());
@@ -335,17 +323,14 @@ mod tests {
 
     #[test]
     fn test_event_key_types() {
-        let core_key = StructuredEventKey::Core { event_name: "test".into() };
-        let client_key = StructuredEventKey::Client { 
-            namespace: "chat".into(), 
-            event_name: "message".into() 
-        };
+        let core_key = StructuredEventKey::domain_event("core", "test");
+        let client_key = StructuredEventKey::domain_category_event("client", "chat", "message");
         
         assert_eq!(core_key.to_string(), "core:test");
         assert_eq!(client_key.to_string(), "client:chat:message");
         
         // Test equality
-        let core_key2 = StructuredEventKey::Core { event_name: "test".into() };
+        let core_key2 = StructuredEventKey::domain_event("core", "test");
         assert_eq!(core_key, core_key2);
         assert_ne!(core_key, client_key);
     }
@@ -354,9 +339,9 @@ mod tests {
     async fn test_alleq_propagator() {
         let propagator = AllEqPropagator::new();
         
-        let key1 = StructuredEventKey::Core { event_name: "test".into() };
-        let key2 = StructuredEventKey::Core { event_name: "test".into() };
-        let key3 = StructuredEventKey::Core { event_name: "different".into() };
+        let key1 = StructuredEventKey::domain_event("core", "test");
+        let key2 = StructuredEventKey::domain_event("core", "test");
+        let key3 = StructuredEventKey::domain_event("core", "different");
         
         let context = PropagationContext::new(key1.clone());
         

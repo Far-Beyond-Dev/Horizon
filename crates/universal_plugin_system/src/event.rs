@@ -57,72 +57,127 @@ impl EventKeyType for EventKey {
     }
 }
 
-/// Enum-based event key for better performance and type safety
+/// Generic structured event key that can represent arbitrary domain hierarchies
+/// 
+/// This is a truly generic event key that doesn't hardcode any specific domains.
+/// Host applications can use it to represent their own domain structures like:
+/// - `["core", "user_login"]` 
+/// - `["client", "chat", "message"]`
+/// - `["plugin", "inventory", "item_added"]`
+/// - `["gorc", "Player", "0", "position_update"]`
+/// 
+/// The key is just a hierarchy of string segments that get joined with colons.
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum StructuredEventKey {
-    /// Core server events
-    Core { event_name: CompactString },
-    /// Client events with namespace
-    Client { namespace: CompactString, event_name: CompactString },
-    /// Plugin-to-plugin events
-    Plugin { plugin_name: CompactString, event_name: CompactString },
-    /// GORC object events
-    Gorc { object_type: CompactString, channel: u8, event_name: CompactString },
-    /// GORC instance events
-    GorcInstance { object_type: CompactString, channel: u8, event_name: CompactString },
-    /// Custom event types
-    Custom { fields: Vec<CompactString> },
+pub struct StructuredEventKey {
+    /// The domain hierarchy as a sequence of segments
+    /// e.g., ["core", "user_login"] or ["client", "chat", "message"]
+    pub segments: Vec<CompactString>,
+}
+
+impl StructuredEventKey {
+    /// Create a new structured key from segments
+    pub fn new(segments: Vec<&str>) -> Self {
+        Self {
+            segments: segments.into_iter().map(|s| s.into()).collect(),
+        }
+    }
+    
+    /// Create a key with a single segment
+    pub fn single(segment: &str) -> Self {
+        Self {
+            segments: vec![segment.into()],
+        }
+    }
+    
+    /// Create a key with two segments (domain + event)
+    pub fn domain_event(domain: &str, event: &str) -> Self {
+        Self {
+            segments: vec![domain.into(), event.into()],
+        }
+    }
+    
+    /// Create a key with three segments (domain + category + event)
+    pub fn domain_category_event(domain: &str, category: &str, event: &str) -> Self {
+        Self {
+            segments: vec![domain.into(), category.into(), event.into()],
+        }
+    }
+    
+    /// Get the first segment (usually the domain)
+    pub fn domain(&self) -> Option<&str> {
+        self.segments.first().map(|s| s.as_str())
+    }
+    
+    /// Get the last segment (usually the event name)
+    pub fn event_name(&self) -> Option<&str> {
+        self.segments.last().map(|s| s.as_str())
+    }
+    
+    /// Check if this key matches a pattern
+    pub fn matches_pattern(&self, pattern: &[&str]) -> bool {
+        if pattern.len() != self.segments.len() {
+            return false;
+        }
+        
+        for (segment, pattern_segment) in self.segments.iter().zip(pattern.iter()) {
+            if *pattern_segment != "*" && segment.as_str() != *pattern_segment {
+                return false;
+            }
+        }
+        
+        true
+    }
+    
+    /// Check if this key starts with the given prefix
+    pub fn starts_with(&self, prefix: &[&str]) -> bool {
+        if prefix.len() > self.segments.len() {
+            return false;
+        }
+        
+        for (segment, prefix_segment) in self.segments.iter().zip(prefix.iter()) {
+            if segment.as_str() != *prefix_segment {
+                return false;
+            }
+        }
+        
+        true
+    }
 }
 
 impl EventKeyType for StructuredEventKey {
     fn to_string(&self) -> String {
-        match self {
-            StructuredEventKey::Core { event_name } => format!("core:{}", event_name),
-            StructuredEventKey::Client { namespace, event_name } => format!("client:{}:{}", namespace, event_name),
-            StructuredEventKey::Plugin { plugin_name, event_name } => format!("plugin:{}:{}", plugin_name, event_name),
-            StructuredEventKey::Gorc { object_type, channel, event_name } => format!("gorc:{}:{}:{}", object_type, channel, event_name),
-            StructuredEventKey::GorcInstance { object_type, channel, event_name } => format!("gorc_instance:{}:{}:{}", object_type, channel, event_name),
-            StructuredEventKey::Custom { fields } => fields.iter().map(|f| f.as_str()).collect::<Vec<_>>().join(":"),
-        }
+        self.segments.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(":")
     }
 }
 
-/// Strongly-typed namespaces for even better performance
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
-pub enum EventNamespace {
-    Core,
-    Client,
-    Plugin,
-    Gorc,
-    GorcInstance,
-    Custom(u32), // Custom namespaces identified by hash
-}
-
-/// Fast event key using enums and owned strings (removed lifetime issues)
+/// Typed event key wrapper for better performance with known types
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct TypedEventKey {
-    pub namespace: EventNamespace,
-    pub components: Vec<CompactString>,
+pub struct TypedEventKey<T> {
+    /// The underlying structured key
+    pub key: StructuredEventKey,
+    /// Phantom data for the event type
+    _phantom: std::marker::PhantomData<T>,
 }
 
-impl EventKeyType for TypedEventKey {
-    fn to_string(&self) -> String {
-        let namespace_str = match self.namespace {
-            EventNamespace::Core => "core",
-            EventNamespace::Client => "client", 
-            EventNamespace::Plugin => "plugin",
-            EventNamespace::Gorc => "gorc",
-            EventNamespace::GorcInstance => "gorc_instance",
-            EventNamespace::Custom(id) => return format!("custom_{}:{}", id, self.components.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(":")),
-        };
-        
-        if self.components.is_empty() {
-            namespace_str.to_string()
-        } else {
-            format!("{}:{}", namespace_str, self.components.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(":"))
+impl<T> TypedEventKey<T> {
+    /// Create a new typed event key
+    pub fn new(key: StructuredEventKey) -> Self {
+        Self {
+            key,
+            _phantom: std::marker::PhantomData,
         }
     }
 }
+
+impl<T> EventKeyType for TypedEventKey<T> 
+where
+    T: std::fmt::Debug + Clone + std::cmp::Eq + std::hash::Hash + Send + Sync + 'static,
+{
+    fn to_string(&self) -> String {
+        self.key.to_string()
+    }
+}
+
 
 impl EventKey {
     /// Create a new event key
@@ -303,7 +358,7 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
 
     /// Register a typed event handler with a custom event key
     pub async fn on_key<T, F>(
-        &mut self,
+        &self,
         key: K,
         handler: F,
     ) -> Result<(), EventError>
@@ -316,7 +371,7 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
 
     /// Internal handler registration
     async fn register_handler<T, F>(
-        &mut self,
+        &self,
         key: K,
         handler: F,
     ) -> Result<(), EventError>
@@ -444,6 +499,91 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
     /// Get all registered event keys
     pub fn registered_keys(&self) -> Vec<K> {
         self.handlers.iter().map(|entry| entry.key().clone()).collect()
+    }
+}
+
+// Convenience methods for StructuredEventKey to provide domain-based API
+impl<P: EventPropagator<StructuredEventKey>> EventBus<StructuredEventKey, P> {
+    /// Register an event handler using domain and event name
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain (first segment) like "core", "client", "plugin"
+    /// * `event_name` - The event name (last segment)
+    /// * `handler` - The event handler function
+    pub async fn on<T, F>(
+        &self,
+        domain: &str,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + for<'de> Deserialize<'de>,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
+    {
+        let key = StructuredEventKey::domain_event(domain, event_name);
+        self.on_key(key, handler).await
+    }
+
+    /// Register an event handler using domain, category, and event name
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain (first segment) like "core", "client", "plugin"
+    /// * `category` - The category (middle segment) like "chat", "inventory"
+    /// * `event_name` - The event name (last segment)
+    /// * `handler` - The event handler function
+    pub async fn on_category<T, F>(
+        &self,
+        domain: &str,
+        category: &str,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + for<'de> Deserialize<'de>,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
+    {
+        let key = StructuredEventKey::domain_category_event(domain, category, event_name);
+        self.on_key(key, handler).await
+    }
+
+    /// Emit an event using domain and event name
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain (first segment) like "core", "client", "plugin"
+    /// * `event_name` - The event name (last segment)
+    /// * `event` - The event data to emit
+    pub async fn emit<T>(
+        &self,
+        domain: &str,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event + Serialize,
+    {
+        let key = StructuredEventKey::domain_event(domain, event_name);
+        self.emit_key(key, event).await
+    }
+
+    /// Emit an event using domain, category, and event name
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain (first segment) like "core", "client", "plugin"
+    /// * `category` - The category (middle segment) like "chat", "inventory"
+    /// * `event_name` - The event name (last segment)
+    /// * `event` - The event data to emit
+    pub async fn emit_category<T>(
+        &self,
+        domain: &str,
+        category: &str,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event + Serialize,
+    {
+        let key = StructuredEventKey::domain_category_event(domain, category, event_name);
+        self.emit_key(key, event).await
     }
 }
 
