@@ -8,17 +8,24 @@ use crate::{
     connection::ConnectionManager,
     error::ServerError,
     messaging::route_client_message,
+    server::core::{PlayerConnectedEvent, PlayerDisconnectedEvent},
 };
 use futures::{SinkExt, StreamExt};
-use horizon_event_system::{
-    current_timestamp, DisconnectReason, EventSystem, PlayerConnectedEvent,
-    PlayerDisconnectedEvent, PlayerId,
+use universal_plugin_system::{
+    EventBus, StructuredEventKey, propagation::CompositePropagator,
 };
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use tracing::{debug, error, trace};
+
+fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
 
 /// Handles a single client connection from establishment to cleanup.
 /// 
@@ -41,7 +48,7 @@ use tracing::{debug, error, trace};
 /// * `stream` - The TCP stream for the client connection
 /// * `addr` - The remote address of the client
 /// * `connection_manager` - Manager for tracking connections
-/// * `horizon_event_system` - Event system for plugin communication
+/// * `event_bus` - Universal event bus for plugin communication
 /// 
 /// # Returns
 /// 
@@ -60,7 +67,7 @@ pub async fn handle_connection(
     stream: TcpStream,
     addr: SocketAddr,
     connection_manager: Arc<ConnectionManager>,
-    horizon_event_system: Arc<EventSystem>,
+    event_bus: Arc<EventBus<StructuredEventKey, CompositePropagator<StructuredEventKey>>>,
 ) -> Result<(), ServerError> {
     // Perform WebSocket handshake
     let ws_stream = accept_async(stream)
@@ -72,22 +79,17 @@ pub async fn handle_connection(
     let connection_id = connection_manager.add_connection(addr).await;
 
     // Generate player ID and emit connection event
-    let player_id = PlayerId::new();
+    let player_id = uuid::Uuid::new_v4().as_u128() as u64; // Simple player ID generation
     connection_manager
         .set_player_id(connection_id, player_id)
         .await;
 
     // Emit core infrastructure event
-    horizon_event_system
-        .emit_core(
-            "player_connected",
-            &PlayerConnectedEvent {
-                player_id,
-                connection_id: connection_id.to_string(),
-                remote_addr: addr.to_string(),
-                timestamp: current_timestamp(),
-            },
-        )
+    event_bus
+        .emit("core", "player_connected", &PlayerConnectedEvent {
+            player_id,
+            remote_addr: addr.to_string(),
+        })
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
@@ -98,7 +100,7 @@ pub async fn handle_connection(
     // Incoming message task - routes raw messages to plugins
     let incoming_task = {
         let connection_manager = connection_manager.clone();
-        let horizon_event_system = horizon_event_system.clone();
+        let event_bus = event_bus.clone();
 
         async move {
             while let Some(msg) = ws_receiver.next().await {
@@ -109,7 +111,7 @@ pub async fn handle_connection(
                             &text,
                             connection_id,
                             &connection_manager,
-                            &horizon_event_system,
+                            &event_bus,
                         )
                         .await
                         {
@@ -162,16 +164,11 @@ pub async fn handle_connection(
 
     // Emit disconnection event
     if let Some(player_id) = connection_manager.get_player_id(connection_id).await {
-        horizon_event_system
-            .emit_core(
-                "player_disconnected",
-                &PlayerDisconnectedEvent {
-                    player_id,
-                    connection_id: connection_id.to_string(),
-                    reason: DisconnectReason::ClientDisconnect,
-                    timestamp: current_timestamp(),
-                },
-            )
+        event_bus
+            .emit("core", "player_disconnected", &PlayerDisconnectedEvent {
+                player_id,
+                reason: "client_disconnect".to_string(),
+            })
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
     }

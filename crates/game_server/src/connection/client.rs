@@ -3,9 +3,22 @@
 //! This module defines the structure and behavior of individual client
 //! connections, tracking their state and metadata.
 
-use horizon_event_system::{PlayerId, AuthenticationStatus};
 use std::net::SocketAddr;
 use std::time::SystemTime;
+
+/// Simple authentication status enum
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthenticationStatus {
+    Unauthenticated,
+    Authenticated,
+    Admin,
+}
+
+impl Default for AuthenticationStatus {
+    fn default() -> Self {
+        Self::Unauthenticated
+    }
+}
 
 /// Represents an individual client connection to the server.
 /// 
@@ -22,7 +35,7 @@ use std::time::SystemTime;
 #[derive(Debug)]
 pub struct ClientConnection {
     /// The player ID assigned to this connection (None until assigned)
-    pub player_id: Option<PlayerId>,
+    pub player_id: Option<u64>,
     
     /// The remote network address of the client
     pub remote_addr: SocketAddr,

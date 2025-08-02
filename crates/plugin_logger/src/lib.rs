@@ -1,23 +1,44 @@
 use async_trait::async_trait;
-use horizon_event_system::{
-    create_simple_plugin, current_timestamp, EventSystem, LogLevel, PlayerId, PluginError, Position, ServerContext, SimplePlugin
+use universal_plugin_system::{
+    SimplePlugin, PluginContext, PluginSystemError, EventBus, StructuredEventKey,
+    propagation::AllEqPropagator
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use tracing::{info, error};
 
-// Define PlayerChatEvent and PlayerJumpEvent for simulation/demo purposes
+// Define events for demonstration purposes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerConnectedEvent {
+    pub player_id: u64,
+    pub remote_addr: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerDisconnectedEvent {
+    pub player_id: u64,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerChatEvent {
-    pub player_id: PlayerId,
+    pub player_id: u64,
     pub message: String,
     pub channel: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerJumpEvent {
-    pub player_id: PlayerId,
+    pub player_id: u64,
     pub height: f32,
     pub position: Position,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Position {
+    pub x: f64,
+    pub y: f64,
+    pub z: f64,
 }
 
 /// A simple logger plugin that tracks and logs various server activities
@@ -47,13 +68,20 @@ impl Default for LoggerPlugin {
 pub struct ActivityLogEvent {
     pub activity_type: String,
     pub details: String,
-    pub player_id: Option<PlayerId>,
+    pub player_id: Option<u64>,
     pub timestamp: u64,
     pub log_count: u32,
 }
 
+fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
 #[async_trait]
-impl SimplePlugin for LoggerPlugin {
+impl SimplePlugin<StructuredEventKey, AllEqPropagator> for LoggerPlugin {
     fn name(&self) -> &str {
         &self.name
     }
@@ -62,210 +90,152 @@ impl SimplePlugin for LoggerPlugin {
         "1.0.0"
     }
 
-    async fn register_handlers(&mut self, events: Arc<EventSystem>, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        context.log(LogLevel::Info, "📝 LoggerPlugin: Registering comprehensive event logging...");
+    async fn register_handlers(
+        &mut self,
+        event_bus: Arc<EventBus<StructuredEventKey, AllEqPropagator>>,
+        _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>,
+    ) -> Result<(), PluginSystemError> {
+        info!("📝 LoggerPlugin: Registering comprehensive event logging...");
 
-        // Use individual registrations to show different API styles
-
-        let context_clone = context.clone();
-        events
-            .on_core("player_connected", move |event: serde_json::Value| {
-                context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 🟢 CONNECTION - Player joined server: {:?}", event).as_str());
+        // Register handlers for core server events
+        event_bus
+            .on("core", "player_connected", |event: PlayerConnectedEvent| {
+                info!("📝 LoggerPlugin: 🟢 CONNECTION - Player {} joined from {}", event.player_id, event.remote_addr);
                 Ok(())
             })
             .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
-        let context_clone = context.clone();
-        events
-            .on_core("player_disconnected", move |event: serde_json::Value| {
-                context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 🔴 DISCONNECTION - Player left server: {:?}", event).as_str());
+        event_bus
+            .on("core", "player_disconnected", |event: PlayerDisconnectedEvent| {
+                info!("📝 LoggerPlugin: 🔴 DISCONNECTION - Player {} left server: {}", event.player_id, event.reason);
                 Ok(())
             })
             .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
-        let context_clone = context.clone();
-        events
-            .on_core("plugin_loaded", move |event: serde_json::Value| {
-                context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 🔌 PLUGIN LOADED - {:?}", event).as_str());
+        event_bus
+            .on("core", "plugin_loaded", |event: serde_json::Value| {
+                info!("📝 LoggerPlugin: 🔌 PLUGIN LOADED - {:?}", event);
                 Ok(())
             })
             .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
         // Client events from players
-        let context_clone = context.clone();
-        events
-            .on_client("chat", "message", move |event: PlayerChatEvent| {
-                context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'", event.player_id, event.channel, event.message).as_str());
+        event_bus
+            .on("chat", "message", |event: PlayerChatEvent| {
+                info!("📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'", event.player_id, event.channel, event.message);
                 Ok(())
             })
             .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
-        let context_clone = context.clone();
-        events
-            .on_client("movement", "jump", move |event: PlayerJumpEvent| {
-                context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 🦘 MOVEMENT - Player {} jumped {:.1}m at {:?}", event.player_id, event.height, event.position).as_str());
+        event_bus
+            .on("movement", "jump", |event: PlayerJumpEvent| {
+                info!("📝 LoggerPlugin: 🦘 MOVEMENT - Player {} jumped {:.1}m at {:?}", event.player_id, event.height, event.position);
                 Ok(())
             })
             .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
         // Inter-plugin communication
-        let context_clone = context.clone();
-        events
-            .on_plugin("mygreeter", "startup", move |event: serde_json::Value| {
-                context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 🤝 PLUGIN EVENT - Greeter started: {:?}", event).as_str());
+        event_bus
+            .on("plugin", "greeter_startup", |event: serde_json::Value| {
+                info!("📝 LoggerPlugin: 🤝 PLUGIN EVENT - Greeter started: {:?}", event);
                 Ok(())
             })
             .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
-        let context_clone = context.clone();
-        events
-            .on_plugin("greeter", "shutdown", move |event: serde_json::Value| {
-                context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 🤝 PLUGIN EVENT - Greeter shutting down: {:?}", event).as_str());
+        event_bus
+            .on("plugin", "greeter_shutdown", |event: serde_json::Value| {
+                info!("📝 LoggerPlugin: 🤝 PLUGIN EVENT - Greeter shutting down: {:?}", event);
                 Ok(())
             })
             .await
-            .map_err(|e: horizon_event_system::EventError| PluginError::ExecutionError(e.to_string()))?;
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
-        // Listen to any plugin events (wildcard-style)
-        let context_clone = context.clone();
-        events
-            .on_plugin("logger", "activity", move |event: serde_json::Value| {
-                context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 🌐 GENERAL ACTIVITY - {:?}", event).as_str());
+        // Listen to logger activity events
+        event_bus
+            .on("plugin", "logger_activity", |event: serde_json::Value| {
+                info!("📝 LoggerPlugin: 🌐 GENERAL ACTIVITY - {:?}", event);
                 Ok(())
             })
             .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
-        let context_clone = context.clone();
-        events
-            .on_plugin(
-                "InventorySystem",
-                "service_started",
-                move |event: serde_json::Value| {
-                    context_clone.log(LogLevel::Info, format!("Plugin event received: {:?}", event).as_str());
-                    Ok(())
-                },
-            )
+        // Server tick events
+        event_bus
+            .on("core", "server_tick", |event: serde_json::Value| {
+                info!("📝 LoggerPlugin: 🕒 Server tick received: {:?}", event);
+                Ok(())
+            })
             .await
-            .expect("Failed to register InventorySystem event handler");
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
-        context.log(LogLevel::Info, "📝 LoggerPlugin: ✅ Event logging system activated!");
+        info!("📝 LoggerPlugin: ✅ Event logging system activated!");
         Ok(())
     }
 
-    async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        context.log(
-            LogLevel::Info,
-            "📝 LoggerPlugin: Comprehensive event logging activated!",
-        );
+    async fn on_init(&mut self, context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>) -> Result<(), PluginSystemError> {
+        info!("📝 LoggerPlugin: Comprehensive event logging activated!");
 
         // Announce our logging service to other plugins
-        let events = context.events();
-        events
-            .emit_plugin(
-                "logger",
-                "service_started",
-                &serde_json::json!({
-                    "service": "event_logging",
-                    "version": self.version(),
-                    "start_time": current_timestamp(),
-                    "message": "Logger plugin is now monitoring all events!"
-                }),
-            )
+        let event_bus = context.event_bus();
+        event_bus
+            .emit("plugin", "service_started", &serde_json::json!({
+                "service": "event_logging",
+                "plugin": "logger",
+                "version": self.version(),
+                "start_time": current_timestamp(),
+                "message": "Logger plugin is now monitoring all events!"
+            }))
             .await
-            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
+            .map_err(|e| PluginSystemError::InitializationFailed(e.to_string()))?;
 
-        context.log(LogLevel::Info, "📝 LoggerPlugin: ✅ Now monitoring all server events!");
-
-        // Set up a periodic summary using async event emission with tokio handle from context
-        let events_clone = context.events();
-        let events_ref = events_clone.clone();
-        let tokio_handle = context.tokio_handle();
-        let context_clone = context.clone();
-        
-        use std::sync::atomic::{AtomicU32, Ordering};
-        use std::sync::Arc;
-        let tick_counter = Arc::new(AtomicU32::new(0));
-        let tick_counter_clone = tick_counter.clone();
-        
-        events_clone
-            .on_core_async("server_tick", move |_event: serde_json::Value| {
-                context_clone.log(LogLevel::Info, "📝 LoggerPlugin: 🕒 Server tick received, updating activity log...");
-                let events_inner = events_ref.clone();
-                let tick_counter = tick_counter_clone.clone();
-                let context_inner = context_clone.clone();
-
-                // Use the tokio runtime handle passed from the main process via context
-                match &tokio_handle {
-                    Some(handle) => {
-                        handle.block_on(async {
-                            // Emit periodic summary every 30 server ticks (assuming ~1 tick per second)
-                            let tick = tick_counter.fetch_add(1, Ordering::SeqCst) + 1;
-                            if tick % 2 == 0 {
-                                let summary_count = tick / 30;
-                                let _ = events_inner.emit_plugin("logger", "activity_logged", &serde_json::json!({
-                                    "activity_type": "periodic_summary",
-                                    "details": format!("Summary #{} - Logger still active", summary_count),
-                                    "timestamp": current_timestamp()
-                                })).await;
-
-                                context_inner.log(LogLevel::Info, format!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count).as_str());
-                            }
-                        });
-                    }
-                    None => {
-                        // Tokio runtime context was not properly passed from main process to plugin
-                        context_inner.log(LogLevel::Error, "❌ LoggerPlugin: No tokio runtime handle available in plugin context");
-                        context_inner.log(LogLevel::Error, "📝 LoggerPlugin: Main process needs to ensure tokio runtime context is passed to plugins");
-                    }
-                }
-                Ok(())
-            })
-            .await
-            .map_err(|e| PluginError::InitializationFailed(e.to_string()))?;
-
+        info!("📝 LoggerPlugin: ✅ Now monitoring all server events!");
         Ok(())
     }
 
-    async fn on_shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+    async fn on_shutdown(&mut self, context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>) -> Result<(), PluginSystemError> {
         let uptime = self.start_time.elapsed().unwrap_or_default();
 
-        context.log(
-            LogLevel::Info,
-            &format!(
-                "📝 LoggerPlugin: Shutting down. Logged {} events over {:.1} seconds",
-                self.events_logged,
-                uptime.as_secs_f64()
-            ),
+        info!(
+            "📝 LoggerPlugin: Shutting down. Logged {} events over {:.1} seconds",
+            self.events_logged,
+            uptime.as_secs_f64()
         );
 
         // Final log summary
-        let events = context.events();
-        events
-            .emit_plugin(
-                "logger",
-                "final_summary",
-                &serde_json::json!({
-                    "total_events_logged": self.events_logged,
-                    "uptime_seconds": uptime.as_secs(),
-                    "events_per_second": self.events_logged as f64 / uptime.as_secs_f64().max(1.0),
-                    "message": "Logger plugin final report",
-                    "timestamp": current_timestamp()
-                }),
-            )
+        let event_bus = context.event_bus();
+        event_bus
+            .emit("plugin", "final_summary", &serde_json::json!({
+                "plugin": "logger",
+                "total_events_logged": self.events_logged,
+                "uptime_seconds": uptime.as_secs(),
+                "events_per_second": self.events_logged as f64 / uptime.as_secs_f64().max(1.0),
+                "message": "Logger plugin final report",
+                "timestamp": current_timestamp()
+            }))
             .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+            .map_err(|e| PluginSystemError::RuntimeError(e.to_string()))?;
 
-        context.log(LogLevel::Info, "📝 LoggerPlugin: ✅ Final report submitted. Logging service offline.");
+        info!("📝 LoggerPlugin: ✅ Final report submitted. Logging service offline.");
         Ok(())
     }
 }
 
-// Create the plugin using our macro - zero unsafe code!
-create_simple_plugin!(LoggerPlugin);
+// Export functions for the universal plugin system
+#[no_mangle]
+pub extern "C" fn get_plugin_version() -> *const std::os::raw::c_char {
+    static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), ":", env!("RUSTC_VERSION"));
+    VERSION.as_ptr() as *const std::os::raw::c_char
+}
+
+#[no_mangle]
+pub extern "C" fn create_plugin() -> *mut dyn universal_plugin_system::Plugin<StructuredEventKey, AllEqPropagator> {
+    let plugin = LoggerPlugin::new();
+    let wrapper = universal_plugin_system::PluginWrapper::new(plugin);
+    Box::into_raw(Box::new(wrapper))
+}

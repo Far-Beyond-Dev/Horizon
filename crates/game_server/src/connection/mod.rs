@@ -5,10 +5,8 @@
 
 pub mod client;
 pub mod manager;
-pub mod response;
 
 pub use manager::ConnectionManager;
-pub use response::GameServerResponseSender;
 
 /// Type alias for connection identifiers.
 /// 

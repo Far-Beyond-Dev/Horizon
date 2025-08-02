@@ -3,8 +3,7 @@
 //! This module provides the central management system for all client connections,
 //! handling connection lifecycle, player ID assignment, and message broadcasting.
 
-use super::{client::ClientConnection, ConnectionId};
-use horizon_event_system::{PlayerId, AuthenticationStatus};
+use super::{client::{ClientConnection, AuthenticationStatus}, ConnectionId};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -107,7 +106,7 @@ impl ConnectionManager {
     /// 
     /// * `connection_id` - The connection to update
     /// * `player_id` - The player ID to assign
-    pub async fn set_player_id(&self, connection_id: ConnectionId, player_id: PlayerId) {
+    pub async fn set_player_id(&self, connection_id: ConnectionId, player_id: u64) {
         let mut connections = self.connections.write().await;
         if let Some(connection) = connections.get_mut(&connection_id) {
             connection.player_id = Some(player_id);
@@ -122,9 +121,9 @@ impl ConnectionManager {
     /// 
     /// # Returns
     /// 
-    /// The associated `PlayerId` if found, or `None` if the connection
+    /// The associated player ID if found, or `None` if the connection
     /// doesn't exist or doesn't have a player assigned.
-    pub async fn get_player_id(&self, connection_id: ConnectionId) -> Option<PlayerId> {
+    pub async fn get_player_id(&self, connection_id: ConnectionId) -> Option<u64> {
         let connections = self.connections.read().await;
         connections.get(&connection_id).and_then(|c| c.player_id)
     }
@@ -169,7 +168,7 @@ impl ConnectionManager {
     /// 
     /// The `ConnectionId` if the player is found and connected,
     /// or `None` if the player is not currently connected.
-    pub async fn get_connection_id_by_player(&self, player_id: PlayerId) -> Option<ConnectionId> {
+    pub async fn get_connection_id_by_player(&self, player_id: u64) -> Option<ConnectionId> {
         let connections = self.connections.read().await;
         for (conn_id, connection) in connections.iter() {
             if connection.player_id == Some(player_id) {
@@ -218,7 +217,7 @@ impl ConnectionManager {
     /// # Returns
     /// 
     /// The current authentication status, or `None` if the player is not connected.
-    pub async fn get_auth_status_by_player(&self, player_id: PlayerId) -> Option<AuthenticationStatus> {
+    pub async fn get_auth_status_by_player(&self, player_id: u64) -> Option<AuthenticationStatus> {
         let connections = self.connections.read().await;
         for connection in connections.values() {
             if connection.player_id == Some(player_id) {
@@ -240,7 +239,7 @@ impl ConnectionManager {
     /// # Returns
     /// 
     /// `true` if the player was found and updated, `false` otherwise.
-    pub async fn set_auth_status_by_player(&self, player_id: PlayerId, status: AuthenticationStatus) -> bool {
+    pub async fn set_auth_status_by_player(&self, player_id: u64, status: AuthenticationStatus) -> bool {
         let mut connections = self.connections.write().await;
         for connection in connections.values_mut() {
             if connection.player_id == Some(player_id) {
@@ -260,7 +259,7 @@ impl ConnectionManager {
     /// # Returns
     /// 
     /// Connection information if the player is connected, `None` otherwise.
-    pub async fn get_connection_info_by_player(&self, player_id: PlayerId) -> Option<(ConnectionId, SocketAddr, std::time::SystemTime, AuthenticationStatus)> {
+    pub async fn get_connection_info_by_player(&self, player_id: u64) -> Option<(ConnectionId, SocketAddr, std::time::SystemTime, AuthenticationStatus)> {
         let connections = self.connections.read().await;
         for (conn_id, connection) in connections.iter() {
             if connection.player_id == Some(player_id) {
@@ -283,7 +282,7 @@ impl ConnectionManager {
     /// 
     /// `Ok(())` if the message was sent successfully, or an error if the player
     /// is not connected or the send operation failed.
-    pub async fn send_to_player(&self, player_id: PlayerId, data: &[u8]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn send_to_player(&self, player_id: u64, data: &[u8]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if let Some(connection_id) = self.get_connection_id_by_player(player_id).await {
             self.send_to_connection(connection_id, data.to_vec()).await;
             Ok(())
