@@ -585,6 +585,323 @@ impl<P: EventPropagator<StructuredEventKey>> EventBus<StructuredEventKey, P> {
         let key = StructuredEventKey::domain_category_event(domain, category, event_name);
         self.emit_key(key, event).await
     }
+
+    // ============================================================================
+    // Event Class System - Different event classes with custom metadata
+    // ============================================================================
+
+    /// Register a handler for GORC-style events with spatial awareness
+    /// 
+    /// This event class is designed for game object replication with spatial metadata.
+    /// The event key structure is: [domain, object_type, channel, event_name, spatial_aware]
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain (e.g., "gorc", "game")
+    /// * `object_type` - The type of object (e.g., "Player", "Asteroid", "Ship")
+    /// * `channel` - The replication channel number (0-255)
+    /// * `event_name` - The event name (e.g., "position_update", "health_changed")
+    /// * `spatial_aware` - Whether this event should use spatial propagation
+    /// * `handler` - The event handler function
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust,no_run
+    /// use universal_plugin_system::*;
+    /// use serde::{Serialize, Deserialize}; 
+    /// use std::sync::Arc;
+    /// 
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct PositionUpdateEvent { x: f32, y: f32, z: f32 }
+    /// impl event::Event for PositionUpdateEvent {
+    ///     fn event_type() -> &'static str { "position_update" }
+    /// }
+    /// 
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct InventoryEvent { item_count: u32 }
+    /// impl event::Event for InventoryEvent {
+    ///     fn event_type() -> &'static str { "inventory" }
+    /// }
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let event_system: Arc<event::EventBus<event::StructuredEventKey, _>> = 
+    ///     Arc::new(event::EventBus::with_propagator(propagation::AllEqPropagator::new()));
+    /// 
+    /// // Handler for spatially-aware player position updates
+    /// event_system.on_gorc_class("gorc", "Player", 0, "position_update", true, 
+    ///     |event: PositionUpdateEvent| {
+    ///         println!("Player moved to ({}, {}, {})", event.x, event.y, event.z);
+    ///         Ok(())
+    ///     }
+    /// ).await?;
+    /// 
+    /// // Handler for non-spatial inventory events  
+    /// event_system.on_gorc_class("gorc", "Player", 1, "inventory_update", false,
+    ///     |event: InventoryEvent| {
+    ///         println!("Player inventory changed: {} items", event.item_count);
+    ///         Ok(())
+    ///     }
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn on_gorc_class<T, F>(
+        &self,
+        domain: &str,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        spatial_aware: bool,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + for<'de> Deserialize<'de>,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
+    {
+        let key = StructuredEventKey {
+            segments: vec![
+                domain.into(),
+                object_type.into(),
+                channel.to_string().into(),
+                event_name.into(),
+                spatial_aware.to_string().into(),
+            ],
+        };
+        self.on_key(key, handler).await
+    }
+
+    /// Emit a GORC-style event with spatial awareness
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain (e.g., "gorc", "game")
+    /// * `object_type` - The type of object (e.g., "Player", "Asteroid")
+    /// * `channel` - The replication channel number (0-255)
+    /// * `event_name` - The event name (e.g., "position_update")
+    /// * `spatial_aware` - Whether this event should use spatial propagation
+    /// * `event` - The event data to emit
+    pub async fn emit_gorc_class<T>(
+        &self,
+        domain: &str,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        spatial_aware: bool,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event + Serialize,
+    {
+        let key = StructuredEventKey {
+            segments: vec![
+                domain.into(),
+                object_type.into(),
+                channel.to_string().into(),
+                event_name.into(),
+                spatial_aware.to_string().into(),
+            ],
+        };
+        self.emit_key(key, event).await
+    }
+
+    /// Register a handler for custom event class with metadata and flags
+    /// 
+    /// This demonstrates how host applications can define their own event classes
+    /// with custom metadata parameters. The event key structure is:
+    /// [domain, event_name, metadata, flag]
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain (e.g., "core", "client", "custom")
+    /// * `event_name` - The event name
+    /// * `metadata` - Custom metadata string
+    /// * `flag` - Custom boolean flag
+    /// * `handler` - The event handler function
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust,no_run
+    /// use universal_plugin_system::*;
+    /// use serde::{Serialize, Deserialize}; 
+    /// use std::sync::Arc;
+    /// 
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct UserLoginEvent { user_id: u32, username: String }
+    /// impl event::Event for UserLoginEvent {
+    ///     fn event_type() -> &'static str { "user_login" }
+    /// }
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let event_system: Arc<event::EventBus<event::StructuredEventKey, _>> = 
+    ///     Arc::new(event::EventBus::with_propagator(propagation::AllEqPropagator::new()));
+    /// 
+    /// // Handler for custom events with priority flag
+    /// event_system.on_custom_evt_class("core", "user_login", "session_123", true,
+    ///     |event: UserLoginEvent| {
+    ///         println!("High priority login: {}", event.username);
+    ///         Ok(())
+    ///     }
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn on_custom_evt_class<T, F>(
+        &self,
+        domain: &str,
+        event_name: &str,
+        metadata: &str,
+        flag: bool,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + for<'de> Deserialize<'de>,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
+    {
+        let key = StructuredEventKey {
+            segments: vec![
+                domain.into(),
+                event_name.into(),
+                metadata.into(),
+                flag.to_string().into(),
+            ],
+        };
+        self.on_key(key, handler).await
+    }
+
+    /// Emit a custom event class with metadata and flags
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain
+    /// * `event_name` - The event name
+    /// * `metadata` - Custom metadata string
+    /// * `flag` - Custom boolean flag
+    /// * `event` - The event data to emit
+    pub async fn emit_custom_evt_class<T>(
+        &self,
+        domain: &str,
+        event_name: &str,
+        metadata: &str,
+        flag: bool,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event + Serialize,
+    {
+        let key = StructuredEventKey {
+            segments: vec![
+                domain.into(),
+                event_name.into(),
+                metadata.into(),
+                flag.to_string().into(),
+            ],
+        };
+        self.emit_key(key, event).await
+    }
+
+    /// Register a handler for extended event class with multiple metadata fields
+    /// 
+    /// This event class demonstrates more complex metadata patterns that host
+    /// applications might need. The event key structure is:
+    /// [domain, category, event_name, priority, region, persistent]
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain
+    /// * `category` - The category
+    /// * `event_name` - The event name  
+    /// * `priority` - Priority level (0-255)
+    /// * `region` - Region identifier
+    /// * `persistent` - Whether the event should be persisted
+    /// * `handler` - The event handler function
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust,no_run
+    /// use universal_plugin_system::*;
+    /// use serde::{Serialize, Deserialize}; 
+    /// use std::sync::Arc;
+    /// 
+    /// #[derive(Debug, Serialize, Deserialize)]
+    /// struct DamageEvent { attacker_id: u32, target_id: u32, amount: u32 }
+    /// impl event::Event for DamageEvent {
+    ///     fn event_type() -> &'static str { "damage_event" }
+    /// }
+    /// 
+    /// # #[tokio::main]
+    /// # async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    /// let event_system: Arc<event::EventBus<event::StructuredEventKey, _>> = 
+    ///     Arc::new(event::EventBus::with_propagator(propagation::AllEqPropagator::new()));
+    /// 
+    /// // Handler for high-priority persistent events in a specific region
+    /// event_system.on_extended_class("game", "combat", "damage_dealt", 255, "region_1", true,
+    ///     |event: DamageEvent| {
+    ///         println!("Critical damage event: {}", event.amount);
+    ///         Ok(())
+    ///     }
+    /// ).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn on_extended_class<T, F>(
+        &self,
+        domain: &str,
+        category: &str,
+        event_name: &str,
+        priority: u8,
+        region: &str,
+        persistent: bool,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + for<'de> Deserialize<'de>,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
+    {
+        let key = StructuredEventKey {
+            segments: vec![
+                domain.into(),
+                category.into(),
+                event_name.into(),
+                priority.to_string().into(),
+                region.into(),
+                persistent.to_string().into(),
+            ],
+        };
+        self.on_key(key, handler).await
+    }
+
+    /// Emit an extended event class with multiple metadata fields
+    /// 
+    /// # Arguments
+    /// * `domain` - The domain
+    /// * `category` - The category
+    /// * `event_name` - The event name
+    /// * `priority` - Priority level (0-255)
+    /// * `region` - Region identifier
+    /// * `persistent` - Whether the event should be persisted
+    /// * `event` - The event data to emit
+    pub async fn emit_extended_class<T>(
+        &self,
+        domain: &str,
+        category: &str,
+        event_name: &str,
+        priority: u8,
+        region: &str,
+        persistent: bool,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event + Serialize,
+    {
+        let key = StructuredEventKey {
+            segments: vec![
+                domain.into(),
+                category.into(),
+                event_name.into(),
+                priority.to_string().into(),
+                region.into(),
+                persistent.to_string().into(),
+            ],
+        };
+        self.emit_key(key, event).await
+    }
 }
 
 // Implement Event for common types that might be used

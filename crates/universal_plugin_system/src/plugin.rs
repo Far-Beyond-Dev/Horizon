@@ -37,7 +37,20 @@ use std::sync::Arc;
 /// 
 /// ```rust,no_run
 /// use universal_plugin_system::*;
+/// use serde::{Serialize, Deserialize};
 /// use std::sync::Arc;
+/// 
+/// #[derive(Debug, Serialize, Deserialize)]
+/// struct PlayerEvent { player_id: u32, name: String }
+/// impl event::Event for PlayerEvent {
+///     fn event_type() -> &'static str { "player_event" }
+/// }
+/// 
+/// #[derive(Debug, Serialize, Deserialize)]
+/// struct PluginStatusEvent { plugin_name: String, status: String }
+/// impl event::Event for PluginStatusEvent {
+///     fn event_type() -> &'static str { "plugin_status" }
+/// }
 /// 
 /// struct MyPlugin {
 ///     name: String,
@@ -50,16 +63,16 @@ use std::sync::Arc;
 /// }
 /// 
 /// #[async_trait::async_trait]
-/// impl SimplePlugin<StructuredEventKey, AllEqPropagator> for MyPlugin {
+/// impl SimplePlugin<event::StructuredEventKey, propagation::AllEqPropagator> for MyPlugin {
 ///     fn name(&self) -> &str { &self.name }
 ///     fn version(&self) -> &str { "1.0.0" }
 ///     
 ///     // Phase 1: Register handlers ONLY - no business logic
 ///     async fn register_handlers(
 ///         &mut self,
-///         event_bus: Arc<EventBus<StructuredEventKey, AllEqPropagator>>,
-///         context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>,
-///     ) -> Result<(), PluginSystemError> {
+///         event_bus: Arc<event::EventBus<event::StructuredEventKey, propagation::AllEqPropagator>>,
+///         context: Arc<PluginContext<event::StructuredEventKey, propagation::AllEqPropagator>>,
+///     ) -> std::result::Result<(), PluginSystemError> {
 ///         // Register handler for player events
 ///         event_bus.on("player", "joined", |event: PlayerEvent| {
 ///             println!("Player joined: {:?}", event);
@@ -71,7 +84,7 @@ use std::sync::Arc;
 ///     }
 ///     
 ///     // Phase 2: Perform initialization - handlers are guaranteed to be registered
-///     async fn on_init(&mut self, context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>) -> Result<(), PluginSystemError> {
+///     async fn on_init(&mut self, context: Arc<PluginContext<event::StructuredEventKey, propagation::AllEqPropagator>>) -> std::result::Result<(), PluginSystemError> {
 ///         // Now it's safe to emit events - all handlers are registered
 ///         context.event_bus().emit("plugin", "initialized", &PluginStatusEvent {
 ///             plugin_name: self.name().to_string(),
