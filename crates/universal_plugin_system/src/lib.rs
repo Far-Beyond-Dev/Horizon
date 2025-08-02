@@ -132,6 +132,8 @@ pub mod propagation;
 pub mod macros;
 pub mod error;
 pub mod utils;
+pub mod cache;
+pub mod monitoring;
 
 // Re-exports for convenience
 pub use event::{
@@ -146,6 +148,8 @@ pub use propagation::{
     PropagationContext
 };
 pub use error::{PluginSystemError, EventError};
+pub use cache::{SerializationBufferPool, CachedEventData};
+pub use monitoring::{PerformanceMonitor, DetailedEventStats, HandlerStats, EventTypeStats};
 // pub use macros::*; // TODO: Fix macros
 
 // Re-export the universal event system

@@ -2,6 +2,8 @@
 
 use crate::error::EventError;
 use crate::propagation::EventPropagator;
+use crate::cache::{SerializationBufferPool, CachedEventData};
+use crate::monitoring::PerformanceMonitor;
 use async_trait::async_trait;
 use compact_str::CompactString;
 use dashmap::DashMap;
@@ -22,6 +24,7 @@ pub trait Event: Send + Sync + Debug + 'static {
         Self: Sized;
 
     /// Returns the TypeId for type-safe handling
+    #[inline]
     fn type_id(&self) -> TypeId {
         TypeId::of::<Self>()
     }
@@ -48,6 +51,7 @@ pub struct EventKey {
 }
 
 impl EventKeyType for EventKey {
+    #[inline]
     fn to_string(&self) -> String {
         if let Some(ref category) = self.category {
             format!("{}:{}:{}", self.namespace, category, self.event_name)
@@ -145,6 +149,7 @@ impl StructuredEventKey {
 }
 
 impl EventKeyType for StructuredEventKey {
+    #[inline]
     fn to_string(&self) -> String {
         self.segments.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(":")
     }
@@ -173,6 +178,7 @@ impl<T> EventKeyType for TypedEventKey<T>
 where
     T: std::fmt::Debug + Clone + std::cmp::Eq + std::hash::Hash + Send + Sync + 'static,
 {
+    #[inline]
     fn to_string(&self) -> String {
         self.key.to_string()
     }
@@ -335,12 +341,16 @@ pub struct EventStats {
 
 /// Core event bus with pluggable propagation logic and typed event keys
 pub struct EventBus<K: EventKeyType, P: EventPropagator<K>> {
-    /// Event handlers organized by event key
+    /// Event handlers organized by event key (lock-free with SmallVec optimization)
     handlers: DashMap<K, SmallVec<[Arc<dyn EventHandler>; 4]>>,
     /// Event propagation logic
     propagator: P,
-    /// Statistics
+    /// High-performance serialization buffer pool to reduce allocations
+    serialization_pool: SerializationBufferPool,
+    /// Statistics for monitoring performance
     stats: Arc<tokio::sync::RwLock<EventStats>>,
+    /// Detailed performance monitor for advanced metrics
+    performance_monitor: PerformanceMonitor,
     /// Phantom data for the key type
     _phantom: std::marker::PhantomData<K>,
 }
@@ -351,12 +361,15 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
         Self {
             handlers: DashMap::new(),
             propagator,
+            serialization_pool: SerializationBufferPool::new(),
             stats: Arc::new(tokio::sync::RwLock::new(EventStats::default())),
+            performance_monitor: PerformanceMonitor::new(),
             _phantom: std::marker::PhantomData,
         }
     }
 
     /// Register a typed event handler with a custom event key
+    #[inline]
     pub async fn on_key<T, F>(
         &self,
         key: K,
@@ -397,6 +410,7 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
     }
 
     /// Emit an event with a custom event key
+    #[inline]
     pub async fn emit_key<T>(
         &self,
         key: K,
@@ -408,7 +422,7 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
         self.emit_with_key(key, event).await
     }
 
-    /// Internal emit implementation
+    /// Internal emit implementation with performance optimizations
     async fn emit_with_key<T>(
         &self,
         key: K,
@@ -417,10 +431,17 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
     where
         T: Event + Serialize,
     {
-        // Serialize the event
-        let event_data = Arc::new(EventData::new(event)?);
+        let emit_start = std::time::Instant::now();
+        
+        // Serialize the event once using the buffer pool for zero-copy sharing
+        let cached_event_data = CachedEventData::new(event, T::event_type().to_string(), &self.serialization_pool)?;
+        let event_data = Arc::new(EventData {
+            data: cached_event_data.data.clone(),
+            type_name: cached_event_data.type_name.clone(),
+            metadata: HashMap::new(),
+        });
 
-        // Get handlers for this event
+        // Get handlers for this event (lock-free access)
         let handlers = self.handlers.get(&key).map(|entry| entry.value().clone());
 
         if let Some(handlers) = handlers {
@@ -433,13 +454,13 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
                     metadata: event_data.metadata.clone(),
                 };
 
-                // Use propagator to determine which handlers should receive the event
+                // Use FuturesUnordered for concurrent handler execution
                 let mut futures = FuturesUnordered::new();
 
                 for handler in handlers.iter() {
                     // Check if this handler should receive the event
                     if self.propagator.should_propagate(&key, &context).await {
-                        // Optionally transform the event
+                        // Optionally transform the event (with zero-copy sharing)
                         let final_event = self.propagator
                             .transform_event(event_data.clone(), &context)
                             .await
@@ -447,18 +468,29 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
 
                         let handler_clone = handler.clone();
                         let handler_name = handler.handler_name().to_string();
+                        let performance_monitor = &self.performance_monitor;
 
                         futures.push(async move {
-                            if let Err(e) = handler_clone.handle(&final_event).await {
+                            let handler_start = std::time::Instant::now();
+                            let result = handler_clone.handle(&final_event).await;
+                            let handler_duration = handler_start.elapsed();
+                            
+                            // Record handler execution metrics
+                            performance_monitor.record_handler_execution(
+                                &handler_name, 
+                                handler_duration, 
+                                result.is_ok()
+                            ).await;
+                            
+                            if let Err(e) = &result {
                                 error!("❌ Handler {} failed: {}", handler_name, e);
-                                return Err(e);
                             }
-                            Ok(())
+                            result
                         });
                     }
                 }
 
-                // Execute all handlers concurrently
+                // Execute all handlers concurrently and collect results
                 let mut success_count = 0;
                 let mut failure_count = 0;
 
@@ -469,11 +501,15 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
                     }
                 }
 
-                // Update stats
+                // Update statistics atomically
                 let mut stats = self.stats.write().await;
                 stats.events_emitted += 1;
                 stats.events_handled += success_count;
                 stats.handler_failures += failure_count;
+                
+                // Record emission performance metrics
+                let emit_duration = emit_start.elapsed();
+                self.performance_monitor.record_emit(&cached_event_data.type_name, emit_duration).await;
             }
         } else {
             // No handlers found - simplified logging for typed keys
@@ -481,24 +517,37 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
             if key_string != "core:server_tick" {
                 warn!("⚠️ No handlers for event: {}", key_string);
             }
+            
+            // Still record the emission for metrics
+            let emit_duration = emit_start.elapsed();
+            self.performance_monitor.record_emit(T::event_type(), emit_duration).await;
         }
 
         Ok(())
     }
 
     /// Get current statistics
+    #[inline]
     pub async fn stats(&self) -> EventStats {
         self.stats.read().await.clone()
     }
 
     /// Get handler count
+    #[inline]
     pub fn handler_count(&self) -> usize {
         self.handlers.len()
     }
 
     /// Get all registered event keys
+    #[inline]
     pub fn registered_keys(&self) -> Vec<K> {
         self.handlers.iter().map(|entry| entry.key().clone()).collect()
+    }
+    
+    /// Get access to the performance monitor for detailed metrics
+    #[inline]
+    pub fn performance_monitor(&self) -> &PerformanceMonitor {
+        &self.performance_monitor
     }
 }
 
@@ -510,6 +559,7 @@ impl<P: EventPropagator<StructuredEventKey>> EventBus<StructuredEventKey, P> {
     /// * `domain` - The domain (first segment) like "core", "client", "plugin"
     /// * `event_name` - The event name (last segment)
     /// * `handler` - The event handler function
+    #[inline]
     pub async fn on<T, F>(
         &self,
         domain: &str,
@@ -552,6 +602,7 @@ impl<P: EventPropagator<StructuredEventKey>> EventBus<StructuredEventKey, P> {
     /// * `domain` - The domain (first segment) like "core", "client", "plugin"
     /// * `event_name` - The event name (last segment)
     /// * `event` - The event data to emit
+    #[inline]
     pub async fn emit<T>(
         &self,
         domain: &str,
