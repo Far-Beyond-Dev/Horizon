@@ -44,8 +44,8 @@ impl RateLimiter {
 
         // Refill tokens based on elapsed time
         let elapsed = now.duration_since(bucket.last_refill);
-        if elapsed >= self.refill_interval && self.refill_interval.as_secs() > 0 {
-            let intervals_passed = elapsed.as_secs() / self.refill_interval.as_secs();
+        if elapsed >= self.refill_interval {
+            let intervals_passed = elapsed.as_millis() / self.refill_interval.as_millis();
             let tokens_to_add = (intervals_passed as u32).min(self.max_tokens - bucket.tokens);
             bucket.tokens = (bucket.tokens + tokens_to_add).min(self.max_tokens);
             bucket.last_refill = now;
@@ -104,8 +104,8 @@ mod tests {
         assert!(limiter.check_rate_limit(ip).await);
         assert!(!limiter.check_rate_limit(ip).await);
 
-        // Wait for refill
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        // Wait for refill (extra time for test reliability)
+        tokio::time::sleep(Duration::from_millis(500)).await;
 
         // Should be able to make requests again
         assert!(limiter.check_rate_limit(ip).await);

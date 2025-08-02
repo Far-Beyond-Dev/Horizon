@@ -4,12 +4,11 @@
 //! player authentication state in a plugin-based architecture.
 
 use horizon_event_system::{
-    EventSystem, PlayerId, AuthenticationStatus, AuthenticationStatusSetEvent,
+    PlayerId, AuthenticationStatus, AuthenticationStatusSetEvent,
     AuthenticationStatusGetEvent, AuthenticationStatusGetResponseEvent, 
     AuthenticationStatusChangedEvent, current_timestamp,
     create_horizon_event_system, RawClientMessageEvent
 };
-use std::sync::Arc;
 use tokio;
 
 #[tokio::main]

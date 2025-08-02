@@ -36,10 +36,10 @@ impl QuadTreeNode {
     }
 
     /// Inserts an object into the quadtree with proper subdivision
-    pub fn insert(&mut self, object: SpatialObject) {
+    pub fn insert(&mut self, object: SpatialObject) -> bool {
         // Check if object is within bounds
         if !self.contains_point(object.position) {
-            return; // Object outside bounds, skip
+            return false; // Object outside bounds, skip
         }
 
         // If this is a leaf and we haven't exceeded capacity, add here
@@ -52,11 +52,14 @@ impl QuadTreeNode {
                 && self.can_subdivide() {
                 self.subdivide();
             }
+            true
         } else {
             // This is an internal node, route to appropriate child
             let child_index = self.get_child_index(object.position);
             if let Some(children) = &mut self.children {
-                children[child_index].insert(object);
+                children[child_index].insert(object)
+            } else {
+                false
             }
         }
     }
@@ -273,16 +276,18 @@ impl RegionQuadTree {
     /// Inserts a player at a position with O(log n) performance
     pub fn insert_player(&mut self, player_id: PlayerId, position: Position) {
         let object = SpatialObject::new(player_id, position);
-        self.root.insert(object);
-        self.object_count += 1;
-        self.stats.total_insertions += 1;
+        if self.root.insert(object) {
+            self.object_count += 1;
+            self.stats.total_insertions += 1;
+        }
     }
 
     /// Inserts any spatial object with O(log n) performance
     pub fn insert_object(&mut self, object: SpatialObject) {
-        self.root.insert(object);
-        self.object_count += 1;
-        self.stats.total_insertions += 1;
+        if self.root.insert(object) {
+            self.object_count += 1;
+            self.stats.total_insertions += 1;
+        }
     }
 
     /// Queries players within a radius with O(log n) performance
@@ -475,9 +480,9 @@ mod tests {
             tree.insert_player(player_id, position);
         }
 
-        // Perform a small radius query (should be very fast)
+        // Perform a small radius query at a location where objects exist (should be very fast)
         let start = Instant::now();
-        let results = tree.query_radius(Position::new(500.0, 500.0, 0.0), 50.0);
+        let results = tree.query_radius(Position::new(500.0, 50.0, 0.0), 50.0);
         let duration = start.elapsed();
 
         println!("Query of 1000 objects took: {:?}", duration);

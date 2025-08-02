@@ -5,9 +5,9 @@
 //! Each object instance has its own zones that revolve around it for efficient
 //! proximity-based replication.
 
-use crate::types::{PlayerId, Position, Vec3};
+use crate::types::{PlayerId, Vec3};
 use crate::gorc::channels::{ReplicationPriority, ReplicationLayer};
-use crate::gorc::zones::{ObjectZone, ZoneManager};
+use crate::gorc::zones::ZoneManager;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -436,6 +436,7 @@ impl GorcInstanceManager {
     }
 
     /// Check if a player should be subscribed to an object on a specific channel
+    #[allow(dead_code)]
     async fn should_subscribe(&self, player_id: PlayerId, object_id: GorcObjectId, channel: u8) -> bool {
         let player_pos = {
             let player_positions = self.player_positions.read().await;

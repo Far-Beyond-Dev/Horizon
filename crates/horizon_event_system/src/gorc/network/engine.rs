@@ -7,8 +7,7 @@ use crate::context::ServerContext;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tokio::time::{Duration, Instant};
-use tracing::{info, warn, error};
+use tracing::{info, warn};
 use flate2::{Compression, write::DeflateEncoder, read::DeflateDecoder};
 use std::io::prelude::*;
 
@@ -22,6 +21,7 @@ pub struct NetworkReplicationEngine {
     /// Global network statistics
     global_stats: Arc<RwLock<NetworkStats>>,
     /// Reference to instance manager
+    #[allow(dead_code)]
     instance_manager: Arc<GorcInstanceManager>,
     /// Reference to server context for network operations
     server_context: Arc<dyn ServerContext>,

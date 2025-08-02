@@ -3,8 +3,9 @@ use crate::events::{Event, EventError};
 use crate::gorc::instance::GorcObjectId;
 use super::core::EventSystem;
 use super::stats::{DetailedEventSystemStats, HandlerCategoryStats};
-use futures;
+use futures::{self, stream::{FuturesUnordered, StreamExt}};
 use tracing::{debug, error, warn};
+use compact_str::CompactString;
 
 /// Helper function to extract namespace from event key for debugging
 fn namespace_from_key(event_key: &str) -> &str {
@@ -21,15 +22,17 @@ fn namespace_from_key(event_key: &str) -> &str {
 
 impl EventSystem {
     /// Emits a core server event to all registered handlers.
+    #[inline]
     pub async fn emit_core<T>(&self, event_name: &str, event: &T) -> Result<(), EventError>
     where
         T: Event,
     {
-        let event_key = format!("core:{event_name}");
+        let event_key = CompactString::new_inline("core:") + event_name;
         self.emit_event(&event_key, event).await
     }
 
     /// Emits a client event to all registered handlers.
+    #[inline]
     pub async fn emit_client<T>(
         &self,
         namespace: &str,
@@ -39,7 +42,7 @@ impl EventSystem {
     where
         T: Event,
     {
-        let event_key = format!("client:{namespace}:{event_name}");
+        let event_key = CompactString::new_inline("client:") + namespace + ":" + event_name;
         self.emit_event(&event_key, event).await
     }
 
@@ -70,11 +73,12 @@ impl EventSystem {
             "data": event
         });
         
-        let event_key = format!("client:{namespace}:{event_name}");
+        let event_key = CompactString::new_inline("client:") + namespace + ":" + event_name;
         self.emit_event(&event_key, &context_event).await
     }
 
     /// Emits a plugin event to all registered handlers.
+    #[inline]
     pub async fn emit_plugin<T>(
         &self,
         plugin_name: &str,
@@ -84,7 +88,7 @@ impl EventSystem {
     where
         T: Event,
     {
-        let event_key = format!("plugin:{plugin_name}:{event_name}");
+        let event_key = CompactString::new_inline("plugin:") + plugin_name + ":" + event_name;
         self.emit_event(&event_key, event).await
     }
 
@@ -130,8 +134,8 @@ impl EventSystem {
                 let object_type = &instance.type_name;
                 
                 // Emit to both the instance-specific and general GORC handlers
-                let instance_key = format!("gorc_instance:{}:{}:{}", object_type, channel, event_name);
-                let general_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
+                let instance_key = CompactString::new_inline("gorc_instance:") + object_type + ":" + &channel.to_string() + ":" + event_name;
+                let general_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
                 
                 // Emit to instance-specific handlers first
                 if let Err(e) = self.emit_event(&instance_key, event).await {
@@ -152,6 +156,7 @@ impl EventSystem {
     /// 
     /// This method is kept for backward compatibility but it's recommended to use
     /// `emit_gorc_instance` for better type safety and instance targeting.
+    #[inline]
     pub async fn emit_gorc<T>(
         &self,
         object_type: &str,
@@ -162,24 +167,22 @@ impl EventSystem {
     where
         T: Event,
     {
-        let event_key = format!("gorc:{}:{}:{}", object_type, channel, event_name);
+        let event_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
         self.emit_event(&event_key, event).await
     }
 
     /// Internal emit implementation that handles the actual event dispatch.
     /// Optimized for high throughput (500k messages/sec target).
+    /// Now uses lock-free DashMap + serialization pool for maximum performance.
     async fn emit_event<T>(&self, event_key: &str, event: &T) -> Result<(), EventError>
     where
         T: Event,
     {
-        // Pre-serialize once for all handlers to avoid duplicate serialization
-        let data = event.serialize()?;
+        // Use serialization pool for better performance and shared data
+        let data = self.serialization_pool.serialize_event(event)?;
         
-        // Use read lock with minimal hold time
-        let event_handlers = {
-            let handlers = self.handlers.read().await;
-            handlers.get(event_key).cloned()
-        };
+        // Lock-free read from DashMap - no contention!
+        let event_handlers = self.handlers.get(event_key).map(|entry| entry.value().clone());
 
         if let Some(event_handlers) = event_handlers {
             // Only log debug info if handlers exist to reduce overhead
@@ -188,22 +191,23 @@ impl EventSystem {
                     debug!("📤 Emitting {} to {} handlers", event_key, event_handlers.len());
                 }
 
-                // Parallel handler execution for better throughput
-                let futures: Vec<_> = event_handlers
-                    .iter()
-                    .map(|handler| {
-                        let data_ref = &data;
-                        let handler_name = handler.handler_name();
-                        async move {
-                            if let Err(e) = handler.handle(data_ref).await {
-                                error!("❌ Handler {} failed: {}", handler_name, e);
-                            }
+                // Use FuturesUnordered for better memory efficiency and concurrency
+                let mut futures = FuturesUnordered::new();
+                
+                for handler in event_handlers.iter() {
+                    let data_arc = data.clone(); // Clone the Arc, not the data
+                    let handler_name = handler.handler_name();
+                    let handler_clone = handler.clone();
+                    
+                    futures.push(async move {
+                        if let Err(e) = handler_clone.handle(&data_arc).await {
+                            error!("❌ Handler {} failed: {}", handler_name, e);
                         }
-                    })
-                    .collect();
+                    });
+                }
 
-                // Execute all handlers concurrently for maximum throughput
-                futures::future::join_all(futures).await;
+                // Execute all handlers concurrently with better memory usage
+                while let Some(_) = futures.next().await {};
             }
 
             // Batch stats updates to reduce lock contention
@@ -217,11 +221,17 @@ impl EventSystem {
         } else {
             // Show debugging info for missing handlers (except server_tick spam)
             if event_key != "core:server_tick" {
-                // Show available handlers for debugging
-                let handlers = self.handlers.read().await;
-                let available_keys: Vec<String> = handlers.keys()
-                    .filter(|k| k.contains(&namespace_from_key(event_key)))
-                    .cloned()
+                // Show available handlers for debugging using DashMap iteration
+                let available_keys: Vec<String> = self.handlers
+                    .iter()
+                    .filter_map(|entry| {
+                        let key = entry.key();
+                        if key.contains(&namespace_from_key(event_key)) {
+                            Some(key.to_string()) // Convert CompactString to String
+                        } else {
+                            None
+                        }
+                    })
                     .collect();
                 
                 if !available_keys.is_empty() {
@@ -253,17 +263,19 @@ impl EventSystem {
         }
     }
 
-    /// Gets handler count breakdown by event category
+    /// Gets handler count breakdown by event category using lock-free DashMap
     async fn get_handler_count_by_category(&self) -> HandlerCategoryStats {
-        let handlers = self.handlers.read().await;
         let mut core_handlers = 0;
         let mut client_handlers = 0;
         let mut plugin_handlers = 0;
         let mut gorc_handlers = 0;
         let mut gorc_instance_handlers = 0;
 
-        for (key, handler_list) in handlers.iter() {
-            let count = handler_list.len();
+        // Lock-free iteration over DashMap
+        for entry in self.handlers.iter() {
+            let key = entry.key();
+            let count = entry.value().len();
+            
             if key.starts_with("core:") {
                 core_handlers += count;
             } else if key.starts_with("client:") {

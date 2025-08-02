@@ -147,6 +147,7 @@ mod auth_tests;
 // Core modules
 pub mod api;
 pub mod binary;
+pub mod async_logging;
 pub mod context;
 pub mod events;
 pub mod gorc_macros;

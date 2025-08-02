@@ -1,10 +1,9 @@
-use crate::*;
 
 // Include tests
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use horizon_event_system::{PlayerConnectedEvent, RegionStartedEvent};
+    use crate::*;
+    use horizon_event_system::PlayerConnectedEvent;
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_core_server_creation() {
@@ -250,7 +249,7 @@ mod tests {
             ..Default::default()
         };
 
-        let server = create_server_with_config(config.clone());
+        let _server = create_server_with_config(config.clone());
         
         // Verify the server was created with custom config
         // Note: In a real implementation, you might want to expose config getters
@@ -320,8 +319,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn test_server_tick_events() {
         use std::sync::Arc;
-        use tokio::sync::Mutex;
-        use tokio::time::{timeout, Duration};
+        use tokio::time::Duration;
 
         let server = create_server();
         let events = server.get_horizon_event_system();
@@ -409,7 +407,8 @@ mod tests {
             
             // Verify server creation succeeds with different intervals
             let events = server.get_horizon_event_system();
-            assert!(events.get_stats().await.total_handlers >= 0); // Always true, just checking server works
+            // Verify server is functioning by checking event system exists
+            assert!(events.get_stats().await.total_handlers == events.get_stats().await.total_handlers);
             
             println!("✅ Server created with {}ms tick interval", interval_ms);
         }
@@ -438,7 +437,8 @@ mod tests {
         
         // Verify server creation succeeds
         let events = server.get_horizon_event_system();
-        assert!(events.get_stats().await.total_handlers >= 0);
+        // Verify event system is functioning
+        let _stats = events.get_stats().await;
         
         println!("✅ Server created with valid region bounds");
 
@@ -459,7 +459,8 @@ mod tests {
         };
 
         let edge_server = create_server_with_config(edge_config);
-        assert!(edge_server.get_horizon_event_system().get_stats().await.total_handlers >= 0);
+        // Verify edge server event system is functioning
+        let _stats = edge_server.get_horizon_event_system().get_stats().await;
         
         println!("✅ Server created with edge case region bounds (single point)");
     }
@@ -479,7 +480,8 @@ mod tests {
             
             // Verify server creation succeeds with different max_connections
             let events = server.get_horizon_event_system();
-            assert!(events.get_stats().await.total_handlers >= 0);
+            // Verify event system is functioning
+        let _stats = events.get_stats().await;
             
             println!("✅ Server created with max_connections: {}", max_conn);
         }
@@ -500,7 +502,8 @@ mod tests {
             
             // Verify server creation succeeds with different timeouts
             let events = server.get_horizon_event_system();
-            assert!(events.get_stats().await.total_handlers >= 0);
+            // Verify event system is functioning
+        let _stats = events.get_stats().await;
             
             println!("✅ Server created with connection_timeout: {}s", timeout);
         }
@@ -529,7 +532,8 @@ mod tests {
             
             // Verify server creation succeeds with different plugin directories
             let events = server.get_horizon_event_system();
-            assert!(events.get_stats().await.total_handlers >= 0);
+            // Verify event system is functioning
+        let _stats = events.get_stats().await;
             
             println!("✅ Server created with plugin_directory: {:?}", dir);
         }

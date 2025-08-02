@@ -113,19 +113,23 @@ impl EventSystem {
         }
     }
 
-    /// Removes all handlers for a specific event pattern
+    /// Removes all handlers for a specific event pattern using lock-free DashMap
     pub async fn remove_handlers(&self, pattern: &str) -> usize {
-        let mut handlers = self.handlers.write().await;
         let mut removed_count = 0;
+        let mut keys_to_remove = Vec::new();
 
-        handlers.retain(|key, handler_list| {
-            if key.contains(pattern) {
-                removed_count += handler_list.len();
-                false
-            } else {
-                true
+        // Collect keys that match the pattern
+        for entry in self.handlers.iter() {
+            if entry.key().contains(pattern) {
+                removed_count += entry.value().len();
+                keys_to_remove.push(entry.key().clone());
             }
-        });
+        }
+
+        // Remove the matching keys
+        for key in keys_to_remove {
+            self.handlers.remove(&key);
+        }
 
         if removed_count > 0 {
             let mut stats = self.stats.write().await;
@@ -136,31 +140,33 @@ impl EventSystem {
         removed_count
     }
 
-    /// Gets all registered event keys
+    /// Gets all registered event keys using lock-free DashMap
+    #[inline]
     pub async fn get_registered_events(&self) -> Vec<String> {
-        let handlers = self.handlers.read().await;
-        handlers.keys().cloned().collect()
+        self.handlers.iter().map(|entry| entry.key().to_string()).collect()
     }
 
-    /// Checks if handlers are registered for a specific event
+    /// Checks if handlers are registered for a specific event using lock-free DashMap
+    #[inline]
     pub async fn has_handlers(&self, event_key: &str) -> bool {
-        let handlers = self.handlers.read().await;
-        handlers.contains_key(event_key)
+        self.handlers.contains_key(event_key)
     }
 
-    /// Gets the number of handlers for a specific event
+    /// Gets the number of handlers for a specific event using lock-free DashMap
+    #[inline]
     pub async fn get_handler_count(&self, event_key: &str) -> usize {
-        let handlers = self.handlers.read().await;
-        handlers.get(event_key).map(|h| h.len()).unwrap_or(0)
+        self.handlers.get(event_key).map(|entry| entry.value().len()).unwrap_or(0)
     }
 
-    /// Validates the event system configuration
+    /// Validates the event system configuration using lock-free DashMap
     pub async fn validate(&self) -> Vec<String> {
         let mut issues = Vec::new();
-        let handlers = self.handlers.read().await;
 
-        // Check for potential issues
-        for (key, handler_list) in handlers.iter() {
+        // Check for potential issues using lock-free iteration
+        for entry in self.handlers.iter() {
+            let key = entry.key();
+            let handler_list = entry.value();
+            
             if handler_list.is_empty() {
                 issues.push(format!("Event key '{}' has no handlers", key));
             }

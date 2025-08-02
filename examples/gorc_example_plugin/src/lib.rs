@@ -462,7 +462,7 @@ impl SimplePlugin for GorcExamplePlugin {
         "2.0.0"
     }
 
-    async fn register_handlers(&mut self, events: Arc<EventSystem>, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+    async fn register_handlers(&mut self, events: Arc<EventSystem>, _context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
         info!("🚀 Initializing GORC Example Plugin with Object Registration");
         
         // Setup object registry

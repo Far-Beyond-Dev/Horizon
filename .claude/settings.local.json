@@ -11,7 +11,8 @@
       "Bash(.targetdebughorizon.exe)",
       "Bash(./target/debug/horizon.exe)",
       "Bash(copy targetreleasestars_beyond.dll plugins)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(mv:*)"
     ],
     "deny": []
   }

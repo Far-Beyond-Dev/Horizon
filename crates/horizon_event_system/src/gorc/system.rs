@@ -251,7 +251,7 @@ impl GorcPerformanceReport {
 mod tests {
     use super::*;
     use crate::gorc::{examples, MineralType};
-    use crate::types::{PlayerId, Vec3};
+    use crate::types::Vec3;
     
     #[tokio::test]
     async fn test_complete_gorc_system() {

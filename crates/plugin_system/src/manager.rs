@@ -49,6 +49,7 @@ impl BasicServerContext {
     }
 
     /// Create a context with a custom region id.
+    #[allow(dead_code)]
     fn with_region(event_system: Arc<EventSystem>, region_id: horizon_event_system::types::RegionId) -> Self {
         Self { 
             event_system, 
@@ -58,6 +59,7 @@ impl BasicServerContext {
     }
 
     /// Create a context with an explicit tokio handle.
+    #[allow(dead_code)]
     fn with_tokio_handle(event_system: Arc<EventSystem>, tokio_handle: tokio::runtime::Handle) -> Self {
         Self {
             event_system,
@@ -74,13 +76,9 @@ impl ServerContext for BasicServerContext {
     }
 
     fn log(&self, level: LogLevel, message: &str) {
-        match level {
-            LogLevel::Error => error!("{}", message),
-            LogLevel::Warn => warn!("{}", message),
-            LogLevel::Info => info!("{}", message),
-            LogLevel::Debug => tracing::debug!("{}", message),
-            LogLevel::Trace => tracing::trace!("{}", message),
-        }
+        // Use async logger to prevent blocking hot threads
+        let async_logger = horizon_event_system::async_logging::global_async_logger();
+        async_logger.log_with_target(level, message, Some("plugin_system"));
     }
 
 
@@ -110,6 +108,7 @@ impl ServerContext for BasicServerContext {
 /// Information about a loaded plugin
 pub struct LoadedPlugin {
     /// The name of the plugin
+    #[allow(dead_code)]
     pub name: String,
     /// The loaded library
     pub library: Library,
@@ -313,7 +312,7 @@ impl PluginManager {
                 const MAX_PLUGIN_VERSION_LENGTH: usize = 1024; // Define a reasonable maximum length
                 let plugin_version = unsafe {
                     let slice = std::slice::from_raw_parts(plugin_version_ptr as *const u8, MAX_PLUGIN_VERSION_LENGTH);
-                    if let Some(null_pos) = slice.iter().position(|&c| c == 0) {
+                    if let Some(_null_pos) = slice.iter().position(|&c| c == 0) {
                         std::ffi::CStr::from_ptr(plugin_version_ptr)
                             .to_string_lossy()
                             .to_string()

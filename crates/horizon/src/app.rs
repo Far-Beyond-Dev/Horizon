@@ -184,7 +184,7 @@ impl Application {
                         events_this_period, stats.total_handlers, ""
                     );
 
-                    if events_this_period > 1000 {
+                    if events_this_period > 10000 {
                         info!(
                             "🔥 High activity detected - {} events processed this minute",
                             events_this_period

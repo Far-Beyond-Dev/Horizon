@@ -10,8 +10,6 @@ mod error;
 pub use manager::{PluginManager, PluginSafetyConfig};
 pub use error::PluginSystemError;
 
-use horizon_event_system::plugin::{Plugin, SimplePlugin};
-use std::sync::Arc;
 
 /// Re-export commonly used types for plugin development
 pub use horizon_event_system::{EventSystem, plugin::PluginError};

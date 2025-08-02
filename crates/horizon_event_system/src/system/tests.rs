@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    
     use crate::{EventSystem, ClientConnectionRef, ClientResponseSender};
     use crate::events::RawClientMessageEvent;
     use crate::types::PlayerId;
@@ -25,6 +25,7 @@ mod tests {
             }
         }
         
+        #[allow(dead_code)]
         fn get_sent_messages(&self) -> Vec<(PlayerId, Vec<u8>)> {
             self.sent_messages.lock().unwrap().clone()
         }

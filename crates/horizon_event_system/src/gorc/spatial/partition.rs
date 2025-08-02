@@ -1,6 +1,6 @@
 /// Spatial partitioning system
 use super::quadtree::RegionQuadTree;
-use super::query::{SpatialQuery, QueryResult};
+use super::query::QueryResult;
 use crate::types::{PlayerId, Position, Vec3};
 use std::collections::HashMap;
 use std::sync::Arc;

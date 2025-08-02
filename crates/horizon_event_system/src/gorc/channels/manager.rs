@@ -2,7 +2,7 @@
 use super::channel::{ReplicationChannel, ChannelStats};
 use super::layer::ReplicationLayer;
 use super::types::{ReplicationPriority, GorcError};
-use crate::types::{Position, Vec3};
+use crate::types::Position;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,6 +17,7 @@ pub struct GorcManager {
     /// Global GORC statistics
     stats: Arc<RwLock<GorcStats>>,
     /// System configuration
+    #[allow(dead_code)]
     config: GorcConfig,
 }
 
