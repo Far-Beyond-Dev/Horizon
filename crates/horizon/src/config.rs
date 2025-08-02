@@ -3,9 +3,7 @@
 //! This module handles loading, validation, and conversion of server configuration
 //! from TOML files and command-line arguments.
 
-use horizon_event_system::RegionBounds;
-use game_server::ServerConfig;
-use plugin_system::PluginSafetyConfig;
+use game_server::{ServerConfig, config::{RegionBounds, PluginSafetyConfig}};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tracing::info;

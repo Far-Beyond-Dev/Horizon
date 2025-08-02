@@ -12,8 +12,7 @@ tracing = { workspace = true }
 futures = { workspace = true }
 tracing-subscriber = { workspace = true }
 game_server = { workspace = true }
-horizon_event_system = { workspace = true }
-plugin_system = { workspace = true }
+universal_plugin_system = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

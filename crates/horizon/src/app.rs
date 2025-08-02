@@ -5,8 +5,9 @@
 //! and performance monitoring.
 
 use crate::{cli::CliArgs, config::AppConfig, logging::display_banner, signals::setup_signal_handlers};
-use horizon_event_system::ShutdownState;
+use game_server::server::core::ShutdownState;
 use game_server::GameServer;
+use universal_plugin_system::{EventBus, StructuredEventKey, propagation::CompositePropagator};
 use tracing::{error, info, warn};
 
 /// Main application struct with enhanced monitoring capabilities.
@@ -129,10 +130,10 @@ impl Application {
         self.log_configuration_summary();
 
         // Get references for monitoring before moving the server
-        let horizon_event_system = self.server.get_horizon_event_system();
+        let event_bus = self.server.get_event_bus();
 
         // Display initial statistics
-        let initial_stats = horizon_event_system.get_stats().await;
+        let initial_stats = event_bus.stats().await;
         info!("📊 Initial Event System State:");
         info!("  - Handlers registered: {}", initial_stats.total_handlers);
         info!("  - Events emitted: {}", initial_stats.events_emitted);
@@ -165,7 +166,7 @@ impl Application {
 
         // Start monitoring task for real-time statistics
         let monitoring_handle = {
-            let horizon_event_system = horizon_event_system.clone();
+            let event_bus = event_bus.clone();
 
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
@@ -175,7 +176,7 @@ impl Application {
                     interval.tick().await;
 
                     // Display periodic statistics
-                    let stats = horizon_event_system.get_stats().await;
+                    let stats = event_bus.stats().await;
                     let events_this_period = stats.events_emitted - last_events_emitted;
                     last_events_emitted = stats.events_emitted;
 
@@ -227,7 +228,7 @@ impl Application {
         const MAX_WAIT_CYCLES: u32 = 30; // Wait up to 3 seconds (30 * 100ms)
         
         while wait_cycles < MAX_WAIT_CYCLES {
-            let stats = horizon_event_system.get_stats().await;
+            let stats = event_bus.stats().await;
             
             // Check if there are any pending events or active handlers processing
             if stats.events_emitted == 0 && stats.total_handlers == 0 {
@@ -245,7 +246,7 @@ impl Application {
         }
         
         // Mark shutdown as complete for the event system
-        shutdown_state.complete_shutdown();
+        shutdown_state.initiate_shutdown();
 
         // Phase 3: Final cleanup - shutdown server accept loops first
         info!("🧹 Phase 3: Final cleanup - stopping server accept loops...");
@@ -275,7 +276,7 @@ impl Application {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         // Display final statistics
-        log_final_statistics(&horizon_event_system).await;
+        log_final_statistics(&event_bus).await;
 
         info!("✅ Horizon Game Server shutdown complete");
         info!("👋 Thank you for using Horizon Game Server!");
@@ -310,9 +311,9 @@ impl Application {
 }
 
 /// Logs final statistics during shutdown.
-async fn log_final_statistics(horizon_event_system: &std::sync::Arc<horizon_event_system::EventSystem>) {
+async fn log_final_statistics(event_bus: &std::sync::Arc<EventBus<StructuredEventKey, CompositePropagator<StructuredEventKey>>>) {
     info!("📊 Final Statistics:");
-    let final_stats = horizon_event_system.get_stats().await;
+    let final_stats = event_bus.stats().await;
     info!("  - Total events processed: {}", final_stats.events_emitted);
     info!("  - Peak handlers: {}", final_stats.total_handlers);
 }

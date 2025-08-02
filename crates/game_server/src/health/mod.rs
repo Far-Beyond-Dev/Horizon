@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
-use sysinfo::System;
 
 pub mod metrics;
 pub mod circuit_breaker;
@@ -75,7 +74,7 @@ impl HealthManager {
         let plugin_count = plugin_manager.plugin_count();
         
         // Get event system statistics
-        let event_bus = server.get_event_bus();
+        let _event_bus = server.get_event_bus();
         // Note: The universal event system doesn't have the same stats interface
         // We'll use default values for now
         

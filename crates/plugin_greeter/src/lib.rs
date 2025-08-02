@@ -2,11 +2,11 @@ use async_trait::async_trait;
 use chrono::prelude::*;
 use universal_plugin_system::{
     SimplePlugin, PluginContext, PluginSystemError, EventBus, StructuredEventKey,
-    propagation::AllEqPropagator
+    propagation::AllEqPropagator, event::Event
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::info;
 
 // ============================================================================
 // Sample Plugin 1: Greeter Plugin
@@ -43,6 +43,12 @@ pub struct WelcomeEvent {
     pub timestamp: u64,
 }
 
+impl Event for WelcomeEvent {
+    fn event_type() -> &'static str {
+        "welcome"
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerChatEvent {
     pub player_id: u64,
@@ -50,11 +56,23 @@ pub struct PlayerChatEvent {
     pub channel: String,
 }
 
+impl Event for PlayerChatEvent {
+    fn event_type() -> &'static str {
+        "player_chat"
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerJumpEvent {
     pub player_id: u64,
     pub height: f64,
     pub position: Position,
+}
+
+impl Event for PlayerJumpEvent {
+    fn event_type() -> &'static str {
+        "player_jump"
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -266,7 +284,7 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for GreeterPlugin {
 // Export functions for the universal plugin system
 #[no_mangle]
 pub extern "C" fn get_plugin_version() -> *const std::os::raw::c_char {
-    static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), ":", env!("RUSTC_VERSION"));
+    static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), ": Built with Rust");
     VERSION.as_ptr() as *const std::os::raw::c_char
 }
 

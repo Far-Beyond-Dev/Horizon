@@ -5,7 +5,7 @@
 //! a two-phase shutdown process: first stopping new events, then processing
 //! existing events before final cleanup.
 
-use horizon_event_system::ShutdownState;
+use game_server::server::core::ShutdownState;
 use tokio::signal;
 use tracing::info;
 

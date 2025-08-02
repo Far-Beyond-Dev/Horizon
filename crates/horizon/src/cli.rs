@@ -5,7 +5,7 @@
 
 use clap::{Arg, Command};
 use std::path::PathBuf;
-use plugin_system::PluginSafetyConfig;
+use game_server::config::PluginSafetyConfig;
 
 /// Command line arguments parsed from user input.
 /// 
@@ -131,9 +131,8 @@ impl CliArgs {
     /// A `PluginSafetyConfig` with flags set based on command-line arguments.
     pub fn to_plugin_safety_config(&self) -> PluginSafetyConfig {
         PluginSafetyConfig {
-            allow_unsafe_plugins: self.danger_allow_unsafe_plugins,
-            allow_abi_mismatch: self.danger_allow_abi_mismatch,
-            strict_versioning: self.strict_versioning,
+            enabled: !self.danger_allow_unsafe_plugins,
+            sandbox_mode: !self.danger_allow_abi_mismatch,
         }
     }
 }

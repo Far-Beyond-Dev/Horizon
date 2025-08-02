@@ -1,25 +1,14 @@
 use async_trait::async_trait;
 use universal_plugin_system::{
     SimplePlugin, PluginContext, PluginSystemError, EventBus, StructuredEventKey,
-    propagation::AllEqPropagator
+    propagation::AllEqPropagator, event::Event
 };
+use game_server::server::core::{PlayerConnectedEvent, PlayerDisconnectedEvent};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, error};
+use tracing::info;
 
-// Define events for demonstration purposes
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerConnectedEvent {
-    pub player_id: u64,
-    pub remote_addr: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerDisconnectedEvent {
-    pub player_id: u64,
-    pub reason: String,
-}
-
+// Define events for demonstration purposes (plugins can define their own events too)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerChatEvent {
     pub player_id: u64,
@@ -27,11 +16,23 @@ pub struct PlayerChatEvent {
     pub channel: String,
 }
 
+impl Event for PlayerChatEvent {
+    fn event_type() -> &'static str {
+        "player_chat"
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerJumpEvent {
     pub player_id: u64,
     pub height: f32,
     pub position: Position,
+}
+
+impl Event for PlayerJumpEvent {
+    fn event_type() -> &'static str {
+        "player_jump"
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +72,12 @@ pub struct ActivityLogEvent {
     pub player_id: Option<u64>,
     pub timestamp: u64,
     pub log_count: u32,
+}
+
+impl Event for ActivityLogEvent {
+    fn event_type() -> &'static str {
+        "activity_log"
+    }
 }
 
 fn current_timestamp() -> u64 {
@@ -229,7 +236,7 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for LoggerPlugin {
 // Export functions for the universal plugin system
 #[no_mangle]
 pub extern "C" fn get_plugin_version() -> *const std::os::raw::c_char {
-    static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), ":", env!("RUSTC_VERSION"));
+    static VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), ": Built with Rust");
     VERSION.as_ptr() as *const std::os::raw::c_char
 }
 

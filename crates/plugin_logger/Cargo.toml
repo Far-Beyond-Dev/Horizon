@@ -8,6 +8,7 @@ crate-type = ["cdylib"]
 
 [dependencies]
 universal_plugin_system = { workspace = true }
+game_server = { workspace = true }
 tokio = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }

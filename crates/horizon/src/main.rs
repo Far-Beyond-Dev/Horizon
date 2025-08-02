@@ -49,7 +49,6 @@ mod signals;
 use app::Application;
 use cli::CliArgs;
 use config::AppConfig;
-use horizon_event_system::async_logging;
 
 /// Main entry point for the Horizon Game Server.
 /// 
@@ -79,9 +78,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("❌ Failed to setup logging: {e}");
         std::process::exit(1);
     }
-    
-    // Initialize async logging system
-    async_logging::init_global_async_logger();
 
     // Create and run application
     match Application::new(args).await {
@@ -114,7 +110,7 @@ mod tests {
         assert!(config.validate().is_ok());
 
         // Test conversion to ServerConfig
-        let plugin_safety_config = plugin_system::PluginSafetyConfig::default();
+        let plugin_safety_config = game_server::config::PluginSafetyConfig::default();
         let server_config = config.to_server_config(plugin_safety_config)
             .expect("Default config should convert to ServerConfig");
         assert_eq!(server_config.max_connections, 1000);
