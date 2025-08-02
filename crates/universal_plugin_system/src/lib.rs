@@ -93,19 +93,25 @@ pub mod error;
 pub mod utils;
 
 // Re-exports for convenience
-pub use event::{Event, EventData, EventHandler, EventBus, EventKey};
+pub use event::{
+    Event, EventData, EventHandler, EventBus, EventKey, EventKeyType, 
+    StructuredEventKey, EventNamespace, TypedEventKey
+};
 pub use plugin::{Plugin, SimplePlugin, PluginWrapper};
 pub use manager::{PluginManager, PluginConfig, LoadedPlugin};
 pub use context::{PluginContext, ContextProvider};
-pub use propagation::{EventPropagator, DefaultPropagator, PropagationContext};
+pub use propagation::{
+    EventPropagator, DefaultPropagator, AllEqPropagator, NamespacePropagator, 
+    PropagationContext
+};
 pub use error::{PluginSystemError, EventError};
-pub use macros::*;
+// pub use macros::*; // TODO: Fix macros
 
 /// Version information for ABI compatibility
 pub const UNIVERSAL_PLUGIN_SYSTEM_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Default event bus type with standard propagation
-pub type DefaultEventBus = EventBus<DefaultPropagator>;
+/// Default event bus type with AllEq propagation (most common use case)
+pub type DefaultEventBus = EventBus<StructuredEventKey, AllEqPropagator>;
 
 /// Result type used throughout the system
 pub type Result<T> = std::result::Result<T, PluginSystemError>;

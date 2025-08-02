@@ -9,18 +9,18 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Plugin context provides access to services and dependencies
-pub struct PluginContext<P: EventPropagator> {
+pub struct PluginContext<K: crate::event::EventKeyType, P: EventPropagator<K>> {
     /// Event bus for plugin communication
-    event_bus: Arc<EventBus<P>>,
+    event_bus: Arc<EventBus<K, P>>,
     /// Context providers for dependency injection
     providers: HashMap<TypeId, Box<dyn Any + Send + Sync>>,
     /// Plugin metadata
     metadata: HashMap<String, String>,
 }
 
-impl<P: EventPropagator> PluginContext<P> {
+impl<K: crate::event::EventKeyType, P: EventPropagator<K>> PluginContext<K, P> {
     /// Create a new plugin context
-    pub fn new(event_bus: Arc<EventBus<P>>) -> Self {
+    pub fn new(event_bus: Arc<EventBus<K, P>>) -> Self {
         Self {
             event_bus,
             providers: HashMap::new(),
@@ -29,7 +29,7 @@ impl<P: EventPropagator> PluginContext<P> {
     }
 
     /// Get the event bus
-    pub fn event_bus(&self) -> Arc<EventBus<P>> {
+    pub fn event_bus(&self) -> Arc<EventBus<K, P>> {
         self.event_bus.clone()
     }
 
@@ -61,7 +61,7 @@ impl<P: EventPropagator> PluginContext<P> {
     }
 }
 
-impl<P: EventPropagator> Clone for PluginContext<P> {
+impl<K: crate::event::EventKeyType, P: EventPropagator<K>> Clone for PluginContext<K, P> {
     fn clone(&self) -> Self {
         // Note: We can't easily clone the providers HashMap due to trait object limitations
         // In practice, you'd want to use Arc<> around providers or redesign this

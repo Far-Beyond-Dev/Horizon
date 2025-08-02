@@ -31,34 +31,34 @@ pub struct PluginConfig {
 }
 
 /// Information about a loaded plugin
-pub struct LoadedPlugin<P: EventPropagator> {
+pub struct LoadedPlugin<K: crate::event::EventKeyType, P: EventPropagator<K>> {
     /// Plugin metadata
     pub metadata: PluginMetadata,
     /// The loaded library (if loaded from dynamic library)
     pub library: Option<Library>,
     /// The plugin instance
-    pub plugin: Box<dyn Plugin<P>>,
+    pub plugin: Box<dyn Plugin<K, P>>,
     /// Plugin factory (if available)
-    pub factory: Option<Box<dyn PluginFactory<P>>>,
+    pub factory: Option<Box<dyn PluginFactory<K, P>>>,
 }
 
 /// Plugin manager for loading and managing dynamic plugins
-pub struct PluginManager<P: EventPropagator> {
+pub struct PluginManager<K: crate::event::EventKeyType, P: EventPropagator<K>> {
     /// Event bus for plugin communication
-    event_bus: Arc<EventBus<P>>,
+    event_bus: Arc<EventBus<K, P>>,
     /// Plugin context template
-    context_template: Arc<PluginContext<P>>,
+    context_template: Arc<PluginContext<K, P>>,
     /// Map of loaded plugins by name
-    loaded_plugins: DashMap<String, LoadedPlugin<P>>,
+    loaded_plugins: DashMap<String, LoadedPlugin<K, P>>,
     /// Safety configuration
     config: PluginConfig,
 }
 
-impl<P: EventPropagator> PluginManager<P> {
+impl<K: crate::event::EventKeyType, P: EventPropagator<K>> PluginManager<K, P> {
     /// Create a new plugin manager
     pub fn new(
-        event_bus: Arc<EventBus<P>>,
-        context_template: Arc<PluginContext<P>>,
+        event_bus: Arc<EventBus<K, P>>,
+        context_template: Arc<PluginContext<K, P>>,
         config: PluginConfig,
     ) -> Self {
         Self {
@@ -139,7 +139,7 @@ impl<P: EventPropagator> PluginManager<P> {
     /// Load a single plugin from a factory
     pub async fn load_plugin_from_factory(
         &self,
-        factory: Box<dyn PluginFactory<P>>,
+        factory: Box<dyn PluginFactory<K, P>>,
     ) -> Result<String, PluginSystemError> {
         let plugin_name = factory.plugin_name().to_string();
         let plugin_version = factory.plugin_version().to_string();
@@ -249,7 +249,7 @@ impl<P: EventPropagator> PluginManager<P> {
         self.validate_plugin_compatibility(&plugin_version)?;
 
         // Look for the plugin creation function
-        let create_plugin: Symbol<unsafe extern "C" fn() -> *mut dyn Plugin<P>> = unsafe {
+        let create_plugin: Symbol<unsafe extern "C" fn() -> *mut dyn Plugin<K, P>> = unsafe {
             library.get(b"create_plugin").map_err(|e| {
                 PluginSystemError::LoadingFailed(format!(
                     "Plugin does not export 'create_plugin' function: {}", e

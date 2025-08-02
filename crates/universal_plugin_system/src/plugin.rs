@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 /// Simplified plugin trait for easy plugin development
 #[async_trait]
-pub trait SimplePlugin<P: EventPropagator>: Send + Sync + 'static {
+pub trait SimplePlugin<K: crate::event::EventKeyType, P: EventPropagator<K>>: Send + Sync + 'static {
     /// Returns the name of this plugin
     fn name(&self) -> &str;
 
@@ -19,24 +19,24 @@ pub trait SimplePlugin<P: EventPropagator>: Send + Sync + 'static {
     /// Register event handlers during pre-initialization
     async fn register_handlers(
         &mut self,
-        event_bus: Arc<EventBus<P>>,
-        context: Arc<PluginContext<P>>,
+        event_bus: Arc<EventBus<K, P>>,
+        context: Arc<PluginContext<K, P>>,
     ) -> Result<(), PluginSystemError>;
 
     /// Initialize the plugin with context
-    async fn on_init(&mut self, _context: Arc<PluginContext<P>>) -> Result<(), PluginSystemError> {
+    async fn on_init(&mut self, _context: Arc<PluginContext<K, P>>) -> Result<(), PluginSystemError> {
         Ok(()) // Default implementation does nothing
     }
 
     /// Shutdown the plugin gracefully
-    async fn on_shutdown(&mut self, _context: Arc<PluginContext<P>>) -> Result<(), PluginSystemError> {
+    async fn on_shutdown(&mut self, _context: Arc<PluginContext<K, P>>) -> Result<(), PluginSystemError> {
         Ok(()) // Default implementation does nothing
     }
 }
 
 /// Low-level plugin trait for FFI compatibility
 #[async_trait]
-pub trait Plugin<P: EventPropagator>: Send + Sync {
+pub trait Plugin<K: crate::event::EventKeyType, P: EventPropagator<K>>: Send + Sync {
     /// Returns the plugin name
     fn name(&self) -> &str;
     
@@ -44,24 +44,24 @@ pub trait Plugin<P: EventPropagator>: Send + Sync {
     fn version(&self) -> &str;
 
     /// Pre-initialization phase for registering event handlers
-    async fn pre_init(&mut self, context: Arc<PluginContext<P>>) -> Result<(), PluginSystemError>;
+    async fn pre_init(&mut self, context: Arc<PluginContext<K, P>>) -> Result<(), PluginSystemError>;
     
     /// Main initialization phase with full context access
-    async fn init(&mut self, context: Arc<PluginContext<P>>) -> Result<(), PluginSystemError>;
+    async fn init(&mut self, context: Arc<PluginContext<K, P>>) -> Result<(), PluginSystemError>;
     
     /// Shutdown phase for cleanup and resource deallocation
-    async fn shutdown(&mut self, context: Arc<PluginContext<P>>) -> Result<(), PluginSystemError>;
+    async fn shutdown(&mut self, context: Arc<PluginContext<K, P>>) -> Result<(), PluginSystemError>;
 }
 
 /// Wrapper to bridge SimplePlugin and Plugin traits with panic protection
-pub struct PluginWrapper<T, P: EventPropagator> {
+pub struct PluginWrapper<T, K: crate::event::EventKeyType, P: EventPropagator<K>> {
     inner: T,
-    _phantom: std::marker::PhantomData<P>,
+    _phantom: std::marker::PhantomData<(K, P)>,
 }
 
-impl<T, P: EventPropagator> PluginWrapper<T, P>
+impl<T, K: crate::event::EventKeyType, P: EventPropagator<K>> PluginWrapper<T, K, P>
 where
-    T: SimplePlugin<P>,
+    T: SimplePlugin<K, P>,
 {
     /// Create a new plugin wrapper
     pub fn new(inner: T) -> Self {
@@ -86,9 +86,9 @@ where
 }
 
 #[async_trait]
-impl<T, P: EventPropagator> Plugin<P> for PluginWrapper<T, P>
+impl<T, K: crate::event::EventKeyType, P: EventPropagator<K>> Plugin<K, P> for PluginWrapper<T, K, P>
 where
-    T: SimplePlugin<P>,
+    T: SimplePlugin<K, P>,
 {
     fn name(&self) -> &str {
         // For synchronous methods, we can use catch_unwind directly
@@ -105,7 +105,7 @@ where
         }
     }
 
-    async fn pre_init(&mut self, context: Arc<PluginContext<P>>) -> Result<(), PluginSystemError> {
+    async fn pre_init(&mut self, context: Arc<PluginContext<K, P>>) -> Result<(), PluginSystemError> {
         // Create a future that runs the plugin's register_handlers method
         let event_bus = context.event_bus();
         
@@ -117,7 +117,7 @@ where
         }
     }
 
-    async fn init(&mut self, context: Arc<PluginContext<P>>) -> Result<(), PluginSystemError> {
+    async fn init(&mut self, context: Arc<PluginContext<K, P>>) -> Result<(), PluginSystemError> {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             futures::executor::block_on(self.inner.on_init(context))
         })) {
@@ -126,7 +126,7 @@ where
         }
     }
 
-    async fn shutdown(&mut self, context: Arc<PluginContext<P>>) -> Result<(), PluginSystemError> {
+    async fn shutdown(&mut self, context: Arc<PluginContext<K, P>>) -> Result<(), PluginSystemError> {
         match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             futures::executor::block_on(self.inner.on_shutdown(context))
         })) {
@@ -137,9 +137,9 @@ where
 }
 
 /// Trait for plugin factories that can create plugin instances
-pub trait PluginFactory<P: EventPropagator>: Send + Sync {
+pub trait PluginFactory<K: crate::event::EventKeyType, P: EventPropagator<K>>: Send + Sync {
     /// Create a new plugin instance
-    fn create(&self) -> Result<Box<dyn Plugin<P>>, PluginSystemError>;
+    fn create(&self) -> Result<Box<dyn Plugin<K, P>>, PluginSystemError>;
     
     /// Get the plugin name
     fn plugin_name(&self) -> &str;
@@ -149,19 +149,19 @@ pub trait PluginFactory<P: EventPropagator>: Send + Sync {
 }
 
 /// Simple plugin factory that wraps a constructor function
-pub struct SimplePluginFactory<T, P: EventPropagator>
+pub struct SimplePluginFactory<T, K: crate::event::EventKeyType, P: EventPropagator<K>>
 where
-    T: SimplePlugin<P>,
+    T: SimplePlugin<K, P>,
 {
     constructor: Box<dyn Fn() -> T + Send + Sync>,
     name: String,
     version: String,
-    _phantom: std::marker::PhantomData<P>,
+    _phantom: std::marker::PhantomData<(K, P)>,
 }
 
-impl<T, P: EventPropagator> SimplePluginFactory<T, P>
+impl<T, K: crate::event::EventKeyType, P: EventPropagator<K>> SimplePluginFactory<T, K, P>
 where
-    T: SimplePlugin<P>,
+    T: SimplePlugin<K, P>,
 {
     /// Create a new simple plugin factory
     pub fn new<F>(name: String, version: String, constructor: F) -> Self
@@ -177,11 +177,11 @@ where
     }
 }
 
-impl<T, P: EventPropagator> PluginFactory<P> for SimplePluginFactory<T, P>
+impl<T, K: crate::event::EventKeyType, P: EventPropagator<K>> PluginFactory<K, P> for SimplePluginFactory<T, K, P>
 where
-    T: SimplePlugin<P>,
+    T: SimplePlugin<K, P>,
 {
-    fn create(&self) -> Result<Box<dyn Plugin<P>>, PluginSystemError> {
+    fn create(&self) -> Result<Box<dyn Plugin<K, P>>, PluginSystemError> {
         let plugin = (self.constructor)();
         let wrapper = PluginWrapper::new(plugin);
         Ok(Box::new(wrapper))

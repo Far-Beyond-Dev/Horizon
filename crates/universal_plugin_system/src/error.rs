@@ -1,6 +1,5 @@
 //! Error types for the universal plugin system
 
-use std::fmt;
 
 /// Main error type for the plugin system
 #[derive(Debug, thiserror::Error)]

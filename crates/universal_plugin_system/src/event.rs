@@ -1,14 +1,14 @@
 //! Core event system with flexible event propagation support
 
 use crate::error::EventError;
-use crate::propagation::{EventPropagator, PropagationContext};
+use crate::propagation::EventPropagator;
 use async_trait::async_trait;
 use compact_str::CompactString;
 use dashmap::DashMap;
 use futures::stream::{FuturesUnordered, StreamExt};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use std::any::{Any, TypeId};
+use std::any::TypeId;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -27,7 +27,16 @@ pub trait Event: Send + Sync + Debug + 'static {
     }
 }
 
-/// Event key for routing events to handlers
+/// Trait for event keys that can be used for routing
+/// 
+/// This allows users to define their own event key types for better performance
+/// and type safety instead of being locked into strings.
+pub trait EventKeyType: Clone + PartialEq + Eq + std::hash::Hash + Send + Sync + std::fmt::Debug + 'static {
+    /// Convert to a string representation for storage/debugging
+    fn to_string(&self) -> String;
+}
+
+/// Default string-based event key for simple use cases
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub struct EventKey {
     /// Primary namespace (e.g., "core", "client", "plugin")
@@ -36,6 +45,83 @@ pub struct EventKey {
     pub category: Option<CompactString>,
     /// Event name
     pub event_name: CompactString,
+}
+
+impl EventKeyType for EventKey {
+    fn to_string(&self) -> String {
+        if let Some(ref category) = self.category {
+            format!("{}:{}:{}", self.namespace, category, self.event_name)
+        } else {
+            format!("{}:{}", self.namespace, self.event_name)
+        }
+    }
+}
+
+/// Enum-based event key for better performance and type safety
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum StructuredEventKey {
+    /// Core server events
+    Core { event_name: CompactString },
+    /// Client events with namespace
+    Client { namespace: CompactString, event_name: CompactString },
+    /// Plugin-to-plugin events
+    Plugin { plugin_name: CompactString, event_name: CompactString },
+    /// GORC object events
+    Gorc { object_type: CompactString, channel: u8, event_name: CompactString },
+    /// GORC instance events
+    GorcInstance { object_type: CompactString, channel: u8, event_name: CompactString },
+    /// Custom event types
+    Custom { fields: Vec<CompactString> },
+}
+
+impl EventKeyType for StructuredEventKey {
+    fn to_string(&self) -> String {
+        match self {
+            StructuredEventKey::Core { event_name } => format!("core:{}", event_name),
+            StructuredEventKey::Client { namespace, event_name } => format!("client:{}:{}", namespace, event_name),
+            StructuredEventKey::Plugin { plugin_name, event_name } => format!("plugin:{}:{}", plugin_name, event_name),
+            StructuredEventKey::Gorc { object_type, channel, event_name } => format!("gorc:{}:{}:{}", object_type, channel, event_name),
+            StructuredEventKey::GorcInstance { object_type, channel, event_name } => format!("gorc_instance:{}:{}:{}", object_type, channel, event_name),
+            StructuredEventKey::Custom { fields } => fields.iter().map(|f| f.as_str()).collect::<Vec<_>>().join(":"),
+        }
+    }
+}
+
+/// Strongly-typed namespaces for even better performance
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+pub enum EventNamespace {
+    Core,
+    Client,
+    Plugin,
+    Gorc,
+    GorcInstance,
+    Custom(u32), // Custom namespaces identified by hash
+}
+
+/// Fast event key using enums and owned strings (removed lifetime issues)
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct TypedEventKey {
+    pub namespace: EventNamespace,
+    pub components: Vec<CompactString>,
+}
+
+impl EventKeyType for TypedEventKey {
+    fn to_string(&self) -> String {
+        let namespace_str = match self.namespace {
+            EventNamespace::Core => "core",
+            EventNamespace::Client => "client", 
+            EventNamespace::Plugin => "plugin",
+            EventNamespace::Gorc => "gorc",
+            EventNamespace::GorcInstance => "gorc_instance",
+            EventNamespace::Custom(id) => return format!("custom_{}:{}", id, self.components.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(":")),
+        };
+        
+        if self.components.is_empty() {
+            namespace_str.to_string()
+        } else {
+            format!("{}:{}", namespace_str, self.components.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(":"))
+        }
+    }
 }
 
 impl EventKey {
@@ -192,61 +278,46 @@ pub struct EventStats {
     pub total_handlers: usize,
 }
 
-/// Core event bus with pluggable propagation logic
-pub struct EventBus<P: EventPropagator> {
+/// Core event bus with pluggable propagation logic and typed event keys
+pub struct EventBus<K: EventKeyType, P: EventPropagator<K>> {
     /// Event handlers organized by event key
-    handlers: DashMap<String, SmallVec<[Arc<dyn EventHandler>; 4]>>,
+    handlers: DashMap<K, SmallVec<[Arc<dyn EventHandler>; 4]>>,
     /// Event propagation logic
     propagator: P,
     /// Statistics
     stats: Arc<tokio::sync::RwLock<EventStats>>,
+    /// Phantom data for the key type
+    _phantom: std::marker::PhantomData<K>,
 }
 
-impl<P: EventPropagator> EventBus<P> {
+impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
     /// Create a new event bus with custom propagator
     pub fn with_propagator(propagator: P) -> Self {
         Self {
             handlers: DashMap::new(),
             propagator,
             stats: Arc::new(tokio::sync::RwLock::new(EventStats::default())),
+            _phantom: std::marker::PhantomData,
         }
     }
 
-    /// Register a typed event handler
-    pub async fn on<T, F>(
+    /// Register a typed event handler with a custom event key
+    pub async fn on_key<T, F>(
         &mut self,
-        namespace: &str,
-        event_name: &str,
+        key: K,
         handler: F,
     ) -> Result<(), EventError>
     where
         T: Event + for<'de> Deserialize<'de>,
         F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
-        let key = EventKey::simple(namespace, event_name);
-        self.register_handler(key, handler).await
-    }
-
-    /// Register a categorized event handler
-    pub async fn on_categorized<T, F>(
-        &mut self,
-        namespace: &str,
-        category: &str,
-        event_name: &str,
-        handler: F,
-    ) -> Result<(), EventError>
-    where
-        T: Event + for<'de> Deserialize<'de>,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
-    {
-        let key = EventKey::categorized(namespace, category, event_name);
         self.register_handler(key, handler).await
     }
 
     /// Internal handler registration
     async fn register_handler<T, F>(
         &mut self,
-        key: EventKey,
+        key: K,
         handler: F,
     ) -> Result<(), EventError>
     where
@@ -257,9 +328,8 @@ impl<P: EventPropagator> EventBus<P> {
         let typed_handler = TypedEventHandler::new(handler_name, handler);
         let handler_arc: Arc<dyn EventHandler> = Arc::new(typed_handler);
 
-        let key_string = key.to_string();
         self.handlers
-            .entry(key_string.clone())
+            .entry(key.clone())
             .or_insert_with(SmallVec::new)
             .push(handler_arc);
 
@@ -267,43 +337,26 @@ impl<P: EventPropagator> EventBus<P> {
         let mut stats = self.stats.write().await;
         stats.total_handlers += 1;
 
-        debug!("📝 Registered handler for {}", key_string);
+        debug!("📝 Registered handler for {}", key.to_string());
         Ok(())
     }
 
-    /// Emit an event
-    pub async fn emit<T>(
+    /// Emit an event with a custom event key
+    pub async fn emit_key<T>(
         &self,
-        namespace: &str,
-        event_name: &str,
+        key: K,
         event: &T,
     ) -> Result<(), EventError>
     where
         T: Event + Serialize,
     {
-        let key = EventKey::simple(namespace, event_name);
-        self.emit_with_key(key, event).await
-    }
-
-    /// Emit a categorized event
-    pub async fn emit_categorized<T>(
-        &self,
-        namespace: &str,
-        category: &str,
-        event_name: &str,
-        event: &T,
-    ) -> Result<(), EventError>
-    where
-        T: Event + Serialize,
-    {
-        let key = EventKey::categorized(namespace, category, event_name);
         self.emit_with_key(key, event).await
     }
 
     /// Internal emit implementation
     async fn emit_with_key<T>(
         &self,
-        key: EventKey,
+        key: K,
         event: &T,
     ) -> Result<(), EventError>
     where
@@ -311,18 +364,17 @@ impl<P: EventPropagator> EventBus<P> {
     {
         // Serialize the event
         let event_data = Arc::new(EventData::new(event)?);
-        let key_string = key.to_string();
 
         // Get handlers for this event
-        let handlers = self.handlers.get(&key_string).map(|entry| entry.value().clone());
+        let handlers = self.handlers.get(&key).map(|entry| entry.value().clone());
 
         if let Some(handlers) = handlers {
             if !handlers.is_empty() {
-                debug!("📤 Emitting {} to {} handlers", key_string, handlers.len());
+                debug!("📤 Emitting {} to {} handlers", key.to_string(), handlers.len());
 
                 // Create propagation context
-                let context = PropagationContext {
-                    event_key: key_string.clone(),
+                let context = crate::propagation::PropagationContext {
+                    event_key: key.clone(),
                     metadata: event_data.metadata.clone(),
                 };
 
@@ -331,7 +383,7 @@ impl<P: EventPropagator> EventBus<P> {
 
                 for handler in handlers.iter() {
                     // Check if this handler should receive the event
-                    if self.propagator.should_propagate(&key_string, &context).await {
+                    if self.propagator.should_propagate(&key, &context).await {
                         // Optionally transform the event
                         let final_event = self.propagator
                             .transform_event(event_data.clone(), &context)
@@ -369,26 +421,10 @@ impl<P: EventPropagator> EventBus<P> {
                 stats.handler_failures += failure_count;
             }
         } else {
-            // No handlers found
+            // No handlers found - simplified logging for typed keys
+            let key_string = key.to_string();
             if key_string != "core:server_tick" {
-                // Don't spam logs with server_tick events
-                let available_keys: Vec<String> = self.handlers
-                    .iter()
-                    .filter_map(|entry| {
-                        let stored_key = entry.key();
-                        if stored_key.contains(&key.namespace.as_str()) {
-                            Some(stored_key.clone())
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
-
-                if !available_keys.is_empty() {
-                    warn!("⚠️ No handlers for event: {} (similar keys available: {:?})", key_string, available_keys);
-                } else {
-                    warn!("⚠️ No handlers for event: {} (no similar handlers found)", key_string);
-                }
+                warn!("⚠️ No handlers for event: {}", key_string);
             }
         }
 
@@ -406,7 +442,7 @@ impl<P: EventPropagator> EventBus<P> {
     }
 
     /// Get all registered event keys
-    pub fn registered_keys(&self) -> Vec<String> {
+    pub fn registered_keys(&self) -> Vec<K> {
         self.handlers.iter().map(|entry| entry.key().clone()).collect()
     }
 }
