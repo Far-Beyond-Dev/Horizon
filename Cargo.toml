@@ -60,6 +60,7 @@ game_server = { path = "crates/game_server" }
 horizon = { path = "crates/horizon" }
 horizon_event_system = { path = "crates/horizon_event_system" }
 plugin_system = { path = "crates/plugin_system" }
+universal_plugin_system = { path = "crates/universal_plugin_system" }
 
 [profile.profiling]
 inherits = "release"

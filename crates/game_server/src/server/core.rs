@@ -9,14 +9,15 @@ use crate::{
     connection::{ConnectionManager, GameServerResponseSender},
     error::ServerError,
     server::handlers::handle_connection,
+    horizon_bridge::HorizonUniversalBridge,
 };
-use plugin_system::PluginManager;
 use futures::stream::{FuturesUnordered, StreamExt as FuturesStreamExt};
 use horizon_event_system::{
     create_horizon_event_system, current_timestamp, EventSystem, GorcManager, MulticastManager,
     PlayerConnectedEvent, PlayerDisconnectedEvent, RegionId, RegionStartedEvent, SpatialPartition,
     SubscriptionManager, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
     AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent, ShutdownState,
+    ServerContext, LogLevel, PlayerId,
 };
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::TcpListener as StdTcpListener;
@@ -25,9 +26,62 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
 use tracing::{error, info, warn};
+use async_trait::async_trait;
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
 use std::os::fd::AsRawFd;
+
+/// Basic server context for plugin initialization
+#[derive(Debug, Clone)]
+struct BasicServerContext {
+    event_system: Arc<EventSystem>,
+    region_id: RegionId,
+    connection_manager: Arc<ConnectionManager>,
+}
+
+impl BasicServerContext {
+    fn new(event_system: Arc<EventSystem>, region_id: RegionId, connection_manager: Arc<ConnectionManager>) -> Self {
+        Self {
+            event_system,
+            region_id,
+            connection_manager,
+        }
+    }
+}
+
+#[async_trait]
+impl ServerContext for BasicServerContext {
+    fn events(&self) -> Arc<EventSystem> {
+        self.event_system.clone()
+    }
+
+    fn log(&self, level: LogLevel, message: &str) {
+        let async_logger = horizon_event_system::async_logging::global_async_logger();
+        async_logger.log_with_target(level, message, Some("game_server"));
+    }
+
+    fn region_id(&self) -> RegionId {
+        self.region_id
+    }
+
+    fn tokio_handle(&self) -> Option<tokio::runtime::Handle> {
+        tokio::runtime::Handle::try_current().ok()
+    }
+
+    async fn send_to_player(&self, player_id: PlayerId, data: &[u8]) -> Result<(), horizon_event_system::context::ServerError> {
+        match self.connection_manager.send_to_player(player_id, data).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(horizon_event_system::context::ServerError::Internal(e.to_string())),
+        }
+    }
+
+    async fn broadcast(&self, data: &[u8]) -> Result<(), horizon_event_system::context::ServerError> {
+        match self.connection_manager.broadcast(data).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(horizon_event_system::context::ServerError::Internal(e.to_string())),
+        }
+    }
+}
 
 /// The core game server structure.
 /// 
@@ -40,7 +94,7 @@ use std::os::fd::AsRawFd;
 /// 
 /// * **Event System**: Central hub for all plugin communication
 /// * **Connection Management**: WebSocket connection lifecycle and player mapping
-/// * **Plugin System**: Dynamic loading and management of game logic plugins
+/// * **Universal Plugin System**: Dynamic loading and management with generic event handling
 /// * **GORC Components**: Advanced replication and spatial management
 /// * **Multi-threaded Networking**: Configurable accept loop scaling
 /// 
@@ -59,8 +113,8 @@ pub struct GameServer {
     /// Manager for client connections and messaging
     connection_manager: Arc<ConnectionManager>,
     
-    /// Manager for loading and managing plugins
-    plugin_manager: Arc<PluginManager>,
+    /// Universal plugin system bridge
+    universal_bridge: Arc<HorizonUniversalBridge>,
     
     /// Channel for coordinating server shutdown
     shutdown_sender: broadcast::Sender<()>,
@@ -86,7 +140,7 @@ impl GameServer {
     /// Creates a new game server with the specified configuration.
     /// 
     /// Initializes all core components including the event system, connection
-    /// management, plugin system, and GORC infrastructure. The server is
+    /// management, universal plugin system, and GORC infrastructure. The server is
     /// ready to start after construction.
     /// 
     /// # Arguments
@@ -101,7 +155,7 @@ impl GameServer {
     /// 
     /// 1. Creates event system and connection manager
     /// 2. Sets up client response sender for event system integration
-    /// 3. Initializes plugin manager with event system binding
+    /// 3. Initializes universal plugin bridge with Horizon integration
     /// 4. Creates all GORC components for advanced networking
     /// 5. Generates unique region ID for this server instance
     pub fn new(config: ServerConfig) -> Self {
@@ -120,8 +174,22 @@ impl GameServer {
             // Continue with initialization anyway - the system may still work without this
         }
 
-        // Initialize plugin manager with safety configuration
-        let plugin_manager = Arc::new(PluginManager::new(horizon_event_system.clone(), config.plugin_safety.clone()));
+        // Create server context for universal bridge
+        let server_context = Arc::new(BasicServerContext::new(
+            horizon_event_system.clone(),
+            region_id,
+            connection_manager.clone()
+        ));
+
+        // Initialize universal bridge - use tokio block_in_place to run async in sync context
+        let universal_bridge = tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                HorizonUniversalBridge::new(horizon_event_system.clone(), server_context)
+                    .await
+                    .expect("Failed to create universal bridge")
+            })
+        });
+        let universal_bridge = Arc::new(universal_bridge);
 
         // Initialize GORC components
         let gorc_manager = Arc::new(GorcManager::new());
@@ -133,7 +201,7 @@ impl GameServer {
             config,
             horizon_event_system,
             connection_manager,
-            plugin_manager,
+            universal_bridge,
             shutdown_sender,
             region_id,
             gorc_manager,
@@ -218,17 +286,17 @@ impl GameServer {
         // Register minimal core event handlers
         self.register_core_handlers().await?;
 
-        // Load and initialize plugins
+        // Load and initialize plugins using universal system
         info!("🔌 Loading plugins from: {}", self.config.plugin_directory.display());
-        if let Err(e) = self.plugin_manager.load_plugins_from_directory(&self.config.plugin_directory).await {
+        if let Err(e) = self.universal_bridge.load_plugins_from_directory(&self.config.plugin_directory).await {
             error!("Failed to load plugins: {}", e);
             return Err(ServerError::Internal(format!("Plugin loading failed: {}", e)));
         }
 
-        let plugin_count = self.plugin_manager.plugin_count();
+        let plugin_count = self.universal_bridge.plugin_count();
         if plugin_count > 0 {
             info!("🎉 Successfully loaded {} plugin(s): {:?}", 
-                  plugin_count, self.plugin_manager.plugin_names());
+                  plugin_count, self.universal_bridge.plugin_names());
         } else {
             info!("📭 No plugins loaded");
         }
@@ -718,9 +786,9 @@ impl GameServer {
     /// 
     /// # Returns
     /// 
-    /// An `Arc<PluginManager>` for managing dynamic plugins.
-    pub fn get_plugin_manager(&self) -> Arc<PluginManager> {
-        self.plugin_manager.clone()
+    /// An `Arc<HorizonUniversalBridge>` for managing dynamic plugins through the universal system.
+    pub fn get_plugin_manager(&self) -> Arc<HorizonUniversalBridge> {
+        self.universal_bridge.clone()
     }
 
 }

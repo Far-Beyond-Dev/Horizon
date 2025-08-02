@@ -269,4 +269,48 @@ impl ConnectionManager {
         }
         None
     }
+
+    /// Sends a message to a specific player by their player ID.
+    /// 
+    /// Finds the connection associated with the player and sends the message.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `player_id` - The target player
+    /// * `data` - The message data to send
+    /// 
+    /// # Returns
+    /// 
+    /// `Ok(())` if the message was sent successfully, or an error if the player
+    /// is not connected or the send operation failed.
+    pub async fn send_to_player(&self, player_id: PlayerId, data: &[u8]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(connection_id) = self.get_connection_id_by_player(player_id).await {
+            self.send_to_connection(connection_id, data.to_vec()).await;
+            Ok(())
+        } else {
+            Err(format!("Player {} not connected", player_id).into())
+        }
+    }
+
+    /// Broadcasts a message to all connected players.
+    /// 
+    /// Sends the same message to every active connection.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `data` - The message data to broadcast
+    /// 
+    /// # Returns
+    /// 
+    /// `Ok(())` if the broadcast was initiated successfully.
+    pub async fn broadcast(&self, data: &[u8]) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let connections = self.connections.read().await;
+        let message = data.to_vec();
+        
+        for connection_id in connections.keys() {
+            self.send_to_connection(*connection_id, message.clone()).await;
+        }
+        
+        Ok(())
+    }
 }

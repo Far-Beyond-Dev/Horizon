@@ -12,9 +12,11 @@ tokio = { workspace = true }
 tracing = { workspace = true }
 horizon_event_system = { workspace = true }
 plugin_system = { workspace = true }
+universal_plugin_system = { workspace = true }
 num_cpus = { workspace = true }
 socket2 = { workspace = true }
 tokio-tungstenite = { workspace = true }
 once_cell = { workspace = true }
 libc = { workspace = true }
 sysinfo = { workspace = true }
+async-trait = { workspace = true }

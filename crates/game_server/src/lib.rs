@@ -97,6 +97,7 @@ pub use config::ServerConfig;
 pub use error::ServerError;
 pub use server::GameServer;
 pub use utils::{create_server, create_server_with_config};
+pub use horizon_bridge::HorizonUniversalBridge;
 
 // Public module declarations
 pub mod config;
@@ -110,6 +111,7 @@ pub mod health;
 mod connection;
 mod messaging;
 mod tests;
+mod horizon_bridge;
 
 // Authentication integration tests
 #[cfg(test)]
