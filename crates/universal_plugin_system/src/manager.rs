@@ -116,7 +116,7 @@ impl<K: crate::event::EventKeyType, P: EventPropagator<K>> PluginManager<K, P> {
         // Load each plugin
         let mut loaded_count = 0;
         for plugin_file in &plugin_files {
-            match self.load_single_plugin(plugin_file).await {
+            match self.load_single_plugin_internal(plugin_file).await {
                 Ok(plugin_name) => {
                     info!("✅ Successfully loaded plugin: {}", plugin_name);
                     loaded_count += 1;
@@ -212,7 +212,15 @@ impl<K: crate::event::EventKeyType, P: EventPropagator<K>> PluginManager<K, P> {
     }
 
     /// Load a single plugin from the specified file
-    async fn load_single_plugin<Pt: AsRef<Path>>(
+    pub async fn load_single_plugin<Pt: AsRef<Path>>(
+        &self,
+        plugin_path: Pt,
+    ) -> Result<String, PluginSystemError> {
+        self.load_single_plugin_internal(plugin_path).await
+    }
+
+    /// Internal method to load a single plugin from the specified file
+    async fn load_single_plugin_internal<Pt: AsRef<Path>>(
         &self,
         plugin_path: Pt,
     ) -> Result<String, PluginSystemError> {
@@ -308,7 +316,7 @@ impl<K: crate::event::EventKeyType, P: EventPropagator<K>> PluginManager<K, P> {
     /// all other plugins have already registered their handlers for those events.
     /// Without this pattern, Plugin A might emit an event during startup that Plugin B
     /// would miss because Plugin B hasn't registered its handler yet.
-    async fn initialize_plugins(&self) -> Result<(), PluginSystemError> {
+    pub async fn initialize_plugins(&self) -> Result<(), PluginSystemError> {
         info!("🔧 Initializing {} loaded plugins", self.loaded_plugins.len());
 
         let plugin_names: Vec<String> = self.loaded_plugins.iter().map(|entry| entry.key().clone()).collect();

@@ -135,6 +135,7 @@ pub mod error;
 pub mod utils;
 pub mod cache;
 pub mod monitoring;
+pub mod compat;
 
 // Re-exports for convenience
 pub use event::{
