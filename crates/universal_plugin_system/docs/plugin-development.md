@@ -9,9 +9,33 @@ Learn how to create plugins for the Universal Plugin System, from simple event h
 A plugin is a self-contained module that:
 - Responds to events from the system
 - Can emit its own events  
-- Has a defined lifecycle (init, run, shutdown)
+- Has a defined lifecycle (handler registration, init, run, shutdown)
 - Runs in isolation for safety
 - Can access shared services through context
+
+### Two-Phase Initialization Pattern
+
+**CRITICAL**: The Universal Plugin System uses a two-phase initialization pattern to prevent race conditions:
+
+#### Phase 1: Handler Registration (`register_handlers`)
+- Called **FIRST** on **ALL** plugins before any plugin proceeds to Phase 2
+- **Purpose**: Register event handlers only
+- **Rules**: 
+  - ✅ Register event handlers with `event_bus.on()`, etc.
+  - ❌ **NEVER** emit events (other plugins may not have handlers registered yet)
+  - ❌ **NEVER** perform business logic (use `on_init` for that)
+  - ❌ **NEVER** access external resources
+
+#### Phase 2: Full Initialization (`on_init`)
+- Called **ONLY** after **ALL** plugins have completed Phase 1
+- **Purpose**: Perform main initialization with guarantee that all handlers are registered
+- **Capabilities**:
+  - ✅ Emit events safely (all handlers are now registered)
+  - ✅ Perform business logic and setup
+  - ✅ Access external resources, databases, files, etc.
+  - ✅ Start background tasks
+
+**Why This Matters**: Without this pattern, Plugin A might emit an event during startup that Plugin B misses because Plugin B hasn't registered its handler yet. The two-phase pattern guarantees that all plugins can communicate properly during initialization.
 
 ### Plugin Types
 
@@ -71,6 +95,8 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for ChatPlugin {
         event_bus: Arc<EventBus<StructuredEventKey, AllEqPropagator>>,
         context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>,
     ) -> Result<(), PluginSystemError> {
+        println!("📡 PHASE 1: Registering handlers for chat plugin (no events emitted yet)");
+        
         // Register handler for chat messages
         let chat_key = StructuredEventKey::Client {
             namespace: "chat".into(),
@@ -129,7 +155,11 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for ChatPlugin {
             }
         }).await?;
 
-        println!("📝 Chat plugin registered for chat messages");
+        println!("✅ Chat plugin handlers registered successfully! (Still in Phase 1)");
+        
+        // CRITICAL: Do NOT emit events here! Other plugins may not have registered handlers yet.
+        // All event emission should happen in on_init() (Phase 2)
+        
         Ok(())
     }
 
@@ -137,7 +167,23 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for ChatPlugin {
         &mut self, 
         context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>
     ) -> Result<(), PluginSystemError> {
-        println!("🔧 Chat plugin initializing...");
+        println!("🔧 PHASE 2: Chat plugin initializing (all handlers now registered)");
+        
+        // Now it's safe to emit events - all plugins have registered their handlers
+        if let Ok(startup_event) = serde_json::to_string(&ChatPluginStartedEvent {
+            plugin_name: self.name.clone(),
+            config: self.config.clone(),
+            started_at: utils::current_timestamp(),
+        }) {
+            let startup_key = StructuredEventKey::Plugin {
+                plugin_name: "chat_plugin".into(),
+                event_name: "started".into(),
+            };
+            
+            // This is safe now because all plugins have registered their handlers
+            context.event_bus().emit_key(startup_key, &startup_event).await
+                .unwrap_or_else(|e| println!("Warning: Failed to emit startup event: {}", e));
+        }
         
         // Access context services
         if let Some(logging) = context.get_provider::<LoggingProvider>() {
@@ -149,7 +195,7 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for ChatPlugin {
         // - Connect to databases
         // - Set up internal state
 
-        println!("✅ Chat plugin initialized successfully");
+        println!("✅ Chat plugin fully initialized!");
         Ok(())
     }
 

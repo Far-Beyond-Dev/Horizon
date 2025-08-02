@@ -12,6 +12,7 @@
 //! - **Performance**: Optimized for high-throughput event processing
 //! - **Safety**: Comprehensive panic handling and memory safety
 //! - **Dynamic Loading**: Runtime plugin loading with version compatibility
+//! - **Two-Phase Initialization**: Guaranteed handler registration before plugin initialization
 //!
 //! ## Architecture
 //!
@@ -21,6 +22,32 @@
 //! - **EventPropagator**: Customizable event propagation logic
 //! - **PluginManager**: Dynamic plugin loading and lifecycle management
 //! - **Context**: Dependency injection for plugins
+//!
+//! ## Plugin Lifecycle
+//!
+//! The plugin system uses a **two-phase initialization** pattern to prevent race conditions
+//! and ensure all plugins can communicate properly:
+//!
+//! ### Phase 1: Handler Registration (`register_handlers` / `pre_init`)
+//! - Called first on **ALL** plugins before any plugin proceeds to Phase 2
+//! - Plugins register their event handlers during this phase
+//! - No plugin can emit events or perform initialization logic yet
+//! - Ensures all event handlers are available before any plugin tries to use them
+//!
+//! ### Phase 2: Full Initialization (`on_init` / `init`)
+//! - Called only after ALL plugins have completed Phase 1
+//! - Plugins can now safely emit events, knowing all handlers are registered
+//! - Plugins perform their main initialization logic here
+//! - Access to full system context and all registered event handlers
+//!
+//! This pattern prevents scenarios where Plugin A emits an event during initialization
+//! but Plugin B hasn't registered its handler for that event yet.
+//!
+//! ### Phase 3: Operation
+//! - Normal plugin operation with event processing
+//!
+//! ### Phase 4: Shutdown (`on_shutdown` / `shutdown`)
+//! - Graceful cleanup and resource deallocation
 //!
 //! ## Usage Examples
 //!

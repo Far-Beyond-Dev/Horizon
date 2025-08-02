@@ -166,7 +166,11 @@ impl<K: crate::event::EventKeyType, P: EventPropagator<K>> PluginManager<K, P> {
 
         self.loaded_plugins.insert(plugin_name.clone(), loaded_plugin);
         
-        // Initialize the plugin
+        // Follow the two-phase initialization pattern
+        // Phase 1: Pre-initialization (register handlers)
+        self.pre_initialize_single_plugin(&plugin_name).await?;
+        
+        // Phase 2: Full initialization  
         self.initialize_single_plugin(&plugin_name).await?;
 
         Ok(plugin_name)
@@ -293,7 +297,17 @@ impl<K: crate::event::EventKeyType, P: EventPropagator<K>> PluginManager<K, P> {
         Ok(plugin_name)
     }
 
-    /// Initialize all loaded plugins
+    /// Initialize all loaded plugins using two-phase initialization
+    /// 
+    /// This method implements the critical two-phase initialization pattern:
+    /// 
+    /// **Phase 1**: Call `pre_init()` on ALL plugins to register event handlers
+    /// **Phase 2**: Call `init()` on ALL plugins for main initialization
+    /// 
+    /// This pattern ensures that when any plugin emits an event during initialization,
+    /// all other plugins have already registered their handlers for those events.
+    /// Without this pattern, Plugin A might emit an event during startup that Plugin B
+    /// would miss because Plugin B hasn't registered its handler yet.
     async fn initialize_plugins(&self) -> Result<(), PluginSystemError> {
         info!("🔧 Initializing {} loaded plugins", self.loaded_plugins.len());
 

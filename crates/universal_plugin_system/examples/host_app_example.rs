@@ -100,6 +100,8 @@ impl SimplePlugin<StructuredEventKey, MyPropagator> for MyPlugin {
         event_bus: Arc<EventBus<StructuredEventKey, MyPropagator>>,
         context: Arc<PluginContext<StructuredEventKey, MyPropagator>>,
     ) -> std::result::Result<(), PluginSystemError> {
+        println!("📡 PHASE 1: Registering handlers for plugin '{}' (no events emitted yet)", self.name);
+        
         // Register handler for core events
         event_bus.on("core", "user_login", |event: MyEvent| {
             println!("Plugin: User logged in - {}", event.message);
@@ -113,12 +115,27 @@ impl SimplePlugin<StructuredEventKey, MyPropagator> for MyPlugin {
             Ok(())
         }).await?;
 
-        println!("✅ Plugin handlers registered successfully!");
+        println!("✅ Plugin '{}' handlers registered successfully! (Still in Phase 1)", self.name);
+        
+        // IMPORTANT: Do NOT emit events here! Other plugins may not have registered handlers yet.
+        // All event emission should happen in on_init() (Phase 2)
+        
         Ok(())
     }
 
-    async fn on_init(&mut self, _context: Arc<PluginContext<StructuredEventKey, MyPropagator>>) -> std::result::Result<(), PluginSystemError> {
-        println!("🔧 Plugin initialized");
+    async fn on_init(&mut self, context: Arc<PluginContext<StructuredEventKey, MyPropagator>>) -> std::result::Result<(), PluginSystemError> {
+        println!("🔧 PHASE 2: Initializing plugin '{}' (all handlers now registered)", self.name);
+        
+        // Now it's safe to emit events - all plugins have registered their handlers
+        context.event_bus().emit("plugin", "startup", &MyEvent {
+            message: format!("Plugin '{}' is starting up", self.name),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        }).await.unwrap_or_else(|e| println!("Warning: Failed to emit startup event: {}", e));
+        
+        println!("✅ Plugin '{}' fully initialized!", self.name);
         Ok(())
     }
 
@@ -175,7 +192,9 @@ async fn main() -> Result<()> {
         timestamp: 1234567892,
     }).await?;
 
-    println!("🔌 Loading plugin...");
+    println!("🔌 Loading plugin using two-phase initialization...");
+    println!("   Phase 1: Plugin will register event handlers first");
+    println!("   Phase 2: Plugin will initialize after ALL handlers are registered");
 
     // Create plugin manager and load plugin
     let config = PluginConfig::default();
@@ -186,7 +205,7 @@ async fn main() -> Result<()> {
         config,
     );
 
-    // Load plugin using factory
+    // Load plugin using factory - this will trigger two-phase initialization
     let factory = plugin::SimplePluginFactory::<MyPlugin, StructuredEventKey, MyPropagator>::new(
         "my_plugin".to_string(),
         "1.0.0".to_string(),
@@ -194,7 +213,7 @@ async fn main() -> Result<()> {
     );
 
     let plugin_name = manager.load_plugin_from_factory(Box::new(factory)).await?;
-    println!("✅ Loaded plugin: {}", plugin_name);
+    println!("✅ Loaded plugin: {} (two-phase initialization complete)", plugin_name);
 
     println!("📤 Emitting more events (should reach plugin)...");
 
@@ -211,6 +230,9 @@ async fn main() -> Result<()> {
         message: "Hello everyone!".to_string(),
         channel: "general".to_string(),
     }).await?;
+
+    // Allow time for async event processing
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     println!("📊 Final Statistics:");
     let stats = event_system.event_bus.stats().await;
