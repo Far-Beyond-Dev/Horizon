@@ -8,7 +8,6 @@ use crate::{
     connection::ConnectionManager,
     error::ServerError,
     messaging::route_client_message,
-    server::core::{PlayerConnectedEvent, PlayerDisconnectedEvent},
 };
 use futures::{SinkExt, StreamExt};
 use universal_plugin_system::{
@@ -86,10 +85,10 @@ pub async fn handle_connection(
 
     // Emit core infrastructure event
     event_bus
-        .emit("core", "player_connected", &PlayerConnectedEvent {
-            player_id,
-            remote_addr: addr.to_string(),
-        })
+        .emit("core", "player_connected", &serde_json::json!({
+            "player_id": player_id,
+            "remote_addr": addr.to_string(),
+        }))
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
@@ -165,10 +164,10 @@ pub async fn handle_connection(
     // Emit disconnection event
     if let Some(player_id) = connection_manager.get_player_id(connection_id).await {
         event_bus
-            .emit("core", "player_disconnected", &PlayerDisconnectedEvent {
-                player_id,
-                reason: "client_disconnect".to_string(),
-            })
+            .emit("core", "player_disconnected", &serde_json::json!({
+                "player_id": player_id,
+                "reason": "client_disconnect",
+            }))
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
     }

@@ -22,31 +22,11 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
 use tracing::{error, info, warn};
-use serde::{Serialize, Deserialize};
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
 use std::os::fd::AsRawFd;
 
-/// Event definitions for the server
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerConnectedEvent {
-    pub player_id: u64,
-    pub remote_addr: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerDisconnectedEvent {
-    pub player_id: u64,
-    pub reason: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RegionStartedEvent {
-    pub region_id: String,
-    pub bounds: Option<serde_json::Value>,
-    pub timestamp: u64,
-}
-
+/// Event utility functions
 fn current_timestamp() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -209,11 +189,11 @@ impl GameServer {
 
         // Emit region started event (for plugins)
         self.event_bus
-            .emit("core", "region_started", &RegionStartedEvent {
-                region_id: self.region_id.clone(),
-                bounds: self.config.region_bounds.clone(),
-                timestamp: current_timestamp(),
-            })
+            .emit("core", "region_started", &serde_json::json!({
+                "region_id": self.region_id.clone(),
+                "bounds": self.config.region_bounds.clone(),
+                "timestamp": current_timestamp(),
+            }))
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
@@ -380,33 +360,39 @@ impl GameServer {
         // Core infrastructure events only - no game logic!
 
         self.event_bus
-            .on("core", "player_connected", |event: PlayerConnectedEvent| {
-                info!(
-                    "👋 Player {} connected from {}",
-                    event.player_id, event.remote_addr
-                );
+            .on("core", "player_connected", |event: serde_json::Value| {
+                if let (Some(player_id), Some(remote_addr)) = (event.get("player_id"), event.get("remote_addr")) {
+                    info!(
+                        "👋 Player {} connected from {}",
+                        player_id, remote_addr
+                    );
+                }
                 Ok(())
             })
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
         self.event_bus
-            .on("core", "player_disconnected", |event: PlayerDisconnectedEvent| {
-                info!(
-                    "👋 Player {} disconnected: {}",
-                    event.player_id, event.reason
-                );
+            .on("core", "player_disconnected", |event: serde_json::Value| {
+                if let (Some(player_id), Some(reason)) = (event.get("player_id"), event.get("reason")) {
+                    info!(
+                        "👋 Player {} disconnected: {}",
+                        player_id, reason
+                    );
+                }
                 Ok(())
             })
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
         self.event_bus
-            .on("core", "region_started", |event: RegionStartedEvent| {
-                info!(
-                    "🌍 Region {} started with bounds: {:?}",
-                    event.region_id, event.bounds
-                );
+            .on("core", "region_started", |event: serde_json::Value| {
+                if let Some(region_id) = event.get("region_id") {
+                    info!(
+                        "🌍 Region {} started",
+                        region_id
+                    );
+                }
                 Ok(())
             })
             .await

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
-use sysinfo::{System, Pid};
+use sysinfo::System;
 
 pub mod metrics;
 pub mod circuit_breaker;
@@ -75,14 +75,15 @@ impl HealthManager {
         let plugin_count = plugin_manager.plugin_count();
         
         // Get event system statistics
-        let event_system = server.get_horizon_event_system();
-        let event_stats = event_system.get_stats().await;
+        let event_bus = server.get_event_bus();
+        // Note: The universal event system doesn't have the same stats interface
+        // We'll use default values for now
         
         let event_system_health = EventSystemHealth {
-            total_handlers: event_stats.total_handlers,
-            events_processed: 0, // Would need to track this in event system
-            failed_events: 0,    // Would need to track this in event system
-            average_event_time_ms: 0.0, // Would need performance metrics
+            total_handlers: 0, // TODO: Implement stats collection in universal system
+            events_processed: 0,
+            failed_events: 0,
+            average_event_time_ms: 0.0,
         };
         
         // Check for issues
@@ -90,9 +91,10 @@ impl HealthManager {
             warnings.push("No plugins loaded".to_string());
         }
         
-        if event_stats.total_handlers == 0 {
-            warnings.push("No event handlers registered".to_string());
-        }
+        // TODO: Re-implement event handler counting for universal system
+        // if event_system_health.total_handlers == 0 {
+        //     warnings.push("No event handlers registered".to_string());
+        // }
         
         if memory_usage_mb > 1024 { // More than 1GB
             warnings.push(format!("High memory usage: {}MB", memory_usage_mb));
@@ -154,11 +156,11 @@ impl HealthManager {
     /// Performs a readiness check (can handle traffic)
     pub async fn readiness_check(&self, server: &GameServer) -> bool {
         let plugin_manager = server.get_plugin_manager();
-        let event_system = server.get_horizon_event_system();
+        let _event_bus = server.get_event_bus();
         
         // Check if core systems are ready
-        plugin_manager.plugin_count() > 0 && 
-        event_system.get_stats().await.total_handlers > 0
+        plugin_manager.plugin_count() > 0
+        // TODO: Add more sophisticated readiness checks for universal system
     }
 
     /// Gets current memory usage in MB
