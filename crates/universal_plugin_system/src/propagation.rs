@@ -337,7 +337,7 @@ impl<K: crate::event::EventKeyType> ChannelPropagator<K> {
     }
 
     /// Extract channel from event key (works only with StructuredEventKey)
-    fn extract_channel(&self, event_key: &K) -> Option<u8> {
+    fn extract_channel(&self, _event_key: &K) -> Option<u8> {
         // This is a generic example - in practice you'd implement this for your specific key type
         // For now, just return None for any key type that doesn't contain channel info
         None

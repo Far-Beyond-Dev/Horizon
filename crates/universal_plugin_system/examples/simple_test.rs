@@ -45,7 +45,7 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for TestPlugin {
 
     async fn register_handlers(
         &mut self,
-        event_bus: Arc<EventBus<StructuredEventKey, AllEqPropagator>>,
+        _event_bus: Arc<EventBus<StructuredEventKey, AllEqPropagator>>,
         _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>,
     ) -> std::result::Result<(), PluginSystemError> {
         // We need to get a mutable reference to register handlers
@@ -75,6 +75,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let propagator = AllEqPropagator::new();
     
     // Create event bus with structured keys and AllEq propagation
+    #[allow(unused_mut)]
     let mut event_bus = EventBus::with_propagator(propagator);
     let event_bus = Arc::new(event_bus);
     

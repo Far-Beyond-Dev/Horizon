@@ -43,6 +43,7 @@ pub struct LoadedPlugin<K: crate::event::EventKeyType, P: EventPropagator<K>> {
 }
 
 /// Plugin manager for loading and managing dynamic plugins
+#[allow(unused)]
 pub struct PluginManager<K: crate::event::EventKeyType, P: EventPropagator<K>> {
     /// Event bus for plugin communication
     event_bus: Arc<EventBus<K, P>>,
