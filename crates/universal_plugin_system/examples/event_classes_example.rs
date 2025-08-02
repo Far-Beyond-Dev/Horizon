@@ -2,11 +2,17 @@
 //!
 //! This example shows how host applications can define their own event classes
 //! with different metadata parameters and use class-specific propagation logic.
+//!
+//! Note: Application-specific propagators are implemented in the `common::application_propagators` 
+//! module to demonstrate how host apps should implement custom propagators for their 
+//! specific event classes outside of the universal system.
 
 use universal_plugin_system::*;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio;
+
+mod common;
 
 // Sample events for different classes
 #[derive(Debug, Serialize, Deserialize)]
@@ -58,10 +64,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     println!("🚀 Universal Plugin System - Event Classes Example");
     println!("====================================================");
 
-    // Create a class-aware propagator system
-    let gorc_spatial_propagator = propagation::GorcSpatialPropagator::new(100.0);
-    let priority_propagator = propagation::PriorityPropagator::new(128); // Medium priority and above
-    let region_propagator = propagation::RegionPropagator::new(vec!["region_1", "region_2"]);
+    // Create a class-aware propagator system using application-specific propagators
+    let gorc_spatial_propagator = common::application_propagators::GorcSpatialPropagator::new(100.0);
+    let priority_propagator = common::application_propagators::PriorityPropagator::new(128); // Medium priority and above
+    let region_propagator = common::application_propagators::RegionPropagator::new(vec!["region_1", "region_2"]);
 
     // Create a composite propagator for extended events (priority AND region filtering)
     let extended_composite = propagation::CompositePropagator::new_and()
@@ -69,7 +75,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         .add_propagator(Box::new(region_propagator));
 
     // Create the class-aware propagator
-    let class_aware_propagator = propagation::ClassAwarePropagator::new()
+    let class_aware_propagator = common::application_propagators::ClassAwarePropagator::new()
         .with_gorc_propagator(Box::new(gorc_spatial_propagator))
         .with_extended_propagator(Box::new(extended_composite))
         .with_custom_propagator(Box::new(propagation::UniversalAllEqPropagator::new()));

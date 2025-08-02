@@ -99,17 +99,18 @@
 //! use universal_plugin_system::*;
 //! use std::sync::Arc;
 //!
-//! // Define custom propagation logic (like GORC spatial propagation)
-//! struct SpatialPropagator;
+//! // Define custom propagation logic for your application
+//! struct CustomSpatialPropagator;
 //!
-//! impl SpatialPropagator {
+//! impl CustomSpatialPropagator {
 //!     fn new() -> Self { Self }
 //! }
 //!
 //! #[async_trait::async_trait]
-//! impl EventPropagator<StructuredEventKey> for SpatialPropagator {
+//! impl EventPropagator<StructuredEventKey> for CustomSpatialPropagator {
 //!     async fn should_propagate(&self, _event_key: &StructuredEventKey, _context: &PropagationContext<StructuredEventKey>) -> bool {
 //!         // Custom logic to determine if event should reach specific handlers
+//!         // For example: spatial filtering, permission checks, etc.
 //!         true
 //!     }
 //!
@@ -120,7 +121,7 @@
 //! }
 //!
 //! // Use custom propagator
-//! let propagator = SpatialPropagator::new();
+//! let propagator = CustomSpatialPropagator::new();
 //! let mut event_bus = EventBus::with_propagator(propagator);
 //! ```
 
@@ -145,7 +146,7 @@ pub use manager::{PluginManager, PluginConfig, LoadedPlugin};
 pub use context::{PluginContext, ContextProvider};
 pub use propagation::{
     EventPropagator, DefaultPropagator, AllEqPropagator, DomainPropagator, 
-    PropagationContext
+    PropagationContext, CompositePropagator, UniversalAllEqPropagator
 };
 pub use error::{PluginSystemError, EventError};
 pub use cache::{SerializationBufferPool, CachedEventData};
