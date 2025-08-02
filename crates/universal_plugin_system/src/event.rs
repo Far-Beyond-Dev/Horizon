@@ -596,6 +596,24 @@ impl<P: EventPropagator<StructuredEventKey>> EventBus<StructuredEventKey, P> {
         self.on_key(key, handler).await
     }
 
+    /// Alias for on_category - register an event handler using domain, category, and event name
+    /// 
+    /// This provides compatibility with existing code that expects `on_categorized`.
+    #[inline]
+    pub async fn on_categorized<T, F>(
+        &self,
+        domain: &str,
+        category: &str,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        T: Event + for<'de> Deserialize<'de>,
+        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
+    {
+        self.on_category(domain, category, event_name, handler).await
+    }
+
     /// Emit an event using domain and event name
     /// 
     /// # Arguments
@@ -635,6 +653,23 @@ impl<P: EventPropagator<StructuredEventKey>> EventBus<StructuredEventKey, P> {
     {
         let key = StructuredEventKey::domain_category_event(domain, category, event_name);
         self.emit_key(key, event).await
+    }
+
+    /// Alias for emit_category - emit an event using domain, category, and event name
+    /// 
+    /// This provides compatibility with existing code that expects `emit_categorized`.
+    #[inline]
+    pub async fn emit_categorized<T>(
+        &self,
+        domain: &str,
+        category: &str,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event + Serialize,
+    {
+        self.emit_category(domain, category, event_name, event).await
     }
 
     // ============================================================================

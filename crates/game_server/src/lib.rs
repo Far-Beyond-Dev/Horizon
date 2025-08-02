@@ -69,7 +69,7 @@
 
 // Re-export core types and functions for easy access
 pub use config::ServerConfig;
-pub use error::ServerError;
+pub use error::ServerError;  
 pub use server::GameServer;
 pub use utils::{create_server, create_server_with_config};
 
@@ -80,6 +80,9 @@ pub mod server;
 pub mod utils;
 pub mod security;
 pub mod health;
+
+// Horizon compatibility layer for existing code
+pub mod horizon_compat;
 
 // Internal modules (not part of public API)
 mod connection;

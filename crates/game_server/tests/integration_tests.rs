@@ -4,7 +4,8 @@
 //! including timer-based tick generation and event handling.
 
 use game_server::{create_server_with_config, ServerConfig};
-use horizon_event_system::{current_timestamp, RegionBounds, EventError};
+use game_server::horizon_compat::{current_timestamp, EventError};
+use game_server::config::RegionBounds;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;

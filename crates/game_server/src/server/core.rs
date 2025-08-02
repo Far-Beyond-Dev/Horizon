@@ -542,6 +542,11 @@ impl GameServer {
         self.event_bus.clone()
     }
 
+    /// Gets a Horizon-compatible event system for existing code that expects the familiar API
+    pub fn get_horizon_event_system(&self) -> crate::horizon_compat::HorizonEventSystem {
+        crate::horizon_compat::HorizonEventSystem::new(self.event_bus.clone())
+    }
+
     /// Gets the universal plugin manager.
     pub fn get_plugin_manager(&self) -> Arc<UniversalPluginManager<StructuredEventKey, CompositePropagator<StructuredEventKey>>> {
         self.plugin_manager.clone()
