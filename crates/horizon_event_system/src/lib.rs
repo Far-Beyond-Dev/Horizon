@@ -185,8 +185,6 @@ pub use events::{
     AuthenticationStatusSetEvent,
     AuthenticationStatusGetEvent,
 };
-pub use monitoring::{HorizonMonitor, HorizonSystemReport};
-pub use plugin::{Plugin, PluginError, SimplePlugin};
 pub use system::{EventSystem, EventSystemStats,
     DetailedEventSystemStats, HandlerCategoryStats,
     ClientConnectionRef, ClientResponseSender, ClientConnectionInfo,
@@ -204,15 +202,6 @@ pub use binary::{
     BinaryEvent, BinaryPositionUpdate, BinaryActionEvent,
     BinaryPositionEvent, BinaryPlayerActionEvent, event_types
 };
-pub use system::{
-    EventSystem, EventSystemStats,
-    DetailedEventSystemStats,
-    HandlerCategoryStats,
-    ClientConnectionRef,
-    ClientResponseSender,
-    ClientConnectionInfo
-};
-
 // Re-export GORC components for easy access
 pub use gorc::{
     // Core GORC types

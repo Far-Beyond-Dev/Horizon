@@ -83,6 +83,9 @@ pub enum CongestionState {
     FastRecovery,
 }
 
+/// Default retransmission timeout in milliseconds
+const DEFAULT_RTO_MS: u32 = 1000;
+
 impl Default for CongestionControl {
     fn default() -> Self {
         Self {

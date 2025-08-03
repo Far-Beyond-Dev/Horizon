@@ -1,5 +1,6 @@
 use crate::events::EventHandler;
 use crate::gorc::instance::GorcInstanceManager;
+use crate::{EventError, UdpEventSystem};
 use super::client::ClientResponseSender;
 use super::stats::EventSystemStats;
 use std::sync::Arc;
@@ -93,6 +94,7 @@ impl EventSystem {
     /// Gets the UDP event system if available
     pub fn get_udp_system(&self) -> Option<Arc<UdpEventSystem>> {
         self.udp_system.clone()
+    }
 
     /// Gets the current event system statistics
     #[inline]
@@ -106,11 +108,11 @@ impl EventSystem {
         event_key: &str,
         handler: Box<dyn EventHandler>,
     ) -> Result<(), EventError> {
-        let mut handlers = self.handlers.write().await;
-        handlers
-            .entry(event_key.to_string())
-            .or_insert_with(Vec::new)
-            .push(Arc::from(handler));
+        let arc_handler = Arc::from(handler);
+        self.handlers
+            .entry(CompactString::from(event_key))
+            .or_insert_with(SmallVec::new)
+            .push(arc_handler);
         Ok(())
     }
 
@@ -120,10 +122,9 @@ impl EventSystem {
         event_key: &str,
         data: &[u8],
     ) -> Result<(), EventError> {
-        let handlers = self.handlers.read().await;
-        if let Some(event_handlers) = handlers.get(event_key) {
-            let event_handlers = event_handlers.clone();
-            drop(handlers);
+        if let Some(event_handlers_ref) = self.handlers.get(event_key) {
+            let event_handlers = event_handlers_ref.clone();
+            drop(event_handlers_ref);
 
             for handler in event_handlers {
                 if let Err(e) = handler.handle(data).await {

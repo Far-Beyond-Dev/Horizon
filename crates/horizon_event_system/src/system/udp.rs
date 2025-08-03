@@ -12,6 +12,13 @@ use serde::{Serialize, Deserialize};
 use tracing::{info, warn, error, debug};
 use std::io;
 
+/// Default UDP socket buffer size (in bytes)
+const DEFAULT_BUFFER_SIZE: usize = 65536; // 64 KB, typical max UDP packet size
+/// Maximum UDP packet size (in bytes)
+const MAX_UDP_PACKET_SIZE: usize = 65536;
+/// Estimated header size for UDP packets (in bytes)
+const ESTIMATED_HEADER_SIZE: usize = 64;
+
 /// UDP event header for protocol identification and routing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UdpEventHeader {
