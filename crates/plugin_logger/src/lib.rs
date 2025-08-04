@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use horizon_event_system::{
-    create_simple_plugin, current_timestamp, EventSystem, LogLevel, PlayerId, PluginError, Position, ServerContext, SimplePlugin
+    context, create_simple_plugin, current_timestamp, EventSystem, LogLevel, PlayerId, PluginError, Position, ServerContext, SimplePlugin
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -8,9 +8,17 @@ use std::sync::Arc;
 // Define PlayerChatEvent and PlayerJumpEvent for simulation/demo purposes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerChatEvent {
+    pub data: PlayerChatData,
     pub player_id: PlayerId,
-    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerChatData {
     pub channel: String,
+    pub message: String,
+    pub player_id: String,
+    pub timestamp: String,
+    pub uuid: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,13 +104,14 @@ impl SimplePlugin for LoggerPlugin {
 
         // Client events from players
         let context_clone = context.clone();
-        events
-            .on_client("chat", "message", move |event: PlayerChatEvent| {
-                context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'", event.player_id, event.channel, event.message).as_str());
-                Ok(())
-            })
-            .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+        events.on_client_with_connection("chat", "message",  move |wrapper: serde_json::Value, connection| {
+            context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 📢 CHAT - Got Wrapper: {}", wrapper).as_str());
+            let event: PlayerChatEvent = serde_json::from_value(wrapper)?;
+            context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'", event.data.player_id, event.data.channel, event.data.message).as_str());
+            Ok(())
+        })
+        .await
+        .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         let context_clone = context.clone();
         events
