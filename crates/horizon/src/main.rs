@@ -66,6 +66,7 @@ use horizon_event_system::async_logging;
 /// * **1**: Error during startup, configuration, or runtime
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+
     // Parse CLI arguments first
     let args = CliArgs::parse();
 
