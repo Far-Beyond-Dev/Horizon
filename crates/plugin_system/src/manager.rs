@@ -100,8 +100,8 @@ impl ServerContext for BasicServerContext {
         ))
     }
 
-    fn tokio_handle(&self) -> Option<tokio::runtime::Handle> {
-        self.tokio_handle.clone()
+    fn tokio_handle(&self) -> tokio::runtime::Handle {
+        self.tokio_handle.clone().expect("Tokio runtime handle is not available, this should not happen")
     }
 }
 

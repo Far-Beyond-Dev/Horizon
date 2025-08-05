@@ -150,7 +150,7 @@ pub trait ServerContext: Send + Sync + Debug {
     /// 
     /// Returns `Some(Handle)` if a tokio runtime is available, or `None` if no
     /// runtime context is accessible.
-    fn tokio_handle(&self) -> Option<tokio::runtime::Handle>;
+    fn tokio_handle(&self) -> tokio::runtime::Handle;
 }
 
 // ============================================================================

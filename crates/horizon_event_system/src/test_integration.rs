@@ -36,8 +36,8 @@ impl ServerContext for MockServerContext {
         Ok(())
     }
 
-    fn tokio_handle(&self) -> Option<tokio::runtime::Handle> {
-        tokio::runtime::Handle::try_current().ok()
+    fn tokio_handle(&self) -> tokio::runtime::Handle {
+        tokio::runtime::Handle::try_current().expect("No tokio runtime handle available")
     }
 }
 
