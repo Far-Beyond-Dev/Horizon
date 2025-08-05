@@ -16,3 +16,4 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
+ue_types = { workspace = true }

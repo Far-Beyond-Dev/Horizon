@@ -53,7 +53,7 @@ sysinfo = "0.36.1"
 tempfile = "3.5"
 
 # === External Dependencies ===
-ue-types = { git = "https://github.com/tristanpoland/UE5-rs" }
+ue_types = { git = "https://github.com/tristanpoland/UE5-rs" }
 
 # === Workspace Dependencies ===
 game_server = { path = "crates/game_server" }

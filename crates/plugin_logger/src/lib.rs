@@ -1,10 +1,18 @@
 use async_trait::async_trait;
 use horizon_event_system::{
     context, create_simple_plugin, current_timestamp, EventSystem, LogLevel, PlayerId, PluginError,
-    Position, ServerContext, SimplePlugin,
+    Position, ServerContext, SimplePlugin, Vec3,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+
+// Define a simple Transform struct that matches your JSON structure
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Transform {
+    pub location: Vec3,
+    pub rotation: Vec3,
+    pub scale: Vec3,
+}
 
 // Define PlayerChatEvent and PlayerJumpEvent for simulation/demo purposes
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +35,11 @@ pub struct PlayerJumpEvent {
     pub player_id: PlayerId,
     pub height: f32,
     pub position: Position,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerMovementEvent {
+    pub position: Transform,
 }
 
 /// A simple logger plugin that tracks and logs various server activities
@@ -171,15 +184,33 @@ impl SimplePlugin for LoggerPlugin {
         // Client events from players
         let context_clone = context.clone();
         events
-            .on_client("movement", "update_position", move |event: PlayerJumpEvent| {
-                context_clone.log(
-                    LogLevel::Info,
-                    format!(
-                        "📝 LoggerPlugin: 🦘 MOVEMENT - Player {} jumped {:.1}m at {:?}",
-                        event.player_id, event.height, event.position
-                    )
-                    .as_str(),
-                );
+            .on_client_with_connection("movement", "update_position", move |event: serde_json::Value, connection| {
+                println!("📝 LoggerPlugin: 🦘 MOVEMENT RECEIVED");
+                // Unwrap from the outer "data" field if present
+                let event = if let Some(data) = event.get("data") {
+                    data.clone()
+                } else {
+                    event
+                };
+                // Try to deserialize the event into PlayerMovementEvent
+                match serde_json::from_value::<PlayerMovementEvent>(event.clone()) {
+                    Ok(movement_event) => {
+                        context_clone.log(
+                            LogLevel::Info,
+                            format!(
+                                "📝 LoggerPlugin: 🦘 MOVEMENT - Player moved {:.1}m at {:?}",
+                                movement_event.position.location.y, movement_event.position
+                            )
+                            .as_str(),
+                        );
+                    }
+                    Err(e) => {
+                        context_clone.log(
+                            LogLevel::Error,
+                            format!("📝 LoggerPlugin: Failed to parse movement event: {}", e).as_str(),
+                        );
+                    }
+                }
                 Ok(())
             })
             .await
