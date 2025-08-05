@@ -1,18 +1,11 @@
 use async_trait::async_trait;
 use horizon_event_system::{
     context, create_simple_plugin, current_timestamp, EventSystem, LogLevel, PlayerId, PluginError,
-    Position, ServerContext, SimplePlugin, Vec3,
+    Position, ServerContext, SimplePlugin,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-
-// Define a simple Transform struct that matches your JSON structure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Transform {
-    pub location: Vec3,
-    pub rotation: Vec3,
-    pub scale: Vec3,
-}
+use ue_types::types::{Transform, Vector};
 
 // Define PlayerChatEvent and PlayerJumpEvent for simulation/demo purposes
 #[derive(Debug, Clone, Serialize, Deserialize)]
