@@ -1,11 +1,12 @@
 use async_trait::async_trait;
 use horizon_event_system::{
-    context, create_simple_plugin, current_timestamp, EventSystem, LogLevel, PlayerId, PluginError,
+    create_simple_plugin, current_timestamp,
+    EventSystem, LogLevel, PlayerId, PluginError,
     Position, ServerContext, SimplePlugin,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use ue_types::types::{Transform, Vector};
+use ue_types::types::Transform;
 
 // Define PlayerChatEvent and PlayerJumpEvent for simulation/demo purposes
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,7 +178,7 @@ impl SimplePlugin for LoggerPlugin {
         // Client events from players
         let context_clone = context.clone();
         events
-            .on_client_with_connection("movement", "update_position", move |event: serde_json::Value, connection| {
+            .on_client_with_connection("movement", "update_position", move |event: serde_json::Value, _connection| {
                 println!("📝 LoggerPlugin: 🦘 MOVEMENT RECEIVED");
                 // Unwrap from the outer "data" field if present
                 let event = if let Some(data) = event.get("data") {
