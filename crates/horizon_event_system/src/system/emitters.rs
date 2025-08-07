@@ -220,7 +220,7 @@ impl EventSystem {
             }
         } else {
             // Show debugging info for missing handlers (except server_tick spam)
-            if event_key != "core:server_tick" {
+            if event_key != "core:server_tick" && event_key != "core:raw_client_message" {
                 // Show available handlers for debugging using DashMap iteration
                 let available_keys: Vec<String> = self.handlers
                     .iter()

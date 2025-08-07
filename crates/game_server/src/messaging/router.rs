@@ -5,7 +5,7 @@
 
 use crate::{connection::ConnectionId, error::ServerError, messaging::ClientMessage};
 use horizon_event_system::{current_timestamp, EventSystem, RawClientMessageEvent};
-use tracing::{debug, info};
+use tracing::{debug, info, trace};
 
 /// Routes a raw client message to the appropriate plugin handlers.
 /// 
@@ -82,7 +82,7 @@ pub async fn route_client_message(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    info!(
+    trace!(
         "✅ Routed '{}:{}' message from player {} to plugins",
         message.namespace, message.event, player_id
     );

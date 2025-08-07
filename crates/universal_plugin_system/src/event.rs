@@ -423,7 +423,7 @@ impl<K: EventKeyType, P: EventPropagator<K>> EventBus<K, P> {
         } else {
             // No handlers found - simplified logging for typed keys
             let key_string = key.to_string();
-            if key_string != "core:server_tick" {
+            if key_string != "core:server_tick" && key_string != "core:raw_client_message" {
                 warn!("⚠️ No handlers for event: {}", key_string);
             }
         }

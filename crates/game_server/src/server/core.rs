@@ -24,7 +24,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
-use tracing::{error, info, warn};
+use tracing::{error, info, trace, warn};
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
 use std::os::fd::AsRawFd;
@@ -318,7 +318,11 @@ impl GameServer {
                 }
                 #[cfg(target_os = "windows")]
                 {
-                    warn!("SO_REUSEPORT is not supported on Windows. Using SO_REUSEADDR only.");
+                    //TODO: We need to move this to a place where it only runs once to remove the once
+                    static REUSEPORT_WARNED: std::sync::Once = std::sync::Once::new();
+                    REUSEPORT_WARNED.call_once(|| {
+                        warn!("SO_REUSEPORT is not supported on Windows. Using SO_REUSEADDR only.");
+                    });
                 }
                 #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos", target_os = "windows")))]
                 {
@@ -339,7 +343,7 @@ impl GameServer {
             .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {e}")))?;
 
         listeners.push(listener);
-        info!("✅ Listener {} bound on {}", i, self.config.bind_address);
+        trace!("✅ Listener {} bound on {}", i, self.config.bind_address);
         }
 
         // Main server accept loops

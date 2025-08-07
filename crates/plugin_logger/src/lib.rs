@@ -179,7 +179,6 @@ impl SimplePlugin for LoggerPlugin {
         let context_clone = context.clone();
         events
             .on_client_with_connection("movement", "update_position", move |event: serde_json::Value, _connection| {
-                println!("📝 LoggerPlugin: 🦘 MOVEMENT RECEIVED");
                 // Unwrap from the outer "data" field if present
                 let event = if let Some(data) = event.get("data") {
                     data.clone()
@@ -321,7 +320,7 @@ impl SimplePlugin for LoggerPlugin {
 
         events_clone
             .on_core_async("server_tick", move |_event: serde_json::Value| {
-                context_clone.log(LogLevel::Info, "📝 LoggerPlugin: 🕒 Server tick received, updating activity log...");
+                context_clone.log(LogLevel::Trace, "📝 LoggerPlugin: 🕒 Server tick received, updating activity log...");
                 let events_inner = events_ref.clone();
                 let tick_counter = tick_counter_clone.clone();
                 let context_inner = context_clone.clone();
@@ -337,7 +336,7 @@ impl SimplePlugin for LoggerPlugin {
                                 "details": format!("Summary #{} - Logger still active", summary_count),
                                 "timestamp": current_timestamp()
                             })).await;
-                            context_inner.log(LogLevel::Info, format!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count).as_str());
+                            context_inner.log(LogLevel::Trace, format!("📝 LoggerPlugin: 📊 Periodic Summary #{} - Still logging events...", summary_count).as_str());
                         }
                     });
                     Ok(())
