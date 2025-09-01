@@ -18,10 +18,9 @@ use horizon_event_system::{
     SubscriptionManager, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
     AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent, ShutdownState,
 };
-use socket2::{Domain, Protocol, Socket, Type};
+use horizon_sockets::{SocketBuilder, TcpListener};
 use std::net::TcpListener as StdTcpListener;
 use std::sync::Arc;
-use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
 use tracing::{error, info, trace, warn};
@@ -254,9 +253,14 @@ impl GameServer {
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-        // Determine number of accept loops based on configuration
+        // Platform check: force use_reuse_port to false and single listener on Windows
+        #[cfg(target_os = "windows")]
+        let use_reuse_port = false;
+        #[cfg(not(target_os = "windows"))]
+        let use_reuse_port = self.config.use_reuse_port;
+
         let core_count = num_cpus::get();
-        let num_acceptors = if self.config.use_reuse_port {
+        let num_acceptors = if use_reuse_port {
             core_count
         } else {
             1
@@ -267,84 +271,68 @@ impl GameServer {
                 core_count, num_acceptors
         );
 
-        // Create TCP listeners
-        let mut listeners = Vec::new();
+        // On Windows, ensure only one Tokio listener per address/port, add more acceptors if needed
+        #[cfg(target_os = "windows")]
+        let listeners = {
+            use std::collections::HashMap;
+            use std::sync::Mutex;
+            use once_cell::sync::Lazy;
 
-        for i in 0..num_acceptors {
-            let socket = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP))
-                .map_err(|e| ServerError::Network(format!("Socket creation failed: {e}")))?;
-            socket.set_reuse_address(true).ok();
+            static LISTENER_REGISTRY: Lazy<Mutex<HashMap<String, Arc<tokio::net::TcpListener>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+            let addr_str = self.config.bind_address.to_string();
+            let mut registry = LISTENER_REGISTRY.lock().unwrap();
+            let listener = if let Some(existing) = registry.get(&addr_str) {
+                trace!("⚠️ (Windows) Listener already exists for {}, adding more acceptors", addr_str);
+                existing.clone()
+            } else {
+                let mut builder = SocketBuilder::new()
+                    .bind(addr_str.clone())
+                    .map_err(|e| ServerError::Network(format!("SocketBuilder bind failed: {e}")))?;
+                builder = builder.backlog(65535)
+                    .map_err(|e| ServerError::Network(format!("SocketBuilder backlog failed: {e}")))?;
+                let listener = builder.tcp_listener()
+                    .map_err(|e| ServerError::Network(format!("TcpListener creation failed: {e}")))?;
+                let std_listener = listener.as_std();
+                std_listener.set_nonblocking(true).ok();
+                let tokio_listener = tokio::net::TcpListener::from_std(std_listener.try_clone()
+                    .map_err(|e| ServerError::Network(format!("Failed to clone std TcpListener: {e}")))?)
+                    .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {e}")))?;
+                let arc_listener = Arc::new(tokio_listener);
+                registry.insert(addr_str.clone(), arc_listener.clone());
+                trace!("✅ (Windows) Single listener created and registered for {}", addr_str);
+                arc_listener
+            };
+            // Only one listener, used for all acceptor tasks
+            let mut v = Vec::new();
+            v.push(listener);
+            v
+        };
 
-            // Enable SO_REUSEPORT if supported and configured
-            if self.config.use_reuse_port {
-                #[cfg(any(target_os = "linux", target_os = "android"))]
-                {
-                    let sockfd = socket.as_raw_fd();
-                    let optval: libc::c_int = 1;
-                    let ret = unsafe {
-                        libc::setsockopt(
-                            sockfd,
-                            libc::SOL_SOCKET,
-                            libc::SO_REUSEPORT,
-                            &optval as *const _ as *const libc::c_void,
-                            std::mem::size_of_val(&optval) as libc::socklen_t,
-                        )
-                    };
-                    if ret != 0 {
-                        warn!("Failed to set SO_REUSEPORT: {}", std::io::Error::last_os_error());
-                    } else {
-                        info!("SO_REUSEPORT enabled for load balancing across acceptor threads");
-                    }
+        #[cfg(not(target_os = "windows"))]
+        let listeners = {
+            let mut v = Vec::new();
+            for i in 0..num_acceptors {
+                let mut builder = SocketBuilder::new()
+                    .bind(self.config.bind_address.to_string())
+                    .map_err(|e| ServerError::Network(format!("SocketBuilder bind failed: {e}")))?;
+                if use_reuse_port {
+                    builder = builder.reuse_port(true)
+                        .map_err(|e| ServerError::Network(format!("SocketBuilder reuse_port failed: {e}")))?;
                 }
-                #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
-                {
-                    use std::os::fd::AsRawFd;
-                    let sockfd = socket.as_raw_fd();
-                    let optval: libc::c_int = 1;
-                    let ret = unsafe {
-                        libc::setsockopt(
-                            sockfd,
-                            libc::SOL_SOCKET,
-                            libc::SO_REUSEPORT,
-                            &optval as *const _ as *const libc::c_void,
-                            std::mem::size_of_val(&optval) as libc::socklen_t,
-                        )
-                    };
-                    if ret != 0 {
-                        warn!("Failed to set SO_REUSEPORT: {}", std::io::Error::last_os_error());
-                    } else {
-                        info!("SO_REUSEPORT enabled for load balancing across acceptor threads");
-                    }
-                }
-                #[cfg(target_os = "windows")]
-                {
-                    //TODO: We need to move this to a place where it only runs once to remove the once
-                    static REUSEPORT_WARNED: std::sync::Once = std::sync::Once::new();
-                    REUSEPORT_WARNED.call_once(|| {
-                        warn!("SO_REUSEPORT is not supported on Windows. Using SO_REUSEADDR only.");
-                    });
-                }
-                #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos", target_os = "windows")))]
-                {
-                    warn!("SO_REUSEPORT support unknown for this platform");
-                }
+                builder = builder.backlog(65535)
+                    .map_err(|e| ServerError::Network(format!("SocketBuilder backlog failed: {e}")))?;
+                let listener = builder.tcp_listener()
+                    .map_err(|e| ServerError::Network(format!("TcpListener creation failed: {e}")))?;
+                let std_listener = listener.as_std().try_clone()
+                    .map_err(|e| ServerError::Network(format!("Failed to clone std TcpListener: {e}")))?;
+                std_listener.set_nonblocking(true).ok();
+                let tokio_listener = tokio::net::TcpListener::from_std(std_listener)
+                    .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {e}")))?;
+                v.push(tokio_listener);
+                trace!("✅ Listener {} bound on {}", i, self.config.bind_address);
             }
-            
-            socket.bind(&self.config.bind_address.into())
-                .map_err(|e| ServerError::Network(format!("Bind failed: {e}")))?;
-
-            socket.listen(65535)
-                .map_err(|e| ServerError::Network(format!("Listen failed: {e}")))?;
-
-            let std_listener: StdTcpListener = socket.into();
-            std_listener.set_nonblocking(true).ok();
-            
-            let listener = TcpListener::from_std(std_listener)
-            .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {e}")))?;
-
-        listeners.push(listener);
-        trace!("✅ Listener {} bound on {}", i, self.config.bind_address);
-        }
+            v
+        };
 
         // Main server accept loops
         let mut shutdown_receiver = self.shutdown_sender.subscribe();

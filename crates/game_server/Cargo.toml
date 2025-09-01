@@ -4,17 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde ={ workspace = true }
+horizon_event_system = { workspace = true }
+tokio-tungstenite = { workspace = true }
+horizon_sockets = { workspace = true }
+plugin_system = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-futures = { workspace = true }
-tokio = { workspace = true }
-tracing = { workspace = true }
-horizon_event_system = { workspace = true }
-plugin_system = { workspace = true }
-num_cpus = { workspace = true }
-socket2 = { workspace = true }
-tokio-tungstenite = { workspace = true }
 once_cell = { workspace = true }
-libc = { workspace = true }
+num_cpus = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
 sysinfo = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+libc = { workspace = true }
