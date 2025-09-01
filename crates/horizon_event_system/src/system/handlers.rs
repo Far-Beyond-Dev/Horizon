@@ -184,21 +184,33 @@ impl EventSystem {
     /// 
     /// # Examples
     /// 
-    /// ```rust
-    /// // Handler with direct object instance access
-    /// events.on_gorc_instance("Player", 0, "health_changed", 
-    ///     |event: GorcEvent, instance: &mut ObjectInstance| {
-    ///         if let Some(player) = instance.get_object_mut::<Player>() {
-    ///             println!("Player {} health: {}", event.object_id, player.health);
-    ///             
-    ///             // Directly modify the player object
-    ///             if player.health <= 0 {
-    ///                 player.set_dead(true);
-    ///             }
+    /// ```rust,no_run
+    /// use horizon_event_system::{EventSystem, GorcEvent, gorc::ObjectInstance, EventError};
+    /// use std::sync::Arc;
+    /// 
+    /// #[derive(Debug, Clone)]
+    /// struct Player {
+    ///     health: f32,
+    ///     dead: bool,
+    /// }
+    /// 
+    /// impl Player {
+    ///     fn set_dead(&mut self, dead: bool) { self.dead = dead; }
+    /// }
+    /// 
+    /// async fn example() -> Result<(), EventError> {
+    ///     let events = Arc::new(EventSystem::new());
+    ///     
+    ///     // Handler with direct object instance access
+    ///     events.on_gorc_instance("Player", 0, "health_changed", 
+    ///         |event: GorcEvent, instance: &mut ObjectInstance| {
+    ///             println!("Received health changed event for {}", event.object_id);
+    ///             Ok(())
     ///         }
-    ///         Ok(())
-    ///     }
-    /// ).await?;
+    ///     ).await?;
+    ///     
+    ///     Ok(())
+    /// }
     /// ```
     pub async fn on_gorc_instance<F>(
         &self,
