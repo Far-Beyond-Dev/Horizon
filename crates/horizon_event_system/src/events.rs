@@ -674,6 +674,8 @@ pub struct RawClientMessageEvent {
 pub struct GorcEvent {
     /// Unique identifier for the object being replicated
     pub object_id: String,
+    /// UUID for the specific instance of the registered GORC object
+    pub instance_uuid: String,
     /// Type of the object (e.g., "Asteroid", "Player", "Ship")
     pub object_type: String,
     /// Replication channel (0=Critical, 1=Detailed, 2=Cosmetic, 3=Metadata)

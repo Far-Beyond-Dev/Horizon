@@ -17,8 +17,9 @@ use serde::{Deserialize, Serialize};
 /// * `event` - The specific event within the namespace (e.g., "move_request", "send_message")
 /// * `data` - The payload data for the event as a JSON value
 /// 
-/// # Example
+/// # Examples
 /// 
+/// Standard movement message:
 /// ```json
 /// {
 ///   "namespace": "movement",
@@ -30,6 +31,24 @@ use serde::{Deserialize, Serialize};
 ///   }
 /// }
 /// ```
+/// 
+/// GORC message (routed to both client and GORC handlers due to instance_uuid):
+/// ```json
+/// {
+///   "namespace": "auth", 
+///   "event": "login",
+///   "data": {
+///     "instance_uuid": "12345678-1234-1234-1234-123456789abc",
+///     "object_id": "auth_session_001",
+///     "credentials": {
+///       "username": "admin",
+///       "password": "password123"
+///     }
+///   }
+/// }
+/// ```
+/// 
+/// The presence of `instance_uuid` in the data determines GORC routing behavior.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientMessage {
     /// The plugin namespace that should handle this message

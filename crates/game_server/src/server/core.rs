@@ -13,7 +13,7 @@ use crate::{
 use plugin_system::PluginManager;
 use futures::stream::{FuturesUnordered, StreamExt as FuturesStreamExt};
 use horizon_event_system::{
-    create_horizon_event_system, current_timestamp, EventSystem, GorcManager, MulticastManager,
+    current_timestamp, EventSystem, GorcManager, MulticastManager,
     PlayerConnectedEvent, PlayerDisconnectedEvent, RegionId, RegionStartedEvent, SpatialPartition,
     SubscriptionManager, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
     AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent, ShutdownState,

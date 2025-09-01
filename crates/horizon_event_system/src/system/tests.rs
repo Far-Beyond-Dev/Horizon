@@ -205,8 +205,10 @@ mod tests {
         }).await.unwrap();
         
         // Emit GORC event
+        let object_id = GorcObjectId::new();
         let gorc_event = GorcEvent {
-            object_id: GorcObjectId::new().to_string(),
+            object_id: object_id.to_string(),
+            instance_uuid: format!("test_instance_{}", object_id),
             object_type: "Asteroid".to_string(),
             channel: 0,
             data: vec![1, 2, 3, 4],

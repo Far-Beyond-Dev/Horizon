@@ -406,6 +406,7 @@ impl GorcExamplePlugin {
 
         events.emit_gorc("Player", 0, "position_update", &GorcEvent {
             object_id: player_id.to_string(),
+            instance_uuid: format!("player_instance_{}", player_id),
             object_type: "Player".to_string(),
             channel: 0,
             data: critical_data,
@@ -436,7 +437,8 @@ impl GorcExamplePlugin {
         }).map_err(|e| format!("Serialization error: {}", e))?;
 
         events.emit_gorc("Asteroid", 1, "mineral_scan", &GorcEvent {
-            object_id: asteroid_id,
+            object_id: asteroid_id.clone(),
+            instance_uuid: format!("asteroid_instance_{}", asteroid_id),
             object_type: "Asteroid".to_string(),
             channel: 1,
             data: mineral_data,
