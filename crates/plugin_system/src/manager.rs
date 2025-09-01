@@ -36,6 +36,7 @@ struct BasicServerContext {
     event_system: Arc<EventSystem>,
     region_id: horizon_event_system::types::RegionId,
     tokio_handle: Option<tokio::runtime::Handle>,
+    gorc_instance_manager: Option<Arc<horizon_event_system::gorc::GorcInstanceManager>>,
 }
 
 impl BasicServerContext {
@@ -45,6 +46,7 @@ impl BasicServerContext {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
             tokio_handle: tokio::runtime::Handle::try_current().ok(),
+            gorc_instance_manager: None,
         }
     }
 
@@ -55,6 +57,7 @@ impl BasicServerContext {
             event_system, 
             region_id,
             tokio_handle: tokio::runtime::Handle::try_current().ok(),
+            gorc_instance_manager: None,
         }
     }
 
@@ -65,6 +68,18 @@ impl BasicServerContext {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
             tokio_handle: Some(tokio_handle),
+            gorc_instance_manager: None,
+        }
+    }
+
+    /// Create a context with a GORC instance manager.
+    #[allow(dead_code)]
+    fn with_gorc(event_system: Arc<EventSystem>, gorc_instance_manager: Arc<horizon_event_system::gorc::GorcInstanceManager>) -> Self {
+        Self {
+            event_system,
+            region_id: horizon_event_system::types::RegionId::default(),
+            tokio_handle: tokio::runtime::Handle::try_current().ok(),
+            gorc_instance_manager: Some(gorc_instance_manager),
         }
     }
 }
@@ -103,6 +118,10 @@ impl ServerContext for BasicServerContext {
     fn tokio_handle(&self) -> tokio::runtime::Handle {
         self.tokio_handle.clone().expect("Tokio runtime handle is not available, this should not happen")
     }
+
+    fn gorc_instance_manager(&self) -> Option<Arc<horizon_event_system::gorc::GorcInstanceManager>> {
+        self.gorc_instance_manager.clone()
+    }
 }
 
 /// Information about a loaded plugin
@@ -131,6 +150,8 @@ pub struct PluginManager {
     loaded_plugins: DashMap<String, LoadedPlugin>,
     /// Safety configuration for plugin loading
     safety_config: PluginSafetyConfig,
+    /// Optional GORC instance manager for object replication
+    gorc_instance_manager: Option<Arc<horizon_event_system::gorc::GorcInstanceManager>>,
 }
 
 impl PluginManager {
@@ -149,6 +170,31 @@ impl PluginManager {
             event_system,
             loaded_plugins: DashMap::new(),
             safety_config,
+            gorc_instance_manager: None,
+        }
+    }
+
+    /// Creates a new plugin manager with GORC instance manager support.
+    ///
+    /// # Arguments
+    ///
+    /// * `event_system` - The event system that plugins will use for communication
+    /// * `safety_config` - Configuration for plugin loading safety checks
+    /// * `gorc_instance_manager` - GORC instance manager for object replication
+    ///
+    /// # Returns
+    ///
+    /// A new `PluginManager` instance ready to load plugins with GORC support.
+    pub fn with_gorc(
+        event_system: Arc<EventSystem>, 
+        safety_config: PluginSafetyConfig,
+        gorc_instance_manager: Arc<horizon_event_system::gorc::GorcInstanceManager>
+    ) -> Self {
+        Self {
+            event_system,
+            loaded_plugins: DashMap::new(),
+            safety_config,
+            gorc_instance_manager: Some(gorc_instance_manager),
         }
     }
 
@@ -376,7 +422,11 @@ impl PluginManager {
     async fn initialize_plugins(&self) -> Result<(), PluginSystemError> {
         info!("🔧 Initializing {} loaded plugins", self.loaded_plugins.len());
 
-        let context = Arc::new(BasicServerContext::new(self.event_system.clone()));
+        let context = if let Some(gorc_manager) = &self.gorc_instance_manager {
+            Arc::new(BasicServerContext::with_gorc(self.event_system.clone(), gorc_manager.clone()))
+        } else {
+            Arc::new(BasicServerContext::new(self.event_system.clone()))
+        };
 
         // Phase 1: Pre-initialization (register handlers)
         let plugin_names: Vec<String> = self.loaded_plugins.iter().map(|entry| entry.key().clone()).collect();
@@ -424,7 +474,11 @@ impl PluginManager {
     pub async fn shutdown(&self) -> Result<(), PluginSystemError> {
         info!("🛑 Shutting down {} plugins", self.loaded_plugins.len());
 
-        let context = Arc::new(BasicServerContext::new(self.event_system.clone()));
+        let context = if let Some(gorc_manager) = &self.gorc_instance_manager {
+            Arc::new(BasicServerContext::with_gorc(self.event_system.clone(), gorc_manager.clone()))
+        } else {
+            Arc::new(BasicServerContext::new(self.event_system.clone()))
+        };
 
         // Call shutdown on all plugins and collect libraries for controlled cleanup
         let plugin_names: Vec<String> = self.loaded_plugins.iter().map(|entry| entry.key().clone()).collect();
@@ -500,6 +554,16 @@ impl PluginManager {
     pub fn plugin_count(&self) -> usize {
         self.loaded_plugins.len()
     }
+
+        /// Returns a reference to the event system used by the plugin manager.
+        pub fn event_system_ref(&self) -> &EventSystem {
+            &self.event_system
+        }
+
+        /// Returns the Arc<EventSystem> used by the plugin manager (cloned).
+        pub fn event_system_arc(&self) -> Arc<EventSystem> {
+            self.event_system.clone()
+        }
 
     /// Gets a list of loaded plugin names.
     pub fn plugin_names(&self) -> Vec<String> {

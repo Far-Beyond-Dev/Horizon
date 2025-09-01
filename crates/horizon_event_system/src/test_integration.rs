@@ -39,6 +39,10 @@ impl ServerContext for MockServerContext {
     fn tokio_handle(&self) -> tokio::runtime::Handle {
         tokio::runtime::Handle::try_current().expect("No tokio runtime handle available")
     }
+
+    fn gorc_instance_manager(&self) -> Option<Arc<crate::gorc::GorcInstanceManager>> {
+        None
+    }
 }
 
 #[tokio::test]

@@ -151,6 +151,19 @@ pub trait ServerContext: Send + Sync + Debug {
     /// Returns `Some(Handle)` if a tokio runtime is available, or `None` if no
     /// runtime context is accessible.
     fn tokio_handle(&self) -> tokio::runtime::Handle;
+
+    /// Returns access to the GORC instance manager for object replication.
+    /// 
+    /// This provides plugins with direct access to the GORC (Game Object Replication
+    /// Channels) system for managing object instances, zones, and replication. This
+    /// allows plugins to register objects, access instance data, and work with the
+    /// replication system without needing to use create_complete_horizon_system.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns an Arc to the GorcInstanceManager if available, or None if GORC
+    /// is not enabled for this server context.
+    fn gorc_instance_manager(&self) -> Option<Arc<crate::gorc::GorcInstanceManager>>;
 }
 
 // ============================================================================

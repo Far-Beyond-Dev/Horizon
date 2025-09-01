@@ -120,8 +120,8 @@ impl GameServer {
             tracing::error!("⚠️ Failed to get mutable reference to event system during initialization");
         }
 
-        // Initialize plugin manager with safety configuration
-        let plugin_manager = Arc::new(PluginManager::new(horizon_event_system.clone(), config.plugin_safety.clone()));
+        // Initialize plugin manager with safety configuration and GORC support
+        let plugin_manager = Arc::new(PluginManager::with_gorc(horizon_event_system.clone(), config.plugin_safety.clone(), gorc_instance_manager.clone()));
 
         // Initialize GORC components
         let gorc_manager = Arc::new(GorcManager::new());
