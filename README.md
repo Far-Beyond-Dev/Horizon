@@ -301,7 +301,7 @@ The event system provides both synchronous and asynchronous handler registration
 
 ## GORC System
 
-The Game Object Replication Channels (GORC) system manages real-time synchronization of game objects between server and clients. This system is essential for maintaining consistent game state in multiplayer environments where multiple players interact with shared game objects.
+The Game Object Replication Channels (GORC) system manages real-time synchronization of game objects between server and clients. This system is essential for maintaining consistent game state in large scale multiplayer environments where many players interact with shared game objects.
 
 ### Spatial Partitioning
 
@@ -359,15 +359,15 @@ graph TB
     LC --> C3
 ```
 
-GORC uses spatial partitioning to efficiently manage large game worlds with thousands of objects. The world is divided into regions, and objects are tracked based on their position. This allows the server to send updates only to players who are in proximity to changed objects, significantly reducing network bandwidth requirements.
+GORC uses spatial partitioning to efficiently manage large game worlds with thousands of objects and players. The world is divided into regions each of which are spatially indexed, and objects are tracked based on their position. This allows the server to send updates only to players who are in proximity to changed objects, significantly reducing network bandwidth requirements.
 
 The spatial partitioning system supports dynamic resizing and load balancing, ensuring that performance remains consistent even as players cluster in specific areas of the game world. The system also handles edge cases like objects that span multiple regions or move rapidly between regions.
 
 ### Replication Channels
 
-Objects can be replicated on multiple channels with different priorities and update frequencies. High-priority channels are used for critical game objects like players and important NPCs, while low-priority channels handle environmental objects and decorative elements.
+Object events can be replicated on multiple channels with different priorities High-priority channels are used for critical game objects like players and important NPCs, while low-priority channels handle environmental objects and decorative elements.
 
-The channel system allows for sophisticated level-of-detail management where distant objects receive fewer updates than nearby objects. This approach maintains visual consistency while optimizing network usage and server performance.
+The channels have a physical size in 3D space meaning the system also allows for sophisticated level-of-detail management where distant objects receive fewer updates than nearby objects (due to being subscribed only to the larger, more broad channels that apply to them). This approach maintains visual consistency up close while optimizing network usage and server performance.
 
 ### Subscription Management
 
