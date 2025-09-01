@@ -107,13 +107,6 @@ impl SimplePlugin for GreeterPlugin {
             }
         })?;
 
-        // Register plugin events
-        register_handlers!(events; plugin {
-            "logger", "activity_logged" => |event: serde_json::Value| {
-                println!("👋 GreeterPlugin: Logger plugin recorded activity: {:?}", event);
-                Ok(())
-            }
-        })?;
 
         println!("👋 GreeterPlugin: ✅ All handlers registered successfully!");
         Ok(())
