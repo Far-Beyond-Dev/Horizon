@@ -52,3 +52,4 @@ dhat-heap.json
 config.toml
 /crates/.claude
 /crates/plugin_stars_beyond
+/crates/plugin_flex_inventory
