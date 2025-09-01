@@ -275,7 +275,7 @@ flowchart TD
     P2 --> R3[Response/Action]
     GO --> R4[State Update]
     
-    R1 --> BC[Broadcast to Clients]
+    R1 --> BC[Broadcast to Clients?]
     R2 --> BC
     R3 --> BC
     R4 --> BC
