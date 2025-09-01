@@ -100,7 +100,7 @@ Start the server with default configuration:
 ./target/release/horizon
 ```
 
-The server will bind to `localhost:8080` by default and look for plugins in the `plugins/` directory. You can verify the server is running by connecting to the WebSocket endpoint or checking the health endpoints at `/health/live` and `/health/ready`.
+The server will bind to `localhost:8080` by default and look for plugins in the `plugins/` directory.
 
 ### Configuration
 
@@ -172,44 +172,62 @@ Plugins are dynamic libraries that implement the Plugin trait from the horizon_e
 A basic plugin structure looks like this:
 
 ```rust
-use horizon_event_system::plugin::{Plugin, PluginContext};
 use async_trait::async_trait;
+use chrono::prelude::*;
+use horizon_event_system::{
+    create_simple_plugin, current_timestamp, register_handlers, EventSystem, LogLevel,
+    PlayerId, PluginError, Position, ServerContext, SimplePlugin,
+};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
-pub struct MyGamePlugin {
-    // Plugin state
+pub struct GreeterPlugin {
+    name: String,
+    welcome_count: u32,
+}
+
+impl GreeterPlugin {
+    pub fn new() -> Self {
+        println!("🎉 GreeterPlugin: Creating new instance");
+        Self {
+            name: "greeter".to_string(),
+            welcome_count: 0,
+        }
+    }
+}
+
+impl Default for GreeterPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[async_trait]
-impl Plugin for MyGamePlugin {
+impl SimplePlugin for GreeterPlugin {
     fn name(&self) -> &str {
-        "my-game-plugin"
+        &self.name
     }
 
-    async fn pre_init(&mut self, ctx: PluginContext) -> Result<(), Box<dyn std::error::Error>> {
-        // Register event handlers
-        ctx.events().on_client("movement", "player_move", |event| {
-            // Handle player movement
-            Ok(())
-        }).await?;
-        
+    fn version(&self) -> &str {
+        "1.0.0"
+    }
+
+    async fn register_handlers(&mut self, events: Arc<EventSystem>, _context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+        println!("👋 GreeterPlugin: Registering event handlers...");
+
         Ok(())
     }
 
-    async fn init(&mut self, ctx: PluginContext) -> Result<(), Box<dyn std::error::Error>> {
-        // Initialize plugin resources
-        Ok(())
-    }
-
-    async fn shutdown(&mut self, ctx: PluginContext) -> Result<(), Box<dyn std::error::Error>> {
-        // Clean up resources
-        Ok(())
+    async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+        context.log(
+            LogLevel::Info,
+            "👋 GreeterPlugin: Starting up! Ready to welcome players!",
+        );
     }
 }
 
-#[no_mangle]
-pub extern "C" fn create_plugin() -> *mut dyn Plugin {
-    Box::into_raw(Box::new(MyGamePlugin {}))
-}
+// Create the plugin using our macro - zero unsafe code!
+create_simple_plugin!(GreeterPlugin);
 ```
 
 ### Event Handling
