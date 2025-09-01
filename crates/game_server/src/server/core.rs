@@ -105,8 +105,10 @@ impl GameServer {
     /// 4. Creates all GORC components for advanced networking
     /// 5. Generates unique region ID for this server instance
     pub fn new(config: ServerConfig) -> Self {
-        let region_id = RegionId::new();
-        let mut horizon_event_system = create_horizon_event_system();
+    let region_id = RegionId::new();
+    use horizon_event_system::gorc::instance::GorcInstanceManager;
+    let gorc_instance_manager = Arc::new(GorcInstanceManager::new());
+    let mut horizon_event_system = Arc::new(EventSystem::with_gorc(gorc_instance_manager.clone()));
         let connection_manager = Arc::new(ConnectionManager::new());
         let (shutdown_sender, _) = broadcast::channel(1);
 
@@ -115,9 +117,7 @@ impl GameServer {
         if let Some(event_system_mut) = Arc::get_mut(&mut horizon_event_system) {
             event_system_mut.set_client_response_sender(response_sender);
         } else {
-            // This should not happen in normal circumstances, but log it if it does
             tracing::error!("⚠️ Failed to get mutable reference to event system during initialization");
-            // Continue with initialization anyway - the system may still work without this
         }
 
         // Initialize plugin manager with safety configuration
