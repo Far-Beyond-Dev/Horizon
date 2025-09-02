@@ -24,6 +24,7 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
 use tracing::{error, info, trace, warn};
+use bug::bug_with_handle;
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
 use std::os::fd::AsRawFd;
@@ -116,7 +117,12 @@ impl GameServer {
         if let Some(event_system_mut) = Arc::get_mut(&mut horizon_event_system) {
             event_system_mut.set_client_response_sender(response_sender);
         } else {
-            tracing::error!("⚠️ Failed to get mutable reference to event system during initialization");
+            bug_with_handle!(horizon_bugs::get_bugs(), "crash", {
+                error_type = "⚠️ Failed to get mutable reference to event system during initialization",
+                function = "GameServer::new",
+                line = "117",
+                os = std::env::consts::OS
+            });
         }
 
         // Initialize plugin manager with safety configuration and GORC support
