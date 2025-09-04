@@ -10,7 +10,7 @@ members = [
 # === Async Runtime & Networking ===
 async-trait = "0.1"
 futures = "0.3"
-horizon_sockets = { git = "https://github.com/Far-Beyond-Dev/Horizon-Sockets", rev = "8794b68cc559767bcc05f0ed099686cf1777470e" }
+horizon_sockets = { git = "https://github.com/Far-Beyond-Dev/Horizon-Sockets", rev = "aa0badb262e1344a8aceaaf5caf55012dc7fa89a" }
 tokio = { version = "1.46.1", features = ["full"] }
 tokio-tungstenite = "0.27.0"
 
