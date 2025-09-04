@@ -182,6 +182,7 @@ pub use events::{
     AuthenticationStatusChangedEvent,
     AuthenticationStatusSetEvent,
     AuthenticationStatusGetEvent,
+    ClientEventWrapper,
 };
 
 pub use system::{

@@ -689,6 +689,66 @@ pub struct GorcEvent {
 }
 
 // ============================================================================
+// Client Event Wrapper Types
+// ============================================================================
+
+/// Wrapper type for client events that include connection context.
+/// 
+/// When client events are emitted with context (via `emit_client_with_context`),
+/// they are wrapped with player information. This wrapper type allows handlers
+/// to work with strongly typed events while still accessing the connection context.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use horizon_event_system::{ClientEventWrapper, PlayerId};
+/// use serde::{Deserialize, Serialize};
+/// 
+/// #[derive(Debug, Clone, Serialize, Deserialize)]
+/// struct ChatMessage {
+///     channel: String,
+///     message: String,
+/// }
+/// 
+/// // Handler that receives the wrapped event
+/// events.on_client_typed("chat", "message", 
+///     |wrapper: ClientEventWrapper<ChatMessage>| {
+///         println!("Player {} said: {}", wrapper.player_id, wrapper.data.message);
+///         Ok(())
+///     }
+/// ).await?;
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientEventWrapper<T> {
+    /// The player ID of the client that sent this event
+    pub player_id: crate::types::PlayerId,
+    /// The actual event data
+    pub data: T,
+}
+
+impl<T> ClientEventWrapper<T> {
+    /// Creates a new client event wrapper.
+    pub fn new(player_id: crate::types::PlayerId, data: T) -> Self {
+        Self { player_id, data }
+    }
+    
+    /// Extracts the inner event data, consuming the wrapper.
+    pub fn into_data(self) -> T {
+        self.data
+    }
+    
+    /// Gets a reference to the inner event data.
+    pub fn data(&self) -> &T {
+        &self.data
+    }
+    
+    /// Gets a mutable reference to the inner event data.
+    pub fn data_mut(&mut self) -> &mut T {
+        &mut self.data
+    }
+}
+
+// ============================================================================
 // Error Types
 // ============================================================================
 
@@ -716,3 +776,6 @@ pub enum EventError {
     #[error("An unexpected error occurred: {0}")]
     Other(String),
 }
+
+// Tests module
+mod tests;

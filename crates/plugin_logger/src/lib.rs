@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use horizon_event_system::{
     create_simple_plugin, current_timestamp,
     EventSystem, LogLevel, PlayerId, PluginError,
-    Position, ServerContext, SimplePlugin,
+    Position, ServerContext, SimplePlugin, ClientEventWrapper,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -92,12 +92,12 @@ impl SimplePlugin for LoggerPlugin {
 
         let context_clone = context.clone();
         events
-            .on_core("player_connected", move |event: serde_json::Value| {
+            .on_core("player_connected", move |event: horizon_event_system::PlayerConnectedEvent| {
                 context_clone.log(
                     LogLevel::Info,
                     format!(
-                        "📝 LoggerPlugin: 🟢 CONNECTION - Player joined server: {:?}",
-                        event
+                        "📝 LoggerPlugin: 🟢 CONNECTION - Player {} joined from {}",
+                        event.player_id, event.remote_addr
                     )
                     .as_str(),
                 );
@@ -108,12 +108,12 @@ impl SimplePlugin for LoggerPlugin {
 
         let context_clone = context.clone();
         events
-            .on_core("player_disconnected", move |event: serde_json::Value| {
+            .on_core("player_disconnected", move |event: horizon_event_system::PlayerDisconnectedEvent| {
                 context_clone.log(
                     LogLevel::Info,
                     format!(
-                        "📝 LoggerPlugin: 🔴 DISCONNECTION - Player left server: {:?}",
-                        event
+                        "📝 LoggerPlugin: 🔴 DISCONNECTION - Player {} left server (reason: {:?})",
+                        event.player_id, event.reason
                     )
                     .as_str(),
                 );
@@ -124,10 +124,11 @@ impl SimplePlugin for LoggerPlugin {
 
         let context_clone = context.clone();
         events
-            .on_core("plugin_loaded", move |event: serde_json::Value| {
+            .on_core("plugin_loaded", move |event: horizon_event_system::PluginLoadedEvent| {
                 context_clone.log(
                     LogLevel::Info,
-                    format!("📝 LoggerPlugin: 🔌 PLUGIN LOADED - {:?}", event).as_str(),
+                    format!("📝 LoggerPlugin: 🔌 PLUGIN LOADED - {} v{} with capabilities: {:?}", 
+                        event.plugin_name, event.version, event.capabilities).as_str(),
                 );
                 Ok(())
             })
@@ -140,17 +141,16 @@ impl SimplePlugin for LoggerPlugin {
             .on_client_with_connection(
                 "chat",
                 "message",
-                move |wrapper: serde_json::Value, connection| {
+                move |wrapper: ClientEventWrapper<PlayerChatEvent>, connection| {
                     context_clone.log(
                         LogLevel::Info,
-                        format!("📝 LoggerPlugin: 📢 CHAT - Got Wrapper: {}", wrapper).as_str(),
+                        format!("📝 LoggerPlugin: 📢 CHAT - Got typed wrapper for player: {}", wrapper.player_id).as_str(),
                     );
-                    let event: PlayerChatEvent = serde_json::from_value(wrapper)?;
                     context_clone.log(
                         LogLevel::Info,
                         format!(
                             "📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'",
-                            event.data.player_id, event.data.channel, event.data.message
+                            wrapper.data.data.player_id, wrapper.data.data.channel, wrapper.data.data.message
                         )
                         .as_str(),
                     );
@@ -178,32 +178,15 @@ impl SimplePlugin for LoggerPlugin {
         // Client events from players
         let context_clone = context.clone();
         events
-            .on_client_with_connection("movement", "update_position", move |event: serde_json::Value, _connection| {
-                // Unwrap from the outer "data" field if present
-                let event = if let Some(data) = event.get("data") {
-                    data.clone()
-                } else {
-                    event
-                };
-                // Try to deserialize the event into PlayerMovementEvent
-                match serde_json::from_value::<PlayerMovementEvent>(event.clone()) {
-                    Ok(movement_event) => {
-                        context_clone.log(
-                            LogLevel::Info,
-                            format!(
-                                "📝 LoggerPlugin: 🦘 MOVEMENT - Player moved {:.1}m at {:?}",
-                                movement_event.position.location.y, movement_event.position
-                            )
-                            .as_str(),
-                        );
-                    }
-                    Err(e) => {
-                        context_clone.log(
-                            LogLevel::Error,
-                            format!("📝 LoggerPlugin: Failed to parse movement event: {}", e).as_str(),
-                        );
-                    }
-                }
+            .on_client_with_connection("movement", "update_position", move |wrapper: ClientEventWrapper<PlayerMovementEvent>, _connection| {
+                context_clone.log(
+                    LogLevel::Info,
+                    format!(
+                        "📝 LoggerPlugin: 🦘 MOVEMENT - Player {} moved {:.1}m at {:?}",
+                        wrapper.player_id, wrapper.data.position.location.y, wrapper.data.position
+                    )
+                    .as_str(),
+                );
                 Ok(())
             })
             .await
