@@ -104,11 +104,38 @@ where
     }
 
     fn serialize(&self) -> Result<Vec<u8>, EventError> {
-        serde_json::to_vec(self).map_err(EventError::Serialization)
+        serde_json::to_vec(self).map_err(|e| {
+            let type_name = Self::type_name();
+            tracing::error!(
+                "🔴 Event serialization failed for type '{}': {} (event debug: {:?})",
+                type_name,
+                e,
+                self
+            );
+            EventError::Serialization(e)
+        })
     }
 
     fn deserialize(data: &[u8]) -> Result<Self, EventError> {
-        serde_json::from_slice(data).map_err(EventError::Deserialization)
+        serde_json::from_slice(data).map_err(|e| {
+            let type_name = Self::type_name();
+            let data_preview = if data.len() > 200 {
+                format!("{}... (truncated {} bytes)", 
+                    String::from_utf8_lossy(&data[..200]), 
+                    data.len() - 200)
+            } else {
+                String::from_utf8_lossy(data).to_string()
+            };
+            
+            tracing::error!(
+                "🔴 Event deserialization failed for type '{}': {} (data length: {} bytes, content preview: '{}')",
+                type_name,
+                e,
+                data.len(),
+                data_preview
+            );
+            EventError::Deserialization(e)
+        })
     }
 
     fn as_any(&self) -> &dyn Any {
@@ -236,11 +263,22 @@ where
         match T::deserialize(data) {
             Ok(event) => (self.handler)(event),
             Err(e) => {
-                // Log and skip if deserialization fails (type mismatch)
+                // Enhanced logging for deserialization failures (type mismatches)
+                let expected_type = std::any::type_name::<T>();
+                let data_preview = if data.len() > 100 {
+                    format!("{}... ({} more bytes)", 
+                        String::from_utf8_lossy(&data[..100]), 
+                        data.len() - 100)
+                } else {
+                    String::from_utf8_lossy(data).to_string()
+                };
+                
                 tracing::warn!(
-                    "EventHandler {}: failed to deserialize event: {}. Skipping handler.",
+                    "🟡 EventHandler '{}' (expects type '{}'): Deserialization failed - {}. Data preview: '{}'. This is likely a type mismatch and the handler will be skipped.",
                     self.name,
-                    e
+                    expected_type,
+                    e,
+                    data_preview
                 );
                 Ok(())
             }
@@ -731,17 +769,17 @@ impl<T> ClientEventWrapper<T> {
     pub fn new(player_id: crate::types::PlayerId, data: T) -> Self {
         Self { player_id, data }
     }
-    
+
     /// Extracts the inner event data, consuming the wrapper.
     pub fn into_data(self) -> T {
         self.data
     }
-    
+
     /// Gets a reference to the inner event data.
     pub fn data(&self) -> &T {
         &self.data
     }
-    
+
     /// Gets a mutable reference to the inner event data.
     pub fn data_mut(&mut self) -> &mut T {
         &mut self.data

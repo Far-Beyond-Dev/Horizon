@@ -13,6 +13,7 @@ impl SerializationBufferPool {
         Self { _placeholder: () }
     }
     
+    /// Serializes an event with enhanced error context for debugging.
     /// For now, just serialize directly - this is still faster than the original
     /// due to the other optimizations. Future versions could implement buffer pooling.
     #[inline]
@@ -20,8 +21,28 @@ impl SerializationBufferPool {
     where
         T: crate::events::Event,
     {
-        let data = event.serialize()?;
-        Ok(Arc::new(data))
+        match event.serialize() {
+            Ok(data) => {
+                // Log successful serialization in debug mode
+                if cfg!(debug_assertions) {
+                    tracing::debug!(
+                        "✅ Successfully serialized event of type '{}' ({} bytes)",
+                        T::type_name(),
+                        data.len()
+                    );
+                }
+                Ok(Arc::new(data))
+            }
+            Err(e) => {
+                // Add context about where the serialization failed
+                tracing::error!(
+                    "🔴 SerializationBufferPool: Failed to serialize event of type '{}' in emit pipeline: {}",
+                    T::type_name(),
+                    e
+                );
+                Err(e)
+            }
+        }
     }
 }
 
