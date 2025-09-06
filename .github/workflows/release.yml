@@ -210,26 +210,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - target: x86_64-unknown-linux-musl
-            asset_suffix: -linux-x86_64-static
-            openssl_arch: amd64
           - target: aarch64-unknown-linux-gnu
             asset_suffix: -linux-arm64
-            openssl_arch: arm64
-          - target: aarch64-unknown-linux-musl
-            asset_suffix: -linux-arm64-static
             openssl_arch: arm64
           - target: i686-unknown-linux-gnu
             asset_suffix: -linux-i686
             openssl_arch: i386
-          - target: i686-unknown-linux-musl
-            asset_suffix: -linux-i686-static
-            openssl_arch: i386
           - target: armv7-unknown-linux-gnueabihf
             asset_suffix: -linux-armv7
-            openssl_arch: armhf
-          - target: armv7-unknown-linux-musleabihf
-            asset_suffix: -linux-armv7-static
             openssl_arch: armhf
 
     steps:
