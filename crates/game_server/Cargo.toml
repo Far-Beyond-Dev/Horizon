@@ -6,6 +6,12 @@ edition = "2021"
 [dependencies]
 horizon_event_system = { workspace = true }
 tokio-tungstenite = { workspace = true }
+# Use mio-runtime only for musl targets to avoid monoio compatibility issues
+[target.'cfg(target_env = "musl")'.dependencies]
+horizon_sockets = { workspace = true, default-features = false, features = ["mio-runtime"] }
+
+# Use default features (including monoio) for other targets
+[target.'cfg(not(target_env = "musl"))'.dependencies]
 horizon_sockets = { workspace = true }
 plugin_system = { workspace = true }
 futures-util = { workspace = true }
