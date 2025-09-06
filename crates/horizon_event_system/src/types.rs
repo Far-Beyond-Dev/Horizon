@@ -176,11 +176,11 @@ impl Position {
     /// # Returns
     /// 
     /// Returns the Euclidean distance between the two positions
-    pub fn distance(&self, other: Position) -> f32 {
+    pub fn distance(&self, other: Position) -> f64 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
         let dz = self.z - other.z;
-        ((dx * dx + dy * dy + dz * dz) as f32).sqrt()
+        ((dx * dx + dy * dy + dz * dz) as f64).sqrt()
     }
 }
 
@@ -201,11 +201,11 @@ impl Position {
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Vec3 {
     /// X coordinate (typically east-west axis)
-    pub x: f32,
+    pub x: f64,
     /// Y coordinate (typically vertical axis)
-    pub y: f32,
+    pub y: f64,
     /// Z coordinate (typically north-south axis)
-    pub z: f32,
+    pub z: f64,
 }
 
 impl Vec3 {
@@ -216,7 +216,7 @@ impl Vec3 {
     /// * `x` - X coordinate
     /// * `y` - Y coordinate  
     /// * `z` - Z coordinate
-    pub fn new(x: f32, y: f32, z: f32) -> Self {
+    pub fn new(x: f64, y: f64, z: f64) -> Self {
         Self { x, y, z }
     }
 
@@ -229,7 +229,7 @@ impl Vec3 {
     /// # Returns
     /// 
     /// Returns the Euclidean distance between the two vectors
-    pub fn distance(&self, other: Vec3) -> f32 {
+    pub fn distance(&self, other: Vec3) -> f64 {
         let dx = self.x - other.x;
         let dy = self.y - other.y;
         let dz = self.z - other.z;
@@ -265,7 +265,7 @@ impl Default for Vec3 {
 
 impl From<Position> for Vec3 {
     fn from(pos: Position) -> Self {
-        Self::new(pos.x as f32, pos.y as f32, pos.z as f32)
+        Self::new(pos.x as f64, pos.y as f64, pos.z as f64)
     }
 }
 

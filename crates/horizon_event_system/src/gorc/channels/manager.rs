@@ -129,12 +129,12 @@ impl GorcManager {
     }
 
     /// Calculates distance between two positions
-    fn calculate_distance(&self, pos1: Position, pos2: Position) -> f32 {
+    fn calculate_distance(&self, pos1: Position, pos2: Position) -> f64 {
         pos1.distance(pos2)
     }
 
     /// Updates channel statistics
-    pub async fn update_channel_stats(&self, channel_id: u8, bytes_sent: u64, frequency: f32) {
+    pub async fn update_channel_stats(&self, channel_id: u8, bytes_sent: u64, frequency: f64) {
         if let Some(mut channel) = self.get_channel(channel_id).await {
             channel.stats.add_bytes_transmitted(bytes_sent);
             channel.stats.update_frequency(frequency);
@@ -179,20 +179,20 @@ impl GorcManager {
         
         PerformanceReport {
             overall_efficiency: self.calculate_overall_efficiency(&channel_reports).await,
-            network_utilization: stats.network_utilization,
+            network_utilization: stats.network_utilization as f64,
             channel_reports,
             timestamp: crate::utils::current_timestamp(),
         }
     }
 
     /// Calculates overall system efficiency
-    async fn calculate_overall_efficiency(&self, channel_reports: &HashMap<u8, ChannelPerformanceReport>) -> f32 {
+    async fn calculate_overall_efficiency(&self, channel_reports: &HashMap<u8, ChannelPerformanceReport>) -> f64 {
         if channel_reports.is_empty() {
             return 1.0;
         }
         
-        let sum: f32 = channel_reports.values().map(|r| r.efficiency).sum();
-        sum / channel_reports.len() as f32
+        let sum: f64 = channel_reports.values().map(|r| r.efficiency).sum();
+        sum / channel_reports.len() as f64
     }
 
     /// Optimizes all channels
@@ -268,17 +268,17 @@ pub struct GorcStats {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelPerformanceReport {
     pub channel_id: u8,
-    pub efficiency: f32,
-    pub avg_latency: f32,
-    pub throughput: f32,
+    pub efficiency: f64,
+    pub avg_latency: f64,
+    pub throughput: f64,
     pub subscriber_count: usize,
 }
 
 /// Overall system performance report
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerformanceReport {
-    pub overall_efficiency: f32,
-    pub network_utilization: f32,
+    pub overall_efficiency: f64,
+    pub network_utilization: f64,
     pub channel_reports: HashMap<u8, ChannelPerformanceReport>,
     pub timestamp: u64,
 }
@@ -314,7 +314,7 @@ impl PerformanceReport {
     }
     
     /// Gets health score (0.0 to 1.0)
-    pub fn health_score(&self) -> f32 {
+    pub fn health_score(&self) -> f64 {
         let efficiency_score = self.overall_efficiency;
         let network_score = 1.0 - self.network_utilization;
         

@@ -451,7 +451,7 @@ impl GorcInstanceManager {
     }
 
     /// Get objects within range of a position
-    pub async fn get_objects_in_range(&self, position: Vec3, range: f32) -> Vec<GorcObjectId> {
+    pub async fn get_objects_in_range(&self, position: Vec3, range: f64) -> Vec<GorcObjectId> {
         let spatial_index = self.spatial_index.read().await;
         spatial_index
             .iter()

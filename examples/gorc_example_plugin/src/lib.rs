@@ -41,7 +41,7 @@ impl Player {
     }
 
     fn calculate_distance(&self, observer_pos: Vec3) -> f32 {
-        self.position.distance(observer_pos)
+        self.position.distance(observer_pos) as f32
     }
 
     fn serialize_critical_data(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {

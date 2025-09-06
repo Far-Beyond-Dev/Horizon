@@ -17,11 +17,11 @@ pub struct ObjectZone {
     /// Center position of the zone (object position)
     pub center: Vec3,
     /// Radius of the zone
-    pub radius: f32,
+    pub radius: f64,
     /// Properties replicated in this zone
     pub properties: Vec<String>,
     /// Update frequency for this zone
-    pub frequency: f32,
+    pub frequency: f64,
     /// Whether the zone is active
     pub active: bool,
 }
@@ -74,12 +74,12 @@ impl ObjectZone {
     }
 
     /// Gets the distance from the zone center to a position
-    pub fn distance_to(&self, position: Vec3) -> f32 {
+    pub fn distance_to(&self, position: Vec3) -> f64 {
         self.center.distance(position)
     }
 
     /// Gets how much of the zone a position penetrates (0.0 = edge, 1.0 = center)
-    pub fn penetration_factor(&self, position: Vec3) -> f32 {
+    pub fn penetration_factor(&self, position: Vec3) -> f64 {
         if !self.contains(position) {
             return 0.0;
         }
@@ -170,7 +170,7 @@ impl ZoneManager {
     }
 
     /// Gets the distance to the nearest zone edge for a position
-    pub fn distance_to_nearest_zone(&self, position: Vec3) -> f32 {
+    pub fn distance_to_nearest_zone(&self, position: Vec3) -> f64 {
         self.zones
             .values()
             .map(|zone| {
@@ -178,7 +178,7 @@ impl ZoneManager {
                 (distance_to_center - zone.radius).abs()
             })
             .min_by(|a, b| a.partial_cmp(b).unwrap())
-            .unwrap_or(f32::INFINITY)
+            .unwrap_or(f64::INFINITY)
     }
 
     /// Gets zone information for a specific channel
@@ -214,7 +214,7 @@ impl ZoneManager {
     }
 
     /// Gets the maximum zone radius
-    pub fn max_radius(&self) -> f32 {
+    pub fn max_radius(&self) -> f64 {
         self.zones
             .values()
             .map(|zone| zone.radius)
@@ -223,7 +223,7 @@ impl ZoneManager {
     }
 
     /// Gets the minimum zone radius  
-    pub fn min_radius(&self) -> f32 {
+    pub fn min_radius(&self) -> f64 {
         self.zones
             .values()
             .map(|zone| zone.radius)
@@ -244,7 +244,7 @@ impl ZoneManager {
             distance_to_object: self.center.distance(position),
             containing_channels: Vec::new(),
             zone_penetrations: HashMap::new(),
-            nearest_zone_distance: f32::INFINITY,
+            nearest_zone_distance: f64::INFINITY,
         };
 
         for (&channel, zone) in &self.zones {
@@ -282,13 +282,13 @@ pub struct ZoneAnalysis {
     /// Center of the object
     pub object_center: Vec3,
     /// Distance from position to object center
-    pub distance_to_object: f32,
+    pub distance_to_object: f64,
     /// Channels whose zones contain this position
     pub containing_channels: Vec<u8>,
     /// How deeply the position penetrates each zone (0.0 = edge, 1.0 = center)
-    pub zone_penetrations: HashMap<u8, f32>,
+    pub zone_penetrations: HashMap<u8, f64>,
     /// Distance to the nearest zone edge
-    pub nearest_zone_distance: f32,
+    pub nearest_zone_distance: f64,
 }
 
 impl ZoneAnalysis {
@@ -303,7 +303,7 @@ impl ZoneAnalysis {
     }
 
     /// Gets the maximum penetration factor across all zones
-    pub fn max_penetration(&self) -> f32 {
+    pub fn max_penetration(&self) -> f64 {
         self.zone_penetrations
             .values()
             .max_by(|a, b| a.partial_cmp(b).unwrap())
@@ -312,7 +312,7 @@ impl ZoneAnalysis {
     }
 
     /// Gets the penetration factor for a specific channel
-    pub fn penetration_for_channel(&self, channel: u8) -> f32 {
+    pub fn penetration_for_channel(&self, channel: u8) -> f64 {
         self.zone_penetrations.get(&channel).copied().unwrap_or(0.0)
     }
 }
@@ -323,9 +323,9 @@ pub struct ZoneStats {
     /// Number of position updates
     pub position_updates: u64,
     /// Total distance moved
-    pub total_movement_distance: f32,
+    pub total_movement_distance: f64,
     /// Average movement per update
-    pub avg_movement_per_update: f32,
+    pub avg_movement_per_update: f64,
     /// Number of zone boundary crossings
     pub boundary_crossings: u64,
 }
@@ -334,7 +334,7 @@ impl ZoneStats {
     /// Updates the average movement calculation
     pub fn update_averages(&mut self) {
         if self.position_updates > 0 {
-            self.avg_movement_per_update = self.total_movement_distance / self.position_updates as f32;
+            self.avg_movement_per_update = self.total_movement_distance / self.position_updates as f64;
         }
     }
 }
@@ -343,7 +343,7 @@ impl ZoneStats {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZoneConfig {
     /// Global hysteresis factor (0.0 to 1.0)
-    pub hysteresis_factor: f32,
+    pub hysteresis_factor: f64,
     /// Minimum update interval per zone in milliseconds
     pub min_update_interval_ms: u64,
     /// Maximum subscribers per zone before degrading performance
@@ -351,7 +351,7 @@ pub struct ZoneConfig {
     /// Whether to use adaptive zone sizing
     pub adaptive_sizing: bool,
     /// Factor to scale zones based on subscriber count
-    pub adaptive_scale_factor: f32,
+    pub adaptive_scale_factor: f64,
 }
 
 impl Default for ZoneConfig {
@@ -407,10 +407,10 @@ impl AdvancedZoneManager {
             // Scale zone based on subscriber density
             let scale_factor = if subscriber_count > self.config.max_subscribers_per_zone {
                 // Shrink zone if too many subscribers
-                1.0 - (subscriber_count as f32 / self.config.max_subscribers_per_zone as f32 - 1.0) * self.config.adaptive_scale_factor
+                1.0 - (subscriber_count as f64 / self.config.max_subscribers_per_zone as f64 - 1.0) * self.config.adaptive_scale_factor
             } else {
                 // Expand zone if few subscribers
-                1.0 + (1.0 - subscriber_count as f32 / self.config.max_subscribers_per_zone as f32) * self.config.adaptive_scale_factor * 0.5
+                1.0 + (1.0 - subscriber_count as f64 / self.config.max_subscribers_per_zone as f64) * self.config.adaptive_scale_factor * 0.5
             };
             
             zone.radius = original_radius * scale_factor.clamp(0.5, 2.0);

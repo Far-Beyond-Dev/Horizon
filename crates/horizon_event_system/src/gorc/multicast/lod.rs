@@ -88,7 +88,7 @@ impl LodRoom {
     }
 
     /// Calculates distance from room center
-    fn distance_from_center(&self, position: Position) -> f32 {
+    fn distance_from_center(&self, position: Position) -> f64 {
         self.center.distance(position)
     }
 
@@ -193,9 +193,9 @@ impl LodRoom {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HysteresisSettings {
     /// Threshold for entering a higher LOD level
-    pub enter_threshold: f32,
+    pub enter_threshold: f64,
     /// Threshold for exiting to a lower LOD level
-    pub exit_threshold: f32,
+    pub exit_threshold: f64,
     /// Minimum time between LOD changes
     pub transition_cooldown: std::time::Duration,
 }

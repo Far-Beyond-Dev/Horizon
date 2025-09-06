@@ -9,7 +9,7 @@ const MAX_QUADTREE_DEPTH: u8 = 10;
 /// Maximum objects per quadtree node before subdivision
 const MAX_OBJECTS_PER_NODE: usize = 8;
 /// Minimum node size to prevent infinite subdivision
-const MIN_NODE_SIZE: f32 = 1.0;
+const MIN_NODE_SIZE: f64 = 1.0;
 
 /// A node in the quadtree with proper O(log n) spatial subdivision
 #[derive(Debug)]
@@ -76,7 +76,7 @@ impl QuadTreeNode {
         let (min, max) = &self.bounds;
         let width = max.x - min.x;
         let height = max.y - min.y;
-        width > MIN_NODE_SIZE && height > MIN_NODE_SIZE
+        width > MIN_NODE_SIZE as f64 && height > MIN_NODE_SIZE as f64
     }
 
     /// Subdivides this node into 4 children and redistributes objects
@@ -178,7 +178,7 @@ impl QuadTreeNode {
     }
 
     /// Checks if a circle intersects with this node's bounds (optimized)
-    fn intersects_circle(&self, center: Position, radius: f32) -> bool {
+    fn intersects_circle(&self, center: Position, radius: f64) -> bool {
         let (min, max) = &self.bounds;
         
         // Find closest point on rectangle to circle center
@@ -291,7 +291,7 @@ impl RegionQuadTree {
     }
 
     /// Queries players within a radius with O(log n) performance
-    pub fn query_radius(&mut self, center: Position, radius: f32) -> Vec<QueryResult> {
+    pub fn query_radius(&mut self, center: Position, radius: f64) -> Vec<QueryResult> {
         let query = SpatialQuery {
             center,
             radius,
@@ -357,12 +357,12 @@ impl RegionQuadTree {
     }
 
     /// Estimates query efficiency (for monitoring)
-    pub fn estimate_query_efficiency(&self, radius: f32) -> f32 {
+    pub fn estimate_query_efficiency(&self, radius: f64) -> f64 {
         let total_area = {
             let (min, max) = &self.root.bounds;
             (max.x - min.x) * (max.y - min.y)
         };
-        let query_area = std::f32::consts::PI * radius * radius;
+        let query_area = std::f64::consts::PI * radius * radius;
         let coverage_ratio = query_area / total_area;
         
         // Rough efficiency estimate: smaller coverage = better efficiency

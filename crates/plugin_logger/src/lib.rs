@@ -189,9 +189,9 @@ impl SimplePlugin for LoggerPlugin {
                         Ok(movement_data) => {
                             // Convert Transform to Vec3 for core event
                             let new_position = horizon_event_system::Vec3 {
-                                x: movement_data.position.location.x,
-                                y: movement_data.position.location.y,
-                                z: movement_data.position.location.z,
+                                x: movement_data.position.location.x as f64,
+                                y: movement_data.position.location.y as f64,
+                                z: movement_data.position.location.z as f64,
                             };
 
                             // Create and emit core movement event for GORC and other systems

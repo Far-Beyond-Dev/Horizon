@@ -10,9 +10,9 @@ pub struct ReplicationLayer {
     /// Channel number (0-3)
     pub channel: u8,
     /// Maximum transmission radius for this layer
-    pub radius: f32,
+    pub radius: f64,
     /// Target frequency in Hz
-    pub frequency: f32,
+    pub frequency: f64,
     /// Properties to replicate at this layer
     pub properties: Vec<String>,
     /// Compression type for this layer
@@ -25,8 +25,8 @@ impl ReplicationLayer {
     /// Creates a new replication layer
     pub fn new(
         channel: u8,
-        radius: f32,
-        frequency: f32,
+        radius: f64,
+        frequency: f64,
         properties: Vec<String>,
         compression: CompressionType,
     ) -> Self {
@@ -144,10 +144,10 @@ impl ReplicationLayers {
     }
 
     /// Gets total estimated bandwidth for all layers
-    pub fn estimated_total_bandwidth(&self) -> f32 {
+    pub fn estimated_total_bandwidth(&self) -> f64 {
         self.layers
             .iter()
-            .map(|l| l.estimated_data_size() as f32 * l.frequency)
+            .map(|l| l.estimated_data_size() as f64 * l.frequency)
             .sum()
     }
 

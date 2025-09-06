@@ -13,7 +13,7 @@ pub struct ReplicationChannel {
     /// Description of the channel's purpose
     pub description: String,
     /// Target frequency range for this channel
-    pub frequency_range: (f32, f32),
+    pub frequency_range: (f64, f64),
     /// Layers configured for this channel
     pub layers: Vec<ReplicationLayer>,
     /// Last update timestamp
@@ -26,7 +26,7 @@ pub struct ReplicationChannel {
 
 impl ReplicationChannel {
     /// Creates a new replication channel
-    pub fn new(id: u8, name: String, description: String, frequency_range: (f32, f32)) -> Self {
+    pub fn new(id: u8, name: String, description: String, frequency_range: (f64, f64)) -> Self {
         Self {
             id,
             name,
@@ -73,7 +73,7 @@ impl ReplicationChannel {
     }
 
     /// Gets the effective frequency based on current conditions
-    pub fn get_effective_frequency(&self, load_factor: f32) -> f32 {
+    pub fn get_effective_frequency(&self, load_factor: f64) -> f64 {
         let base_freq = self.frequency_range.1;
         let min_freq = self.frequency_range.0;
         
@@ -83,7 +83,7 @@ impl ReplicationChannel {
     }
 
     /// Gets the maximum radius for any layer in this channel
-    pub fn max_radius(&self) -> f32 {
+    pub fn max_radius(&self) -> f64 {
         self.layers
             .iter()
             .map(|layer| layer.radius)
@@ -132,16 +132,16 @@ pub struct ChannelStats {
     /// Number of subscribers
     pub subscriber_count: usize,
     /// Average update frequency achieved
-    pub avg_frequency: f32,
+    pub avg_frequency: f64,
     /// Peak subscriber count
     pub peak_subscriber_count: usize,
     /// Average latency for this channel (milliseconds)
-    pub avg_latency_ms: f32,
+    pub avg_latency_ms: f64,
 }
 
 impl ChannelStats {
     /// Updates the average frequency calculation
-    pub fn update_frequency(&mut self, actual_frequency: f32) {
+    pub fn update_frequency(&mut self, actual_frequency: f64) {
         if self.updates_sent == 0 {
             self.avg_frequency = actual_frequency;
         } else {
@@ -164,7 +164,7 @@ impl ChannelStats {
     }
 
     /// Records latency measurement
-    pub fn update_latency(&mut self, latency_ms: f32) {
+    pub fn update_latency(&mut self, latency_ms: f64) {
         if self.updates_sent <= 1 {
             self.avg_latency_ms = latency_ms;
         } else {
@@ -174,7 +174,7 @@ impl ChannelStats {
     }
 
     /// Gets the efficiency ratio (frequency achieved vs theoretical max)
-    pub fn efficiency_ratio(&self, target_frequency: f32) -> f32 {
+    pub fn efficiency_ratio(&self, target_frequency: f64) -> f64 {
         if target_frequency > 0.0 {
             self.avg_frequency / target_frequency
         } else {

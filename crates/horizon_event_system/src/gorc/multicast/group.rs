@@ -164,7 +164,7 @@ pub struct GroupBounds {
     /// Center point of the bounds
     pub center: Vec3,
     /// Radius of the bounds
-    pub radius: f32,
+    pub radius: f64,
     /// Minimum bounds (optional box bounds)
     pub min_bounds: Option<Vec3>,
     /// Maximum bounds (optional box bounds)
@@ -173,7 +173,7 @@ pub struct GroupBounds {
 
 impl GroupBounds {
     /// Creates circular bounds
-    pub fn circular(center: Vec3, radius: f32) -> Self {
+    pub fn circular(center: Vec3, radius: f64) -> Self {
         Self {
             center,
             radius,
@@ -219,18 +219,18 @@ impl GroupBounds {
     }
 
     /// Gets the area/volume of these bounds
-    pub fn area(&self) -> f32 {
+    pub fn area(&self) -> f64 {
         if let (Some(min), Some(max)) = (&self.min_bounds, &self.max_bounds) {
             // Rectangular volume
             (max.x - min.x) * (max.y - min.y) * (max.z - min.z)
         } else {
             // Spherical volume
-            (4.0 / 3.0) * std::f32::consts::PI * self.radius.powi(3)
+            (4.0 / 3.0) * std::f64::consts::PI * self.radius.powi(3)
         }
     }
 
     /// Expands the bounds by a factor
-    pub fn expand(&mut self, factor: f32) {
+    pub fn expand(&mut self, factor: f64) {
         self.radius *= factor;
         if let (Some(min), Some(max)) = (&mut self.min_bounds, &mut self.max_bounds) {
             let expansion = (factor - 1.0) / 2.0;

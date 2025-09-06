@@ -32,7 +32,7 @@ pub enum LodLevel {
 
 impl LodLevel {
     /// Gets the replication radius for this LOD level
-    pub fn radius(&self) -> f32 {
+    pub fn radius(&self) -> f64 {
         match self {
             LodLevel::Ultra => 50.0,
             LodLevel::High => 150.0,
@@ -43,7 +43,7 @@ impl LodLevel {
     }
 
     /// Gets the update frequency for this LOD level
-    pub fn frequency(&self) -> f32 {
+    pub fn frequency(&self) -> f64 {
         match self {
             LodLevel::Ultra => 60.0,
             LodLevel::High => 30.0,
@@ -117,7 +117,7 @@ pub struct MulticastStats {
     /// Total number of players across all groups
     pub total_players: usize,
     /// Average group size
-    pub avg_group_size: f32,
+    pub avg_group_size: f64,
     /// Total messages multicast
     pub messages_sent: u64,
     /// Total bytes multicast

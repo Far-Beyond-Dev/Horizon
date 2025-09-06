@@ -92,8 +92,8 @@ where
             if !properties.is_empty() {
                 layers.push(crate::ReplicationLayer::new(
                     channel,
-                    config.channel_radii[channel as usize],
-                    config.channel_frequencies[channel as usize],
+                    config.channel_radii[channel as usize] as f64,
+                    config.channel_frequencies[channel as usize] as f64,
                     properties,
                     config.channel_compression[channel as usize],
                 ));

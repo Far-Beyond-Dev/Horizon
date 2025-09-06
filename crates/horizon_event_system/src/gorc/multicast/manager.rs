@@ -319,7 +319,7 @@ impl MulticastManager {
         
         // Update calculated fields
         if stats.total_groups > 0 {
-            stats.avg_group_size = stats.total_players as f32 / stats.total_groups as f32;
+            stats.avg_group_size = stats.total_players as f64 / stats.total_groups as f64;
         }
         
         stats

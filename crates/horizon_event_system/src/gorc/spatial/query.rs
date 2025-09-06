@@ -8,7 +8,7 @@ pub struct SpatialQuery {
     /// Center position of the query
     pub center: Position,
     /// Query radius
-    pub radius: f32,
+    pub radius: f64,
     /// Optional filters for the query
     pub filters: QueryFilters,
 }
@@ -23,7 +23,7 @@ pub struct QueryFilters {
     /// Maximum number of results to return
     pub max_results: Option<usize>,
     /// Minimum distance from query center
-    pub min_distance: Option<f32>,
+    pub min_distance: Option<f64>,
 }
 
 /// Result of a spatial query
@@ -34,7 +34,7 @@ pub struct QueryResult {
     /// Player position
     pub position: Position,
     /// Distance from query center
-    pub distance: f32,
+    pub distance: f64,
     /// Additional metadata
     pub metadata: HashMap<String, String>,
 }
