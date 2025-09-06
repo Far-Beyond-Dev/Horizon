@@ -147,24 +147,7 @@ impl SimplePlugin for LoggerPlugin {
                 "chat",
                 "message",
                 move |wrapper: ClientEventWrapper<PlayerChatEvent>, connection| {
-                    context_clone.log(
-                        LogLevel::Info,
-                        format!(
-                            "📝 LoggerPlugin: 📢 CHAT - Got typed wrapper for player: {}",
-                            wrapper.player_id
-                        )
-                        .as_str(),
-                    );
-                    context_clone.log(
-                        LogLevel::Info,
-                        format!(
-                            "📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'",
-                            wrapper.data.data.player_id,
-                            wrapper.data.data.channel,
-                            wrapper.data.data.message
-                        )
-                        .as_str(),
-                    );
+                    context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'", wrapper.data.data.player_id, wrapper.data.data.channel, wrapper.data.data.message).as_str());
 
                     let response = serde_json::json!({
                         "status": "ok",
