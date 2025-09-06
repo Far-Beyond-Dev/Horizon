@@ -1,4 +1,4 @@
-use bug::{init_handle, template_file, IssueTemplate, BugReportHandle};
+use bug::{init_handle, template_file, BugReportHandle};
 
 pub fn get_bugs() -> BugReportHandle {
     let bug_report_handle = init_handle("myorg", "shared-project")

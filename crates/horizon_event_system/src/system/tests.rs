@@ -47,6 +47,15 @@ mod tests {
         fn get_auth_status(&self, _player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<crate::types::AuthenticationStatus>> + Send + '_>> {
             Box::pin(async move { Some(crate::types::AuthenticationStatus::Authenticated) })
         }
+
+        fn kick(&self, player_id: PlayerId, reason: Option<String>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+            let sent_messages = self.sent_messages.clone();
+            Box::pin(async move {
+                let kick_message = format!("Kicked: {}", reason.unwrap_or_else(|| "No reason provided".to_string()));
+                sent_messages.lock().unwrap().push((player_id, kick_message.into_bytes()));
+                Ok(())
+            })
+        }
     }
     
     #[tokio::test]

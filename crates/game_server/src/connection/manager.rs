@@ -10,6 +10,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{broadcast, RwLock};
 use tracing::info;
+use futures_util::sink::SinkExt;
+use futures_util::stream::SplitSink;
+use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 
 /// Central manager for all client connections.
 /// 
@@ -28,7 +31,7 @@ use tracing::info;
 pub struct ConnectionManager {
     /// Map of connection ID to client connection information
     connections: Arc<RwLock<HashMap<ConnectionId, ClientConnection>>>,
-    ws_senders: Arc<RwLock<HashMap<ConnectionId, Arc<tokio::sync::Mutex<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>>>>>>,
+    ws_senders: Arc<RwLock<HashMap<ConnectionId, Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<tokio::net::TcpStream>, Message>>>>>>,
     
     /// Atomic counter for generating unique connection IDs
     next_id: Arc<std::sync::atomic::AtomicUsize>,
@@ -80,7 +83,7 @@ impl ConnectionManager {
     }
 
     /// Register the WebSocket sender for a connection
-    pub async fn register_ws_sender(&self, connection_id: ConnectionId, ws_sender: Arc<tokio::sync::Mutex<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>>>) {
+    pub async fn register_ws_sender(&self, connection_id: ConnectionId, ws_sender: Arc<tokio::sync::Mutex<SplitSink<WebSocketStream<tokio::net::TcpStream>, Message>>>) {
         let mut senders = self.ws_senders.write().await;
         senders.insert(connection_id, ws_sender);
     }
@@ -97,7 +100,6 @@ impl ConnectionManager {
         if let Some(ws_sender) = senders.get(&connection_id) {
             let mut ws_sender = ws_sender.lock().await;
             use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
-            use tokio_tungstenite::tungstenite::Message;
             let close_msg = Message::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
                 code: CloseCode::Normal,
                 reason: reason.unwrap_or_else(|| "Kicked by server".into()).into(),

@@ -19,17 +19,18 @@ clap = { version = "4.0", features = ["derive"] }
 toml = "0.8"
 
 # === Concurrency & Performance ===
+futures-util = "0.3"
 crossbeam = "0.8"
 dashmap = "6.1.0"
 num_cpus = "1.13"
 rayon = "1.7.0"
 
 # === Data Processing & Encoding ===
+uuid = { version = "1.18.1", features = ["v4", "serde"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.143"
 base64 = "0.22"
 flate2 = "1.0"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-uuid = { version = "1.0", features = ["v4", "serde"] }
 
 # === Error Handling ===
 anyhow = "1.0"

@@ -18,8 +18,7 @@ use horizon_event_system::{
     SubscriptionManager, AuthenticationStatusSetEvent, AuthenticationStatusGetEvent, 
     AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent, ShutdownState,
 };
-use horizon_sockets::{SocketBuilder, TcpListener};
-use std::net::TcpListener as StdTcpListener;
+use horizon_sockets::SocketBuilder;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};

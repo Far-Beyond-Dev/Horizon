@@ -8,11 +8,13 @@ horizon_event_system = { workspace = true }
 tokio-tungstenite = { workspace = true }
 horizon_sockets = { workspace = true }
 plugin_system = { workspace = true }
+futures-util = { workspace = true }
 horizon_bugs = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 once_cell = { workspace = true }
 num_cpus = { workspace = true }
+ue_types = { workspace = true }
 tracing = { workspace = true }
 futures = { workspace = true }
 sysinfo = { workspace = true }
@@ -20,4 +22,3 @@ tokio = { workspace = true }
 serde = { workspace = true }
 libc = { workspace = true }
 bug = { workspace = true }
-ue_types = { workspace = true }
