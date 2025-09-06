@@ -28,6 +28,7 @@ use tracing::info;
 pub struct ConnectionManager {
     /// Map of connection ID to client connection information
     connections: Arc<RwLock<HashMap<ConnectionId, ClientConnection>>>,
+    ws_senders: Arc<RwLock<HashMap<ConnectionId, Arc<tokio::sync::Mutex<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>>>>>>,
     
     /// Atomic counter for generating unique connection IDs
     next_id: Arc<std::sync::atomic::AtomicUsize>,
@@ -47,9 +48,9 @@ impl ConnectionManager {
     /// A new `ConnectionManager` instance ready to handle connections.
     pub fn new() -> Self {
         let (sender, _) = broadcast::channel(1000);
-
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
+            ws_senders: Arc::new(RwLock::new(HashMap::new())),
             next_id: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
             sender,
         }
@@ -72,12 +73,50 @@ impl ConnectionManager {
             .next_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let connection = ClientConnection::new(remote_addr);
-
         let mut connections = self.connections.write().await;
         connections.insert(connection_id, connection);
-
         info!("🔗 Connection {} from {}", connection_id, remote_addr);
         connection_id
+    }
+
+    /// Register the WebSocket sender for a connection
+    pub async fn register_ws_sender(&self, connection_id: ConnectionId, ws_sender: Arc<tokio::sync::Mutex<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>>>) {
+        let mut senders = self.ws_senders.write().await;
+        senders.insert(connection_id, ws_sender);
+    }
+
+    /// Remove the WebSocket sender for a connection
+    pub async fn remove_ws_sender(&self, connection_id: ConnectionId) {
+        let mut senders = self.ws_senders.write().await;
+        senders.remove(&connection_id);
+    }
+
+    /// Kick (disconnect) a connection by ID, sending a close frame
+    pub async fn kick_connection(&self, connection_id: ConnectionId, reason: Option<String>) -> Result<(), String> {
+        let senders = self.ws_senders.read().await;
+        if let Some(ws_sender) = senders.get(&connection_id) {
+            let mut ws_sender = ws_sender.lock().await;
+            use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+            use tokio_tungstenite::tungstenite::Message;
+            let close_msg = Message::Close(Some(tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                code: CloseCode::Normal,
+                reason: reason.unwrap_or_else(|| "Kicked by server".into()).into(),
+            }));
+            let _ = ws_sender.send(close_msg).await;
+        }
+        drop(senders);
+        self.remove_connection(connection_id).await;
+        self.remove_ws_sender(connection_id).await;
+        Ok(())
+    }
+
+    /// Kick (disconnect) a player by PlayerId
+    pub async fn kick_player(&self, player_id: PlayerId, reason: Option<String>) -> Result<(), String> {
+        if let Some(conn_id) = self.get_connection_id_by_player(player_id).await {
+            self.kick_connection(conn_id, reason).await
+        } else {
+            Err("Player not connected".to_string())
+        }
     }
 
     /// Removes a connection from the manager.

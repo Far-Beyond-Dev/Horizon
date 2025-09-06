@@ -41,6 +41,13 @@ impl GameServerResponseSender {
 }
 
 impl ClientResponseSender for GameServerResponseSender {
+    /// Kicks (disconnects) a client by player ID, sending a close frame and removing the connection.
+    fn kick(&self, player_id: PlayerId, reason: Option<String>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+        let connection_manager = self.connection_manager.clone();
+        Box::pin(async move {
+            connection_manager.kick_player(player_id, reason).await
+        })
+    }
     /// Sends data to a specific client identified by player ID.
     /// 
     /// This method looks up the active connection for the given player

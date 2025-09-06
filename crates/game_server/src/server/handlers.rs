@@ -70,6 +70,7 @@ pub async fn handle_connection(
     let (ws_sender, mut ws_receiver) = ws_stream.split();
     let ws_sender = Arc::new(tokio::sync::Mutex::new(ws_sender));
     let connection_id = connection_manager.add_connection(addr).await;
+    connection_manager.register_ws_sender(connection_id, ws_sender.clone()).await;
 
     // Generate player ID and emit connection event
     let player_id = PlayerId::new();
@@ -177,5 +178,6 @@ pub async fn handle_connection(
     }
 
     connection_manager.remove_connection(connection_id).await;
+    connection_manager.remove_ws_sender(connection_id).await;
     Ok(())
 }

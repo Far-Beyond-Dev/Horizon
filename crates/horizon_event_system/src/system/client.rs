@@ -37,6 +37,13 @@ impl std::fmt::Debug for ClientConnectionRef {
 }
 
 impl ClientConnectionRef {
+    /// Kick (disconnect) this client from the server, with an optional reason
+    pub async fn kick(&self, reason: Option<String>) -> Result<(), EventError> {
+        self.response_sender
+            .kick(self.player_id, reason)
+            .await
+            .map_err(|e| EventError::HandlerExecution(format!("Failed to kick client: {}", e)))
+    }
     /// Creates a new client connection reference
     pub fn new(
         player_id: PlayerId,
@@ -91,13 +98,16 @@ impl ClientConnectionRef {
 pub trait ClientResponseSender: std::fmt::Debug {
     /// Send data to a specific client
     fn send_to_client(&self, player_id: PlayerId, data: Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>>;
-    
+
     /// Check if a client connection is still active
     fn is_connection_active(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>>;
-    
+
     /// Get the authentication status of a client
     fn get_auth_status(&self, player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<AuthenticationStatus>> + Send + '_>>;
-    
+
+    /// Kick (disconnect) a client by player ID, sending a close frame and removing the connection.
+    fn kick(&self, player_id: PlayerId, reason: Option<String>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>>;
+
     /// Get connection information for a client (optional implementation)
     fn get_connection_info(&self, _player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<ClientConnectionInfo>> + Send + '_>> {
         // Default implementation returns None to maintain backwards compatibility
