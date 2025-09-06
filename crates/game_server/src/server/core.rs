@@ -259,86 +259,85 @@ impl GameServer {
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-        // Platform check: force use_reuse_port to false and single listener on Windows
-        #[cfg(target_os = "windows")]
-        let use_reuse_port = false;
-        #[cfg(not(target_os = "windows"))]
-        let use_reuse_port = self.config.use_reuse_port;
 
+        // Unified listener creation logic for all platforms
         let core_count = num_cpus::get();
-        let num_acceptors = if use_reuse_port {
-            core_count
-        } else {
-            1
-        };
+        let use_reuse_port = self.config.use_reuse_port;
+        let num_acceptors = if use_reuse_port { core_count } else { 1 };
+        info!("🧠 Detected {} CPU cores, using {} acceptor(s)", core_count, num_acceptors);
 
-        info!(
-             "🧠 Detected {} CPU cores, using {} acceptor(s)",
-                core_count, num_acceptors
-        );
-
-        // On Windows, ensure only one Tokio listener per address/port, add more acceptors if needed
-        #[cfg(target_os = "windows")]
-        let listeners = {
-            use std::collections::HashMap;
-            use std::sync::Mutex;
-            use once_cell::sync::Lazy;
-
-            static LISTENER_REGISTRY: Lazy<Mutex<HashMap<String, Arc<tokio::net::TcpListener>>>> = Lazy::new(|| Mutex::new(HashMap::new()));
-            let addr_str = self.config.bind_address.to_string();
-            let mut registry = LISTENER_REGISTRY.lock().unwrap();
-            let listener = if let Some(existing) = registry.get(&addr_str) {
-                trace!("⚠️ (Windows) Listener already exists for {}, adding more acceptors", addr_str);
-                existing.clone()
-            } else {
-                let mut builder = SocketBuilder::new()
-                    .bind(addr_str.clone())
-                    .map_err(|e| ServerError::Network(format!("SocketBuilder bind failed: {e}")))?;
-                builder = builder.backlog(65535)
-                    .map_err(|e| ServerError::Network(format!("SocketBuilder backlog failed: {e}")))?;
-                let listener = builder.tcp_listener()
-                    .map_err(|e| ServerError::Network(format!("TcpListener creation failed: {e}")))?;
-                let std_listener = listener.as_std();
-                std_listener.set_nonblocking(true).ok();
-                let tokio_listener = tokio::net::TcpListener::from_std(std_listener.try_clone()
-                    .map_err(|e| ServerError::Network(format!("Failed to clone std TcpListener: {e}")))?)
-                    .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {e}")))?;
-                let arc_listener = Arc::new(tokio_listener);
-                registry.insert(addr_str.clone(), arc_listener.clone());
-                trace!("✅ (Windows) Single listener created and registered for {}", addr_str);
-                arc_listener
-            };
-            // Only one listener, used for all acceptor tasks
-            let mut v = Vec::new();
-            v.push(listener);
-            v
-        };
-
-        #[cfg(not(target_os = "windows"))]
-        let listeners = {
-            let mut v = Vec::new();
-            for i in 0..num_acceptors {
-                let mut builder = SocketBuilder::new()
-                    .bind(self.config.bind_address.to_string())
-                    .map_err(|e| ServerError::Network(format!("SocketBuilder bind failed: {e}")))?;
-                if use_reuse_port {
-                    builder = builder.reuse_port(true)
-                        .map_err(|e| ServerError::Network(format!("SocketBuilder reuse_port failed: {e}")))?;
+        // Try to create multiple listeners, but if any fail, fall back to one listener
+        let mut listeners = Vec::new();
+        let mut multi_listener_error = None;
+        for i in 0..num_acceptors {
+            let mut builder = match SocketBuilder::new().bind(self.config.bind_address.to_string()) {
+                Ok(b) => b,
+                Err(e) => {
+                    multi_listener_error = Some(format!("SocketBuilder bind failed: {e}"));
+                    break;
                 }
-                builder = builder.backlog(65535)
-                    .map_err(|e| ServerError::Network(format!("SocketBuilder backlog failed: {e}")))?;
-                let listener = builder.tcp_listener()
-                    .map_err(|e| ServerError::Network(format!("TcpListener creation failed: {e}")))?;
-                let std_listener = listener.as_std().try_clone()
-                    .map_err(|e| ServerError::Network(format!("Failed to clone std TcpListener: {e}")))?;
-                std_listener.set_nonblocking(true).ok();
-                let tokio_listener = tokio::net::TcpListener::from_std(std_listener)
-                    .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {e}")))?;
-                v.push(tokio_listener);
-                trace!("✅ Listener {} bound on {}", i, self.config.bind_address);
+            };
+            if use_reuse_port {
+                match builder.reuse_port(true) {
+                    Ok(b) => { builder = b; },
+                    Err(e) => {
+                        multi_listener_error = Some(format!("SO_REUSEPORT failed: {e}"));
+                        break;
+                    }
+                }
             }
-            v
-        };
+            builder = match builder.backlog(65535) {
+                Ok(b) => b,
+                Err(e) => {
+                    multi_listener_error = Some(format!("SocketBuilder backlog failed: {e}"));
+                    break;
+                }
+            };
+            let listener = match builder.tcp_listener() {
+                Ok(l) => l,
+                Err(e) => {
+                    multi_listener_error = Some(format!("TcpListener creation failed: {e}"));
+                    break;
+                }
+            };
+            let std_listener = match listener.as_std().try_clone() {
+                Ok(sl) => sl,
+                Err(e) => {
+                    multi_listener_error = Some(format!("Failed to clone std TcpListener: {e}"));
+                    break;
+                }
+            };
+            std_listener.set_nonblocking(true).ok();
+            let tokio_listener = match tokio::net::TcpListener::from_std(std_listener) {
+                Ok(tl) => tl,
+                Err(e) => {
+                    multi_listener_error = Some(format!("Tokio listener creation failed: {e}"));
+                    break;
+                }
+            };
+            listeners.push(tokio_listener);
+            trace!("✅ Listener {} bound on {}", i, self.config.bind_address);
+        }
+
+        // If any error occurred, fall back to single listener
+        if multi_listener_error.is_some() {
+            warn!("Multi-listener creation failed: {}. Falling back to single listener with many acceptors.", multi_listener_error.unwrap());
+            listeners.clear();
+            let mut builder = SocketBuilder::new()
+                .bind(self.config.bind_address.to_string())
+                .map_err(|e| ServerError::Network(format!("SocketBuilder bind failed: {e}")))?;
+            builder = builder.backlog(65535)
+                .map_err(|e| ServerError::Network(format!("SocketBuilder backlog failed: {e}")))?;
+            let listener = builder.tcp_listener()
+                .map_err(|e| ServerError::Network(format!("TcpListener creation failed: {e}")))?;
+            let std_listener = listener.as_std().try_clone()
+                .map_err(|e| ServerError::Network(format!("Failed to clone std TcpListener: {e}")))?;
+            std_listener.set_nonblocking(true).ok();
+            let tokio_listener = tokio::net::TcpListener::from_std(std_listener)
+                .map_err(|e| ServerError::Network(format!("Tokio listener creation failed: {e}")))?;
+            listeners.push(tokio_listener);
+            info!("Fallback: Single listener bound on {}", self.config.bind_address);
+        }
 
         // Main server accept loops
         let mut shutdown_receiver = self.shutdown_sender.subscribe();
