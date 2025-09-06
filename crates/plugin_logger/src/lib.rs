@@ -1,8 +1,7 @@
 use async_trait::async_trait;
 use horizon_event_system::{
-    create_simple_plugin, current_timestamp,
-    EventSystem, LogLevel, PlayerId, PluginError,
-    Position, ServerContext, SimplePlugin, ClientEventWrapper, PlayerMovementEvent
+    create_simple_plugin, current_timestamp, ClientEventWrapper, EventSystem, LogLevel, PlayerId,
+    PlayerMovementEvent, PluginError, Position, ServerContext, SimplePlugin,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -29,7 +28,6 @@ pub struct PlayerJumpEvent {
     pub height: f32,
     pub position: Position,
 }
-
 
 /// A simple logger plugin that tracks and logs various server activities
 pub struct LoggerPlugin {
@@ -87,46 +85,58 @@ impl SimplePlugin for LoggerPlugin {
 
         let context_clone = context.clone();
         events
-            .on_core("player_connected", move |event: horizon_event_system::PlayerConnectedEvent| {
-                context_clone.log(
-                    LogLevel::Info,
-                    format!(
-                        "📝 LoggerPlugin: 🟢 CONNECTION - Player {} joined from {}",
-                        event.player_id, event.remote_addr
-                    )
-                    .as_str(),
-                );
-                Ok(())
-            })
+            .on_core(
+                "player_connected",
+                move |event: horizon_event_system::PlayerConnectedEvent| {
+                    context_clone.log(
+                        LogLevel::Info,
+                        format!(
+                            "📝 LoggerPlugin: 🟢 CONNECTION - Player {} joined from {}",
+                            event.player_id, event.remote_addr
+                        )
+                        .as_str(),
+                    );
+                    Ok(())
+                },
+            )
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         let context_clone = context.clone();
         events
-            .on_core("player_disconnected", move |event: horizon_event_system::PlayerDisconnectedEvent| {
-                context_clone.log(
-                    LogLevel::Info,
-                    format!(
+            .on_core(
+                "player_disconnected",
+                move |event: horizon_event_system::PlayerDisconnectedEvent| {
+                    context_clone.log(
+                        LogLevel::Info,
+                        format!(
                         "📝 LoggerPlugin: 🔴 DISCONNECTION - Player {} left server (reason: {:?})",
                         event.player_id, event.reason
                     )
-                    .as_str(),
-                );
-                Ok(())
-            })
+                        .as_str(),
+                    );
+                    Ok(())
+                },
+            )
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         let context_clone = context.clone();
         events
-            .on_core("plugin_loaded", move |event: horizon_event_system::PluginLoadedEvent| {
-                context_clone.log(
-                    LogLevel::Info,
-                    format!("📝 LoggerPlugin: 🔌 PLUGIN LOADED - {} v{} with capabilities: {:?}", 
-                        event.plugin_name, event.version, event.capabilities).as_str(),
-                );
-                Ok(())
-            })
+            .on_core(
+                "plugin_loaded",
+                move |event: horizon_event_system::PluginLoadedEvent| {
+                    context_clone.log(
+                        LogLevel::Info,
+                        format!(
+                            "📝 LoggerPlugin: 🔌 PLUGIN LOADED - {} v{} with capabilities: {:?}",
+                            event.plugin_name, event.version, event.capabilities
+                        )
+                        .as_str(),
+                    );
+                    Ok(())
+                },
+            )
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
@@ -139,13 +149,19 @@ impl SimplePlugin for LoggerPlugin {
                 move |wrapper: ClientEventWrapper<PlayerChatEvent>, connection| {
                     context_clone.log(
                         LogLevel::Info,
-                        format!("📝 LoggerPlugin: 📢 CHAT - Got typed wrapper for player: {}", wrapper.player_id).as_str(),
+                        format!(
+                            "📝 LoggerPlugin: 📢 CHAT - Got typed wrapper for player: {}",
+                            wrapper.player_id
+                        )
+                        .as_str(),
                     );
                     context_clone.log(
                         LogLevel::Info,
                         format!(
                             "📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'",
-                            wrapper.data.data.player_id, wrapper.data.data.channel, wrapper.data.data.message
+                            wrapper.data.data.player_id,
+                            wrapper.data.data.channel,
+                            wrapper.data.data.message
                         )
                         .as_str(),
                     );
@@ -174,53 +190,65 @@ impl SimplePlugin for LoggerPlugin {
         let context_clone = context.clone();
         let events_clone = events.clone();
         events
-            .on_client_with_connection("movement", "update_position", move |wrapper: ClientEventWrapper<serde_json::Value>, _connection| {
-                context_clone.log(
-                    LogLevel::Info,
-                    format!("📝 LoggerPlugin: 🦘 Client movement from player {}", wrapper.player_id).as_str(),
-                );
-                
-                // Parse the movement data
-                #[derive(serde::Deserialize)]
-                struct PlayerMovementData {
-                    position: ue_types::types::Transform,
-                }
-                
-                match serde_json::from_value::<PlayerMovementData>(wrapper.data.clone()) {
-                    Ok(movement_data) => {
-                        // Convert Transform to Vec3 for core event
-                        let new_position = horizon_event_system::Vec3 {
-                            x: movement_data.position.location.x,
-                            y: movement_data.position.location.y,
-                            z: movement_data.position.location.z,
-                        };
-                        
-                        // Create and emit core movement event for GORC and other systems
-                        let core_movement_event = PlayerMovementEvent {
-                            player_id: wrapper.player_id,
-                            old_position: None,
-                            new_position,
-                            timestamp: current_timestamp(),
-                        };
-                        
-                        let events_system = events_clone.clone();
-                        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                            handle.block_on(async move {
-                                if let Err(_e) = events_system.emit_core("player_movement", &core_movement_event).await {
-                                    // Best effort - don't fail if core event emission fails
-                                }
-                            });
+            .on_client_with_connection(
+                "movement",
+                "update_position",
+                move |wrapper: ClientEventWrapper<serde_json::Value>, _connection| {
+                    context_clone.log(
+                        LogLevel::Info,
+                        format!(
+                            "📝 LoggerPlugin: 🦘 Client movement from player {}",
+                            wrapper.player_id
+                        )
+                        .as_str(),
+                    );
+
+                    // Parse the movement data
+                    #[derive(serde::Deserialize)]
+                    struct PlayerMovementData {
+                        position: ue_types::types::Transform,
+                    }
+
+                    match serde_json::from_value::<PlayerMovementData>(wrapper.data.clone()) {
+                        Ok(movement_data) => {
+                            // Convert Transform to Vec3 for core event
+                            let new_position = horizon_event_system::Vec3 {
+                                x: movement_data.position.location.x,
+                                y: movement_data.position.location.y,
+                                z: movement_data.position.location.z,
+                            };
+
+                            // Create and emit core movement event for GORC and other systems
+                            let core_movement_event = PlayerMovementEvent {
+                                player_id: wrapper.player_id,
+                                old_position: None,
+                                new_position,
+                                timestamp: current_timestamp(),
+                            };
+
+                            let events_system = events_clone.clone();
+                            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                                handle.block_on(async move {
+                                    if let Err(_e) = events_system
+                                        .emit_core("player_movement", &core_movement_event)
+                                        .await
+                                    {
+                                        // Best effort - don't fail if core event emission fails
+                                    }
+                                });
+                            }
+                        }
+                        Err(e) => {
+                            context_clone.log(
+                                LogLevel::Error,
+                                format!("📝 LoggerPlugin: Failed to parse movement: {}", e)
+                                    .as_str(),
+                            );
                         }
                     }
-                    Err(e) => {
-                        context_clone.log(
-                            LogLevel::Error,
-                            format!("📝 LoggerPlugin: Failed to parse movement: {}", e).as_str(),
-                        );
-                    }
-                }
-                Ok(())
-            })
+                    Ok(())
+                },
+            )
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
