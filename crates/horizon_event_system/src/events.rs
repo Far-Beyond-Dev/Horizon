@@ -510,6 +510,42 @@ pub struct AuthenticationStatusChangedEvent {
     pub timestamp: u64,
 }
 
+/// Event emitted when a player's position is updated.
+/// 
+/// This is a core server event that standardizes player movement data across all systems.
+/// Plugins should emit this event after parsing client movement data, and core systems 
+/// like GORC can subscribe to receive standardized position updates.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use horizon_event_system::{PlayerMovementEvent, Vec3, PlayerId, current_timestamp};
+/// 
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// #     let events = horizon_event_system::create_horizon_event_system();
+/// #     let player_id = PlayerId::new();
+/// events.emit_core("player_movement", &PlayerMovementEvent {
+///     player_id,
+///     old_position: Some(Vec3::new(100.0, 0.0, 200.0)),
+///     new_position: Vec3::new(110.0, 0.0, 205.0),
+///     timestamp: current_timestamp(),
+/// }).await?;
+/// #     Ok(())
+/// # }
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerMovementEvent {
+    /// Unique identifier for the player
+    pub player_id: PlayerId,
+    /// Previous position (if known)
+    pub old_position: Option<crate::types::Vec3>,
+    /// New position 
+    pub new_position: crate::types::Vec3,
+    /// Unix timestamp when the movement occurred
+    pub timestamp: u64,
+}
+
 /// Event emitted when a plugin is successfully loaded.
 /// 
 /// This event signals that a plugin has been loaded into the server and

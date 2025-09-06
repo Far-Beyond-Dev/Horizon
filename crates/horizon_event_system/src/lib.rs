@@ -175,8 +175,8 @@ pub use types::*;
 pub use events::{
     Event, EventError, EventHandler, GorcEvent,
     PlayerConnectedEvent, PlayerDisconnectedEvent,
-    RawClientMessageEvent, RegionStartedEvent,
-    RegionStoppedEvent, TypedEventHandler,
+    PlayerMovementEvent, RawClientMessageEvent, 
+    RegionStartedEvent, RegionStoppedEvent, TypedEventHandler,
     PluginLoadedEvent, PluginUnloadedEvent,
     AuthenticationStatusGetResponseEvent,
     AuthenticationStatusChangedEvent,

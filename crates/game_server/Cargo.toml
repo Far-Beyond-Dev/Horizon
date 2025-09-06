@@ -20,3 +20,4 @@ tokio = { workspace = true }
 serde = { workspace = true }
 libc = { workspace = true }
 bug = { workspace = true }
+ue_types = { workspace = true }

@@ -393,6 +393,31 @@ impl GorcInstanceManager {
         }
     }
 
+    /// Sets up core event listeners for automatic player position updates
+    /// 
+    /// This registers GORC to listen for core movement events and automatically
+    /// update player positions in the replication system.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `event_system` - The event system to register listeners with
+    pub async fn setup_core_listeners(self: std::sync::Arc<Self>, event_system: std::sync::Arc<crate::system::EventSystem>) -> Result<(), crate::events::EventError> {
+        use crate::events::PlayerMovementEvent;
+        
+        let instance_manager = self.clone();
+        event_system
+            .on_core("player_movement", move |event: PlayerMovementEvent| {
+                let manager_clone = instance_manager.clone();
+                tokio::spawn(async move {
+                    manager_clone.update_player_position(event.player_id, event.new_position).await;
+                });
+                Ok(())
+            })
+            .await?;
+            
+        Ok(())
+    }
+
     /// Remove a player from all subscriptions
     pub async fn remove_player(&self, player_id: PlayerId) {
         {

@@ -147,6 +147,31 @@ impl CompleteGorcSystem {
         utils::create_performance_report(self).await
     }
     
+    /// Sets up core event listeners for GORC integration.
+    /// 
+    /// This registers GORC to listen for core movement events and automatically
+    /// update player positions in the replication system.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `event_system` - The event system to register listeners with
+    pub async fn setup_core_listeners(&self, event_system: std::sync::Arc<crate::system::EventSystem>) -> Result<(), crate::events::EventError> {
+        use crate::events::PlayerMovementEvent;
+        
+        let coordinator = self.coordinator.clone();
+        event_system
+            .on_core("player_movement", move |event: PlayerMovementEvent| {
+                let coordinator_clone = coordinator.clone();
+                tokio::spawn(async move {
+                    coordinator_clone.update_player_position(event.player_id, event.new_position).await;
+                });
+                Ok(())
+            })
+            .await?;
+            
+        Ok(())
+    }
+    
     /// Performs a quick health check.
     /// 
     /// # Returns
