@@ -194,14 +194,7 @@ impl SimplePlugin for LoggerPlugin {
                 "movement",
                 "update_position",
                 move |wrapper: ClientEventWrapper<serde_json::Value>, _connection| {
-                    context_clone.log(
-                        LogLevel::Info,
-                        format!(
-                            "📝 LoggerPlugin: 🦘 Client movement from player {}",
-                            wrapper.player_id
-                        )
-                        .as_str(),
-                    );
+                    context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 🦘 Client movement from player {}", wrapper.player_id).as_str(),);
 
                     // Parse the movement data
                     #[derive(serde::Deserialize)]
