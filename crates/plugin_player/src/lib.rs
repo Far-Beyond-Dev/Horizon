@@ -84,33 +84,53 @@ impl SimplePlugin for PlayerPlugin {
         "1.0.0"
     }
 
-    async fn register_handlers(&mut self, events: Arc<EventSystem>, _context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+    async fn register_handlers(&mut self, events: Arc<EventSystem>, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
         tracing::info!("🎮 PlayerPlugin: Registering direct GORC instance handlers...");
+
+        let tokio_handle = context.tokio_handle();
 
         // Create self-reference for handlers 
         let players = Arc::clone(&self.players);
         let players_conn = Arc::clone(&self.players);
         let players_disc = Arc::clone(&self.players);
 
+        let tokio_handle_clone = tokio_handle.clone();
+
         // Register core events for player lifecycle
+        let events_for_player = Arc::clone(&events);
         events.on_core("player_connected", move |event: PlayerConnectedEvent| {
             let players = Arc::clone(&players_conn);
-            tokio::spawn(async move {
+            let events_clone = Arc::clone(&events_for_player);
+            tokio_handle_clone.block_on(async move {
                 let spawn_position = Vec3::new(0.0, 0.0, 0.0);
-                let gorc_id = GorcObjectId::new();
-                players.insert(event.player_id, gorc_id);
                 
-                tracing::info!(
-                    "🎮 GORC: Player {} connected and registered with ID {:?}",
-                    event.player_id, gorc_id
-                );
+                // Create GORC player object
+                let player = GorcPlayer::new(event.player_id, format!("Player_{}", event.player_id), spawn_position);
+                
+                // Register with GORC system if available
+                if let Some(gorc_instances) = events_clone.get_gorc_instances() {
+                    let gorc_id = gorc_instances.register_object(player, spawn_position).await;
+                    
+                    // Also add player to GORC position tracking
+                    gorc_instances.add_player(event.player_id, spawn_position).await;
+                    
+                    players.insert(event.player_id, gorc_id);
+                    
+                    tracing::info!(
+                        "🎮 GORC: Player {} connected and registered with GORC ID {:?}",
+                        event.player_id, gorc_id
+                    );
+                } else {
+                    tracing::warn!("🎮 GORC: No GORC instances manager available for player {}", event.player_id);
+                }
             });
             Ok(())
         }).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
+        let tokio_handle_clone = tokio_handle.clone();
         events.on_core("player_disconnected", move |event: PlayerDisconnectedEvent| {
             let players = Arc::clone(&players_disc);
-            tokio::spawn(async move {
+            tokio_handle_clone.block_on(async move {
                 if let Some((_, gorc_id)) = players.remove(&event.player_id) {
                     tracing::info!(
                         "🎮 GORC: Player {} disconnected and unregistered (ID {:?})",
@@ -128,8 +148,21 @@ impl SimplePlugin for PlayerPlugin {
         // No client event bridging needed - GORC processes everything
 
         // Channel 0 (Critical): Movement and health - 25m range, 60Hz
+        let events_clone = Arc::clone(&events);
+
+        let tokio_handle_clone = tokio_handle.clone();
         events.on_gorc_instance("GorcPlayer", 0, "move", 
-            |gorc_event: GorcEvent, instance: &mut ObjectInstance| {
+            move |gorc_event: GorcEvent, instance: &mut ObjectInstance| {
+
+                // Emit move event to trigger GORC's automatic replication
+                let instance_id = instance.object_id;
+
+                if let Err(e) = tokio_handle_clone.block_on(events_clone.emit_gorc_instance(instance_id, 0, "position_update", &gorc_event)) {
+                    tracing::warn!("🌐 GORC Direct: Failed to emit move event to instance {:?}: {}", instance_id, e);
+                }
+
+                tracing::debug!("🌐 GORC Direct: Emitting move event to instance {:?}", instance_id);
+
                 if let Some(player) = instance.get_object_mut::<GorcPlayer>() {
                     if let Ok(move_data) = serde_json::from_slice::<PlayerMoveRequest>(&gorc_event.data) {
                         // Server-side validation and update
@@ -159,23 +192,28 @@ impl SimplePlugin for PlayerPlugin {
             }
         ).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        // Channel 1 (Detailed): Combat and equipment - 100m range, 30Hz  
+        // Channel 1 (Detailed): Combat and equipment - 100m range, 30Hz
+        let events_clone_attack = Arc::clone(&events);
+        let tokio_handle_attack = tokio_handle.clone();
         events.on_gorc_instance("GorcPlayer", 1, "attack",
-            |gorc_event: GorcEvent, instance: &mut ObjectInstance| {
+            move |gorc_event: GorcEvent, instance: &mut ObjectInstance| {
+                let events_clone = Arc::clone(&events_clone_attack);
+                let tokio_handle = tokio_handle_attack.clone();
+                
                 if let Some(player) = instance.get_object_mut::<GorcPlayer>() {
                     if let Ok(attack_data) = serde_json::from_slice::<PlayerAttackRequest>(&gorc_event.data) {
                         // Process attack server-side
                         if let Ok(damage) = player.perform_attack(attack_data.target_position) {
                             tracing::info!(
-                                "🌐 GORC Direct: Player {} attacked dealing {} damage - auto-replicating to detailed zone (100m)",
+                                "🌐 GORC Direct: Player {} attacked dealing {} damage",
                                 attack_data.player_id, damage
                             );
 
-                            // GORC detects the combat state change and automatically:
-                            // 1. Finds all clients within 100m
-                            // 2. Creates LZ4-compressed combat updates
-                            // 3. Sends at 30Hz to each relevant client
-                            // 4. Clients receive attack animations and damage
+                            // Emit combat event to other players within 100m
+                            let instance_id = instance.object_id;
+                            if let Err(e) = tokio_handle.block_on(events_clone.emit_gorc_instance(instance_id, 1, "combat_event", &gorc_event)) {
+                                tracing::warn!("🌐 GORC: Failed to emit combat event: {}", e);
+                            }
                         }
                     }
                 }
@@ -184,8 +222,13 @@ impl SimplePlugin for PlayerPlugin {
         ).await.map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         // Channel 2 (Social): Chat and emotes - 200m range, 15Hz
+        let events_clone_chat = Arc::clone(&events);
+        let tokio_handle_chat = tokio_handle.clone();
         events.on_gorc_instance("GorcPlayer", 2, "chat",
-            |gorc_event: GorcEvent, instance: &mut ObjectInstance| {
+            move |gorc_event: GorcEvent, instance: &mut ObjectInstance| {
+                let events_clone = Arc::clone(&events_clone_chat);
+                let tokio_handle = tokio_handle_chat.clone();
+                
                 if let Some(player) = instance.get_object_mut::<GorcPlayer>() {
                     if let Ok(chat_data) = serde_json::from_slice::<PlayerChatRequest>(&gorc_event.data) {
                         // Validate and update chat bubble
@@ -193,15 +236,15 @@ impl SimplePlugin for PlayerPlugin {
                             player.set_chat_bubble(chat_data.message.clone());
                             
                             tracing::info!(
-                                "🌐 GORC Direct: Player {} says '{}' - auto-replicating to social zone (200m)",
+                                "🌐 GORC Direct: Player {} says '{}'",
                                 chat_data.player_id, chat_data.message
                             );
 
-                            // GORC detects the chat bubble update and automatically:
-                            // 1. Finds all clients within 200m (wide range for chat)
-                            // 2. Creates highly-compressed text updates
-                            // 3. Sends at 15Hz to each relevant client
-                            // 4. Clients see chat bubbles appear and fade naturally
+                            // Emit chat message to other players within 200m
+                            let instance_id = instance.object_id;
+                            if let Err(e) = tokio_handle.block_on(events_clone.emit_gorc_instance(instance_id, 2, "chat_message", &gorc_event)) {
+                                tracing::warn!("🌐 GORC: Failed to emit chat event: {}", e);
+                            }
                         }
                     }
                 }

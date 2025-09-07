@@ -59,6 +59,12 @@ pub mod utils;
 pub mod examples;
 pub mod migration_guide;
 
+// Test modules
+#[cfg(test)]
+pub mod replication_test;
+#[cfg(test)]
+pub mod integration_test;
+
 // Re-export core types for use elsewhere in the core and for use in plugins
 pub use channels::{
     ReplicationChannel, ReplicationLayer, ReplicationLayers, ReplicationPriority, 

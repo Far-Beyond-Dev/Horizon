@@ -379,18 +379,45 @@ impl GorcInstanceManager {
         }
     }
 
-    /// Update a player's position and recalculate their subscriptions
-    pub async fn update_player_position(&self, player_id: PlayerId, new_position: Vec3) {
+    /// Update a player's position and return zone membership changes
+    pub async fn update_player_position(&self, player_id: PlayerId, new_position: Vec3) -> (Vec<(GorcObjectId, u8)>, Vec<(GorcObjectId, u8)>) {
+        let mut zone_entries = Vec::new();
+        let mut zone_exits = Vec::new();
+        
+        // Get old position and update to new position
         let old_position = {
             let mut player_positions = self.player_positions.write().await;
-            player_positions.insert(player_id, new_position)
+            let old_pos = player_positions.get(&player_id).copied();
+            player_positions.insert(player_id, new_position);
+            old_pos
         };
+
+        // Check all objects for zone membership changes
+        let objects = self.objects.read().await;
+        for (object_id, instance) in objects.iter() {
+            let layers = instance.object.get_layers();
+            
+            for layer in layers {
+                let object_position = instance.object.position();
+                let distance_to_object = new_position.distance(object_position);
+                let was_in_zone = old_position.map_or(false, |pos| pos.distance(object_position) <= layer.radius);
+                let is_in_zone = distance_to_object <= layer.radius;
+                
+                match (was_in_zone, is_in_zone) {
+                    (false, true) => zone_entries.push((*object_id, layer.channel)),
+                    (true, false) => zone_exits.push((*object_id, layer.channel)),
+                    _ => {} // No change
+                }
+            }
+        }
 
         // If this is a new player or they moved significantly, recalculate subscriptions
         if old_position.is_none() || 
            old_position.map(|old| old.distance(new_position) > 5.0).unwrap_or(true) {
             self.recalculate_player_subscriptions(player_id, new_position).await;
         }
+        
+        (zone_entries, zone_exits)
     }
 
     /// Sets up core event listeners for automatic player position updates
@@ -418,6 +445,16 @@ impl GorcInstanceManager {
         Ok(())
     }
 
+    /// Add a player to the position tracking system
+    pub async fn add_player(&self, player_id: PlayerId, position: Vec3) {
+        let mut player_positions = self.player_positions.write().await;
+        player_positions.insert(player_id, position);
+        
+        // Update statistics
+        let mut stats = self.stats.write().await;
+        stats.total_subscriptions += 1;
+    }
+    
     /// Remove a player from all subscriptions
     pub async fn remove_player(&self, player_id: PlayerId) {
         {
@@ -458,6 +495,32 @@ impl GorcInstanceManager {
             .filter(|(_, &obj_pos)| obj_pos.distance(position) <= range)
             .map(|(&obj_id, _)| obj_id)
             .collect()
+    }
+    
+    /// Find all players within radius of a position (for event-driven GORC emission)
+    pub async fn find_players_in_radius(&self, position: Vec3, radius: f64) -> Vec<PlayerId> {
+        let player_positions = self.player_positions.read().await;
+        player_positions
+            .iter()
+            .filter(|(_, &player_pos)| player_pos.distance(position) <= radius)
+            .map(|(&player_id, _)| player_id)
+            .collect()
+    }
+    
+    
+    /// Get current object state for a specific layer/channel
+    pub async fn get_object_state_for_layer(&self, object_id: GorcObjectId, channel: u8) -> Option<Vec<u8>> {
+        let objects = self.objects.read().await;
+        if let Some(instance) = objects.get(&object_id) {
+            let layers = instance.object.get_layers();
+            if let Some(layer) = layers.iter().find(|l| l.channel == channel) {
+                // Serialize only the properties defined for this layer
+                if let Ok(data) = instance.object.serialize_for_layer(layer) {
+                    return Some(data);
+                }
+            }
+        }
+        None
     }
 
     /// Check if a player should be subscribed to an object on a specific channel

@@ -87,6 +87,11 @@ impl EventSystem {
     pub async fn get_stats(&self) -> EventSystemStats {
         self.stats.read().await.clone()
     }
+    
+    /// Gets access to the GORC instances manager (if available)
+    pub fn get_gorc_instances(&self) -> Option<Arc<crate::gorc::instance::GorcInstanceManager>> {
+        self.gorc_instances.clone()
+    }
 }
 
 impl Default for EventSystem {

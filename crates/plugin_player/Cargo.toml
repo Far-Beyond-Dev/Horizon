@@ -5,7 +5,7 @@ edition = "2021"
 description = "Production-ready player management plugin with GORC integration"
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 horizon_event_system = { path = "../horizon_event_system" }
