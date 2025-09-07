@@ -108,8 +108,13 @@ pub mod health;
 
 // Internal modules (not part of public API)
 mod connection;
-mod messaging;
 mod tests;
+
+// Enhanced communication system
+pub mod communication;
+
+// Public messaging API for integration
+pub mod messaging;
 
 // Authentication integration tests
 #[cfg(test)]
