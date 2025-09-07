@@ -57,6 +57,7 @@ pub mod system;
 pub mod defaults;
 pub mod utils;
 pub mod examples;
+pub mod migration_guide;
 
 // Re-export core types for use elsewhere in the core and for use in plugins
 pub use channels::{

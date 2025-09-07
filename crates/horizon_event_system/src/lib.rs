@@ -224,7 +224,7 @@ pub use gorc::{
     CompleteGorcSystem, GorcPerformanceReport, MineralType,
     
     // Example implementations
-    examples::{ExampleAsteroid, ExamplePlayer},
+    examples::{ExampleAsteroid, ExamplePlayer, ExampleProjectile, TypedAsteroid, TypedPlayer, TypedProjectile},
     
     // Utility functions
     defaults,
