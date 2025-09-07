@@ -211,7 +211,7 @@ impl IntegrationTestScenario {
         };
         
         // Emit to channel 0 (critical)
-        self.event_system.emit_gorc_instance(self.object_id, 0, "move", &move_event).await?;
+        self.event_system.emit_gorc_instance(self.object_id, 0, "move", &move_event, crate::Dest::Both).await?;
         
         // Give time for async processing
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
@@ -242,7 +242,7 @@ impl IntegrationTestScenario {
         self.clear_messages();
         
         // Emit to channel 1 (detailed)
-        self.event_system.emit_gorc_instance(self.object_id, 1, "health_update", &health_event).await?;
+        self.event_system.emit_gorc_instance(self.object_id, 1, "health_update", &health_event, crate::Dest::Both).await?;
         
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         
@@ -270,7 +270,7 @@ impl IntegrationTestScenario {
         self.clear_messages();
         
         // Emit to channel 2 (social)
-        self.event_system.emit_gorc_instance(self.object_id, 2, "chat", &social_event).await?;
+        self.event_system.emit_gorc_instance(self.object_id, 2, "chat", &social_event, crate::Dest::Both).await?;
         
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         
@@ -298,7 +298,7 @@ impl IntegrationTestScenario {
         self.clear_messages();
         
         // Emit to channel 3 (metadata)
-        self.event_system.emit_gorc_instance(self.object_id, 3, "level_up", &meta_event).await?;
+        self.event_system.emit_gorc_instance(self.object_id, 3, "level_up", &meta_event, crate::Dest::Both).await?;
         
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
         

@@ -279,8 +279,12 @@ async fn simulate_player(
             msg = ws_receiver.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
+                        // DEBUG: Log ALL incoming messages
+                        info!("🔍 Player {} received RAW message: {}", player_id, text);
+                        
                         if let Ok(server_event) = serde_json::from_str::<ServerEvent>(&text) {
                             received_events += 1;
+                            info!("✅ Player {} parsed valid ServerEvent: {:?}", player_id, server_event);
                             
                             // Log different types of received events
                             match server_event.event_type.as_str() {

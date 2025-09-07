@@ -178,7 +178,7 @@ pub use shutdown::ShutdownState;
 pub use types::*;
 
 pub use events::{
-    Event, EventError, EventHandler, GorcEvent,
+    Event, EventError, EventHandler, GorcEvent, Dest,
     PlayerConnectedEvent, PlayerDisconnectedEvent,
     PlayerMovementEvent, RawClientMessageEvent, 
     RegionStartedEvent, RegionStoppedEvent, TypedEventHandler,

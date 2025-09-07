@@ -762,6 +762,25 @@ pub struct GorcEvent {
     pub timestamp: u64,
 }
 
+/// Destination enum for GORC event emission
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Dest {
+    /// Only trigger client-side replication (send to subscribed clients)
+    Client,
+    /// Only trigger server-side handlers (process on server)
+    Server,
+    /// Trigger both client replication and server handlers
+    Both,
+    /// Do nothing (useful for conditional logic)
+    None,
+}
+
+impl Default for Dest {
+    fn default() -> Self {
+        Dest::Both
+    }
+}
+
 // ============================================================================
 // Client Event Wrapper Types
 // ============================================================================

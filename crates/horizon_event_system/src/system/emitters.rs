@@ -125,31 +125,43 @@ impl EventSystem {
         channel: u8,
         event_name: &str,
         event: &T,
+        dest: crate::events::Dest,
     ) -> Result<(), EventError>
     where
         T: Event + serde::Serialize,
     {
-        // First, get the object instance to determine its type and position
+        use crate::events::Dest;
+        
+        // Handle None destination early
+        if dest == Dest::None {
+            return Ok(());
+        }
+        
+        // Get the object instance to determine its type and position
         if let Some(ref gorc_instances) = self.gorc_instances {
             if let Some(instance) = gorc_instances.get_object(object_id).await {
                 let object_type = &instance.type_name;
                 
-                // 1. Emit to server-side handlers (existing behavior)
-                let instance_key = CompactString::new_inline("gorc_instance:") + object_type + ":" + &channel.to_string() + ":" + event_name;
-                let general_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
-                
-                // Emit to instance-specific handlers first
-                if let Err(e) = self.emit_event(&instance_key, event).await {
-                    warn!("Failed to emit instance event: {}", e);
+                // Handle Server or Both destinations - emit to server-side handlers
+                if dest == Dest::Server || dest == Dest::Both {
+                    let instance_key = CompactString::new_inline("gorc_instance:") + object_type + ":" + &channel.to_string() + ":" + event_name;
+                    let general_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
+                    
+                    // Emit to instance-specific handlers first
+                    if let Err(e) = self.emit_event(&instance_key, event).await {
+                        warn!("Failed to emit instance event: {}", e);
+                    }
+                    
+                    // Emit to general handlers for backward compatibility
+                    if let Err(e) = self.emit_event(&general_key, event).await {
+                        warn!("Failed to emit general event: {}", e);
+                    }
                 }
                 
-                // Emit to general handlers for backward compatibility
-                if let Err(e) = self.emit_event(&general_key, event).await {
-                    warn!("Failed to emit general event: {}", e);
+                // Handle Client or Both destinations - emit to subscribed clients
+                if dest == Dest::Client || dest == Dest::Both {
+                    self.emit_to_gorc_subscribers(object_id, channel, event_name, event).await?;
                 }
-                
-                // 2. NEW: Direct client emission via GORC channels
-                self.emit_to_gorc_subscribers(object_id, channel, event_name, event).await?;
                 
                 Ok(())
             } else {
@@ -315,6 +327,35 @@ impl EventSystem {
     {
         let event_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
         self.emit_event(&event_key, event).await
+    }
+
+    /// Routes a client message to GORC instance handlers for a specific player.
+    /// 
+    /// This method is designed for the message router to handle client messages
+    /// that should trigger server-side GORC instance handlers. It finds the player's
+    /// GORC object and emits to server handlers only.
+    pub async fn route_client_message_to_gorc<T>(
+        &self,
+        player_id: crate::PlayerId,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        event: &T,
+    ) -> Result<(), EventError>
+    where
+        T: Event + serde::Serialize,
+    {
+        // Find the player's GORC object ID
+        if let Some(gorc_instances) = &self.gorc_instances {
+            if let Some(object_id) = gorc_instances.find_player_object(player_id).await {
+                // Route to server-side handlers only (client message was already processed)
+                return self.emit_gorc_instance(object_id, channel, event_name, event, crate::events::Dest::Server).await;
+            }
+        }
+        
+        // If no GORC object found for this player, that's expected for some cases
+        tracing::debug!("No GORC object found for player {} (type: {})", player_id, object_type);
+        Ok(())
     }
 
     /// Broadcasts an event to all connected clients.

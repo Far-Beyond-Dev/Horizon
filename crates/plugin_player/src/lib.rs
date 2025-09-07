@@ -157,7 +157,7 @@ impl SimplePlugin for PlayerPlugin {
                 // Emit move event to trigger GORC's automatic replication
                 let instance_id = instance.object_id;
 
-                if let Err(e) = tokio_handle_clone.block_on(events_clone.emit_gorc_instance(instance_id, 0, "position_update", &gorc_event)) {
+                if let Err(e) = tokio_handle_clone.block_on(events_clone.emit_gorc_instance(instance_id, 0, "position_update", &gorc_event, horizon_event_system::Dest::Client)) {
                     tracing::warn!("🌐 GORC Direct: Failed to emit move event to instance {:?}: {}", instance_id, e);
                 }
 
@@ -211,7 +211,7 @@ impl SimplePlugin for PlayerPlugin {
 
                             // Emit combat event to other players within 100m
                             let instance_id = instance.object_id;
-                            if let Err(e) = tokio_handle.block_on(events_clone.emit_gorc_instance(instance_id, 1, "combat_event", &gorc_event)) {
+                            if let Err(e) = tokio_handle.block_on(events_clone.emit_gorc_instance(instance_id, 1, "combat_event", &gorc_event, horizon_event_system::Dest::Client)) {
                                 tracing::warn!("🌐 GORC: Failed to emit combat event: {}", e);
                             }
                         }
@@ -242,7 +242,7 @@ impl SimplePlugin for PlayerPlugin {
 
                             // Emit chat message to other players within 200m
                             let instance_id = instance.object_id;
-                            if let Err(e) = tokio_handle.block_on(events_clone.emit_gorc_instance(instance_id, 2, "chat_message", &gorc_event)) {
+                            if let Err(e) = tokio_handle.block_on(events_clone.emit_gorc_instance(instance_id, 2, "chat_message", &gorc_event, horizon_event_system::Dest::Client)) {
                                 tracing::warn!("🌐 GORC: Failed to emit chat event: {}", e);
                             }
                         }

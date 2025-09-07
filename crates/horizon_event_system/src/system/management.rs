@@ -62,7 +62,7 @@ impl EventSystem {
             
             if !subscribers.is_empty() {
                 // Emit the event to handlers
-                self.emit_gorc_instance(object_id, channel, event_name, event).await?;
+                self.emit_gorc_instance(object_id, channel, event_name, event, crate::events::Dest::Both).await?;
                 
                 // Send the serialized event directly to the network layer for subscribers
                 if let Some(ref client_sender) = self.client_response_sender {

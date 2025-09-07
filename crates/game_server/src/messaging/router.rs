@@ -190,10 +190,10 @@ async fn route_to_gorc_handlers(
         timestamp: current_timestamp(),
     };
     
-    // Try to emit as a GORC event using the extracted object type
-    match horizon_event_system.emit_gorc(&object_type, channel, event_name, &gorc_event).await {
+    // Try to route the client message to GORC instance handlers
+    match horizon_event_system.route_client_message_to_gorc(player_id, &object_type, channel, event_name, &gorc_event).await {
         Ok(()) => {
-            debug!("✅ Successfully routed message to GORC handlers: {}:{}:{}", object_type, channel, event_name);
+            debug!("✅ Successfully routed client message to GORC handlers: {}:{}:{}", object_type, channel, event_name);
         }
         Err(e) => {
             // This is expected if no GORC handlers exist for this pattern

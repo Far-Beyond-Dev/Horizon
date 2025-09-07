@@ -487,6 +487,23 @@ impl GorcInstanceManager {
             .unwrap_or_default()
     }
 
+    /// Update an object instance (after handlers have modified it)
+    pub async fn update_object(&self, object_id: GorcObjectId, instance: ObjectInstance) {
+        let mut objects = self.objects.write().await;
+        objects.insert(object_id, instance);
+    }
+
+    /// Find a player's GORC object by player ID (for message routing)
+    /// 
+    /// This is a temporary implementation that assumes the first object of type "GorcPlayer"
+    /// belongs to the requesting player. A more robust implementation would store player->object mappings.
+    pub async fn find_player_object(&self, _player_id: crate::PlayerId) -> Option<GorcObjectId> {
+        // For now, just find the first GorcPlayer object
+        // TODO: Implement proper player ID to object ID mapping
+        let objects_by_type = self.get_objects_by_type("GorcPlayer").await;
+        objects_by_type.into_iter().next()
+    }
+
     /// Get objects within range of a position
     pub async fn get_objects_in_range(&self, position: Vec3, range: f64) -> Vec<GorcObjectId> {
         let spatial_index = self.spatial_index.read().await;
