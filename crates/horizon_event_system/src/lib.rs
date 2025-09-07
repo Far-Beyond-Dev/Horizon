@@ -144,6 +144,10 @@ mod auth_tests;
 #[cfg(test)]
 mod gorc_context_integration_test;
 
+// comprehensive position-based replication tests
+#[cfg(test)]
+mod gorc_position_replication_test;
+
 // Core modules
 pub mod api;
 pub mod async_logging;
@@ -166,6 +170,7 @@ pub mod gorc;
 pub use api::{create_complete_horizon_system, create_simple_horizon_system};
 pub use utils::{create_horizon_event_system, current_timestamp};
 pub use traits::{SimpleGorcObject, SimpleReplicationConfig};
+pub use gorc_macros::{GorcZoneData, __get_default_zone_config}; // Export new type-based system
 pub use monitoring::{HorizonMonitor, HorizonSystemReport};
 pub use context::{LogLevel, ServerContext, ServerError};
 pub use plugin::{Plugin, PluginError, SimplePlugin};
@@ -223,7 +228,7 @@ pub use gorc::{
     CompleteGorcSystem, GorcPerformanceReport, MineralType,
     
     // Example implementations
-    examples::{ExampleAsteroid, ExamplePlayer},
+    examples::{ExampleAsteroid, ExamplePlayer, ExampleProjectile, TypedAsteroid, TypedPlayer, TypedProjectile},
     
     // Utility functions
     defaults,
