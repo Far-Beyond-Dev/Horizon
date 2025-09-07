@@ -144,6 +144,10 @@ mod auth_tests;
 #[cfg(test)]
 mod gorc_context_integration_test;
 
+// comprehensive position-based replication tests
+#[cfg(test)]
+mod gorc_position_replication_test;
+
 // Core modules
 pub mod api;
 pub mod async_logging;
