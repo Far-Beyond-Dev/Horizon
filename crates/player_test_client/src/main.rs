@@ -1,0 +1,496 @@
+//! # GORC Player Test Client
+//!
+//! Simulates realistic player clients connecting to the server and sending
+//! GORC-formatted events to test the complete event chain and zone-based replication.
+
+use clap::Parser;
+use futures::{SinkExt, StreamExt};
+use horizon_event_system::{PlayerId, Vec3, GorcObjectId};
+use plugin_player::events::{PlayerMoveRequest, PlayerAttackRequest, PlayerChatRequest};
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use std::time::Duration;
+use tokio::time::{interval, sleep};
+use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tracing::{info, warn, error};
+
+#[derive(Parser, Debug)]
+#[command(name = "player-simulator")]
+#[command(about = "GORC Player Simulation Client")]
+struct Args {
+    /// Server WebSocket URL
+    #[arg(short, long, default_value = "ws://localhost:8080/ws")]
+    url: String,
+    
+    /// Number of simultaneous players to simulate
+    #[arg(short, long, default_value = "5")]
+    players: u32,
+    
+    /// Movement frequency in Hz
+    #[arg(short, long, default_value = "10.0")]
+    move_freq: f64,
+    
+    /// Chat frequency in messages per minute
+    #[arg(short, long, default_value = "2.0")]
+    chat_freq: f64,
+    
+    /// Attack frequency per minute
+    #[arg(short, long, default_value = "5.0")]
+    attack_freq: f64,
+    
+    /// Simulation duration in seconds
+    #[arg(short, long, default_value = "60")]
+    duration: u64,
+    
+    /// World size (square area)
+    #[arg(short, long, default_value = "1000.0")]
+    world_size: f32,
+}
+
+/// GORC event message format for client-to-server communication
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct GorcClientMessage {
+    /// Type of message
+    #[serde(rename = "type")]
+    msg_type: String,
+    /// Target GORC object ID
+    object_id: String,
+    /// GORC channel (0=critical, 1=detailed, 2=social, 3=metadata)
+    channel: u8,
+    /// Event name within the channel
+    event: String,
+    /// Event payload
+    data: serde_json::Value,
+    /// Player ID sending the event
+    player_id: String,
+}
+
+/// Simulated player client
+#[derive(Debug)]
+struct SimulatedPlayer {
+    player_id: PlayerId,
+    gorc_object_id: GorcObjectId,
+    position: Vec3,
+    velocity: Vec3,
+    last_chat: std::time::Instant,
+    last_attack: std::time::Instant,
+    move_target: Vec3,
+    health: f32,
+    level: u32,
+}
+
+impl SimulatedPlayer {
+    fn new(player_id: PlayerId, spawn_pos: Vec3) -> Self {
+        Self {
+            player_id,
+            gorc_object_id: GorcObjectId::new(),
+            position: spawn_pos,
+            velocity: Vec3::zero(),
+            last_chat: std::time::Instant::now(),
+            last_attack: std::time::Instant::now(),
+            move_target: spawn_pos,
+            health: 100.0,
+            level: 1,
+        }
+    }
+
+    /// Update player position with simple AI movement
+    fn update_movement(&mut self, delta_time: f32, world_size: f32) -> bool {
+        let distance_to_target = self.position.distance(self.move_target);
+        
+        // Pick new random target when close to current target
+        if distance_to_target < 5.0 {
+            let mut rng = rand::thread_rng();
+            self.move_target = Vec3::new(
+                rng.gen_range((-world_size/2.0) as f64..(world_size/2.0) as f64),
+                0.0, // Keep on ground plane
+                rng.gen_range((-world_size/2.0) as f64..(world_size/2.0) as f64),
+            );
+        }
+        
+        // Move towards target
+        let dx = self.move_target.x - self.position.x;
+        let dz = self.move_target.z - self.position.z;
+        let distance = (dx * dx + dz * dz).sqrt();
+        
+        if distance > 0.01 {
+            let direction_x = dx / distance;
+            let direction_z = dz / distance;
+            let speed = 8.0; // meters per second
+            
+            let old_position = self.position;
+            self.velocity = Vec3::new(direction_x * speed, 0.0, direction_z * speed);
+            self.position = Vec3::new(
+                self.position.x + self.velocity.x * delta_time as f64,
+                self.position.y,
+                self.position.z + self.velocity.z * delta_time as f64,
+            );
+            
+            // Return true if position changed significantly
+            return old_position.distance(self.position) > 0.1;
+        }
+        
+        false
+    }
+
+    /// Create a GORC movement message
+    fn create_move_message(&self) -> GorcClientMessage {
+        let move_request = PlayerMoveRequest {
+            player_id: self.player_id,
+            new_position: self.position,
+            velocity: self.velocity,
+            movement_state: {
+                let vel_mag = (self.velocity.x * self.velocity.x + 
+                              self.velocity.z * self.velocity.z).sqrt();
+                if vel_mag > 0.1 { 1 } else { 0 }
+            }, // 1 = moving
+            client_timestamp: chrono::Utc::now(),
+        };
+
+        GorcClientMessage {
+            msg_type: "gorc_event".to_string(),
+            object_id: format!("{:?}", self.gorc_object_id),
+            channel: 0, // Critical channel for movement
+            event: "move".to_string(),
+            data: serde_json::to_value(&move_request).unwrap(),
+            player_id: format!("{}", self.player_id),
+        }
+    }
+
+    /// Create a GORC attack message
+    fn create_attack_message(&self) -> GorcClientMessage {
+        use rand::Rng;
+        let (offset_x, offset_z) = {
+            let mut rng = rand::thread_rng();
+            (
+                rng.gen_range(-10.0_f64..10.0_f64),
+                rng.gen_range(-10.0_f64..10.0_f64),
+            )
+        };
+        let target_offset = Vec3::new(offset_x, 0.0, offset_z);
+
+        let attack_request = PlayerAttackRequest {
+            player_id: self.player_id,
+            target_position: Vec3::new(
+                self.position.x + target_offset.x,
+                self.position.y + target_offset.y,
+                self.position.z + target_offset.z,
+            ),
+            attack_type: "sword_slash".to_string(),
+            client_timestamp: chrono::Utc::now(),
+        };
+
+        GorcClientMessage {
+            msg_type: "gorc_event".to_string(),
+            object_id: format!("{:?}", self.gorc_object_id),
+            channel: 1, // Detailed channel for combat
+            event: "attack".to_string(),
+            data: serde_json::to_value(&attack_request).unwrap(),
+            player_id: format!("{}", self.player_id),
+        }
+    }
+
+    /// Create a GORC chat message
+    fn create_chat_message(&self, message: &str) -> GorcClientMessage {
+        let chat_request = PlayerChatRequest {
+            player_id: self.player_id,
+            message: message.to_string(),
+            channel: "local".to_string(),
+            target_player: None,
+        };
+
+        GorcClientMessage {
+            msg_type: "gorc_event".to_string(),
+            object_id: format!("{:?}", self.gorc_object_id),
+            channel: 2, // Social channel for chat
+            event: "chat".to_string(),
+            data: serde_json::to_value(&chat_request).unwrap(),
+            player_id: format!("{}", self.player_id),
+        }
+    }
+
+    /// Create a level up message
+    fn create_level_up_message(&mut self) -> GorcClientMessage {
+        self.level += 1;
+
+        GorcClientMessage {
+            msg_type: "gorc_event".to_string(),
+            object_id: format!("{:?}", self.gorc_object_id),
+            channel: 3, // Metadata channel for progression
+            event: "level_up".to_string(),
+            data: serde_json::json!({
+                "player_id": self.player_id,
+                "level": self.level,
+                "experience": self.level * 1000
+            }),
+            player_id: format!("{}", self.player_id),
+        }
+    }
+}
+
+/// Handles received events from the server
+#[derive(Debug, Deserialize)]
+struct ServerEvent {
+    event_type: String,
+    player_id: Option<String>,
+    data: serde_json::Value,
+    channel: Option<u8>,
+}
+
+/// Run a single player simulation
+async fn simulate_player(
+    player_id: PlayerId,
+    ws_url: String,
+    args: Args,
+    spawn_position: Vec3,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    info!("🎮 Player {} starting simulation at {:?}", player_id, spawn_position);
+    
+    // Connect to WebSocket server
+    let (ws_stream, _) = connect_async(&ws_url).await?;
+    let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+    
+    let mut player = SimulatedPlayer::new(player_id, spawn_position);
+    let mut move_timer = interval(Duration::from_secs_f64(1.0 / args.move_freq));
+    let mut chat_timer = interval(Duration::from_secs_f64(60.0 / args.chat_freq));
+    let mut attack_timer = interval(Duration::from_secs_f64(60.0 / args.attack_freq));
+    let mut level_timer = interval(Duration::from_secs(30)); // Level up every 30 seconds
+    
+    let start_time = std::time::Instant::now();
+    let simulation_duration = Duration::from_secs(args.duration);
+    
+    let chat_messages = [
+        "Hello everyone!",
+        "Anyone want to team up?",
+        "Great weather today!",
+        "Found a nice spot here",
+        "Watch out for monsters",
+        "GG everyone",
+    ];
+    
+    let mut received_events = 0;
+    let mut sent_events = 0;
+    
+    info!("🎮 Player {} connected and ready", player_id);
+
+    loop {
+        tokio::select! {
+            // Handle incoming messages from server
+            msg = ws_receiver.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        if let Ok(server_event) = serde_json::from_str::<ServerEvent>(&text) {
+                            received_events += 1;
+                            
+                            // Log different types of received events
+                            match server_event.event_type.as_str() {
+                                "position_update" => {
+                                    if let Some(other_player) = server_event.player_id.as_ref() {
+                                        if *other_player != format!("{}", player_id) {
+                                            info!("📍 Player {} sees {} moved", player_id, other_player);
+                                        }
+                                    }
+                                }
+                                "combat_event" => {
+                                    info!("⚔️ Player {} sees combat event", player_id);
+                                }
+                                "chat_message" => {
+                                    if let Some(msg) = server_event.data.get("message") {
+                                        info!("💬 Player {} received chat: {}", player_id, msg);
+                                    }
+                                }
+                                "level_update" => {
+                                    info!("⭐ Player {} sees level update", player_id);
+                                }
+                                _ => {
+                                    info!("📨 Player {} received: {}", player_id, server_event.event_type);
+                                }
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Binary(_))) => {
+                        info!("📦 Player {} received binary data", player_id);
+                    }
+                    Some(Err(e)) => {
+                        warn!("⚠️ Player {} WebSocket error: {}", player_id, e);
+                        break;
+                    }
+                    None => {
+                        info!("🔌 Player {} connection closed", player_id);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            
+            // Send movement updates
+            _ = move_timer.tick() => {
+                let delta_time = 1.0 / args.move_freq as f32;
+                if player.update_movement(delta_time, args.world_size) {
+                    let move_msg = player.create_move_message();
+                    let json = serde_json::to_string(&move_msg)?;
+                    
+                    if let Err(e) = ws_sender.send(Message::Text(json)).await {
+                        error!("❌ Player {} failed to send movement: {}", player_id, e);
+                        break;
+                    }
+                    sent_events += 1;
+                }
+            }
+            
+            // Send chat messages
+            _ = chat_timer.tick() => {
+                use rand::Rng;
+                let message_idx = {
+                    let mut rng = rand::thread_rng();
+                    rng.gen_range(0..chat_messages.len())
+                };
+                let message = chat_messages[message_idx];
+                let chat_msg = player.create_chat_message(message);
+                let json = serde_json::to_string(&chat_msg)?;
+                
+                if let Err(e) = ws_sender.send(Message::Text(json)).await {
+                    error!("❌ Player {} failed to send chat: {}", player_id, e);
+                    break;
+                }
+                sent_events += 1;
+                info!("💬 Player {} says: '{}'", player_id, message);
+            }
+            
+            // Send attack actions
+            _ = attack_timer.tick() => {
+                let attack_msg = player.create_attack_message();
+                let json = serde_json::to_string(&attack_msg)?;
+                
+                if let Err(e) = ws_sender.send(Message::Text(json)).await {
+                    error!("❌ Player {} failed to send attack: {}", player_id, e);
+                    break;
+                }
+                sent_events += 1;
+                info!("⚔️ Player {} attacks at {:?}", player_id, player.position);
+            }
+            
+            // Send level up events
+            _ = level_timer.tick() => {
+                let level_msg = player.create_level_up_message();
+                let json = serde_json::to_string(&level_msg)?;
+                
+                if let Err(e) = ws_sender.send(Message::Text(json)).await {
+                    error!("❌ Player {} failed to send level up: {}", player_id, e);
+                    break;
+                }
+                sent_events += 1;
+                info!("⭐ Player {} leveled up to {}", player_id, player.level);
+            }
+            
+            // Check simulation duration
+            _ = sleep(Duration::from_millis(100)) => {
+                if start_time.elapsed() >= simulation_duration {
+                    info!("⏰ Player {} simulation complete", player_id);
+                    break;
+                }
+            }
+        }
+    }
+    
+    info!(
+        "📊 Player {} final stats: sent {} events, received {} events",
+        player_id, sent_events, received_events
+    );
+    
+    Ok(())
+}
+
+/// Calculate spawn positions in a circular formation
+fn calculate_spawn_positions(num_players: u32, world_size: f32) -> Vec<Vec3> {
+    let mut positions = Vec::new();
+    let spawn_radius = world_size / 4.0; // Keep spawns in center area
+    
+    for i in 0..num_players {
+        let angle = 2.0 * std::f32::consts::PI * (i as f32) / (num_players as f32);
+        let x = spawn_radius * angle.cos();
+        let z = spawn_radius * angle.sin();
+        positions.push(Vec3::new(x as f64, 0.0, z as f64));
+    }
+    
+    positions
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Initialize logging
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+
+    let args = Args::parse();
+    
+    info!("🚀 Starting GORC Player Simulation");
+    info!("📊 Configuration:");
+    info!("   • Players: {}", args.players);
+    info!("   • World Size: {}x{}", args.world_size, args.world_size);
+    info!("   • Movement Freq: {:.1} Hz", args.move_freq);
+    info!("   • Chat Freq: {:.1} msg/min", args.chat_freq);
+    info!("   • Attack Freq: {:.1} attacks/min", args.attack_freq);
+    info!("   • Duration: {} seconds", args.duration);
+    info!("   • Server URL: {}", args.url);
+
+    // Calculate spawn positions
+    let spawn_positions = calculate_spawn_positions(args.players, args.world_size);
+    
+    // Start all player simulations concurrently
+    let mut handles = Vec::new();
+    
+    for i in 0..args.players {
+        let player_id = PlayerId::new();
+        let spawn_pos = spawn_positions[i as usize];
+        let ws_url = args.url.clone();
+        let args_clone = Args {
+            url: args.url.clone(),
+            players: args.players,
+            move_freq: args.move_freq,
+            chat_freq: args.chat_freq,
+            attack_freq: args.attack_freq,
+            duration: args.duration,
+            world_size: args.world_size,
+        };
+        
+        let handle = tokio::spawn(async move {
+            if let Err(e) = simulate_player(player_id, ws_url, args_clone, spawn_pos).await {
+                error!("❌ Player {} simulation failed: {}", player_id, e);
+            }
+        });
+        
+        handles.push(handle);
+        
+        // Stagger connections to avoid overwhelming server
+        sleep(Duration::from_millis(100)).await;
+    }
+    
+    info!("🎮 All {} players started", args.players);
+    
+    // Wait for all simulations to complete
+    for handle in handles {
+        let _ = handle.await;
+    }
+    
+    info!("✅ GORC Player Simulation complete!");
+    
+    // Summary of what should have happened:
+    info!("");
+    info!("📋 Expected GORC Behavior Summary:");
+    info!("🌐 Zone-based Event Distribution:");
+    info!("   • Channel 0 (25m): Position updates at {} Hz", args.move_freq);
+    info!("   • Channel 1 (100m): Combat events at {:.1}/min", args.attack_freq);
+    info!("   • Channel 2 (200m): Chat messages at {:.1}/min", args.chat_freq);
+    info!("   • Channel 3 (1000m): Level updates every 30s");
+    info!("");
+    info!("📡 Replication Logic:");
+    info!("   • Players within 25m should see smooth position updates");
+    info!("   • Players within 100m should see combat animations");
+    info!("   • Players within 200m should receive chat messages");
+    info!("   • Players within 1000m should see level/status changes");
+    info!("   • Players outside ranges should NOT receive those events");
+    
+    Ok(())
+}
