@@ -1,0 +1,21 @@
+[package]
+name = "plugin_player"
+version = "0.1.0"
+edition = "2021"
+description = "Production-ready player management plugin with GORC integration"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+horizon_event_system = { path = "../horizon_event_system" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+chrono = { version = "0.4.41", features = ["serde"] }
+futures = { workspace = true }
+uuid = { workspace = true }
+dashmap = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
