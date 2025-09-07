@@ -21,3 +21,8 @@ compact_str = "0.7"
 flate2 = { workspace = true }
 base64 = { workspace = true }
 const_format = { workspace = true }
+
+# Proc macro dependencies for new derive macros
+syn = { version = "2.0", features = ["full"] }
+quote = "1.0"
+proc-macro2 = "1.0"
