@@ -108,6 +108,13 @@ pub trait ClientResponseSender: std::fmt::Debug {
     /// Kick (disconnect) a client by player ID, sending a close frame and removing the connection.
     fn kick(&self, player_id: PlayerId, reason: Option<String>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>>;
 
+    /// Broadcast data to all connected clients
+    fn broadcast_to_all(&self, _data: Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<usize, String>> + Send + '_>> {
+        // Default implementation that provides a working fallback - returns 0 clients reached
+        // Individual implementations should override this with actual broadcast functionality
+        Box::pin(async move { Ok(0) })
+    }
+
     /// Get connection information for a client (optional implementation)
     fn get_connection_info(&self, _player_id: PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<ClientConnectionInfo>> + Send + '_>> {
         // Default implementation returns None to maintain backwards compatibility

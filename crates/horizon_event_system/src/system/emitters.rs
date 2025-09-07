@@ -171,6 +171,69 @@ impl EventSystem {
         self.emit_event(&event_key, event).await
     }
 
+    /// Broadcasts an event to all connected clients.
+    /// 
+    /// This method sends the event data to every client currently connected to the server.
+    /// The event is serialized once and then sent to all clients for optimal performance.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `event` - The event data to broadcast
+    /// 
+    /// # Returns
+    /// 
+    /// Returns `Ok(usize)` with the number of clients that received the broadcast,
+    /// or `Err(EventError)` if the broadcast failed or client response sender is not configured.
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// // Broadcast a server announcement to all players
+    /// let announcement = ServerAnnouncement {
+    ///     message: "Server maintenance in 5 minutes".to_string(),
+    ///     priority: "high".to_string(),
+    /// };
+    /// 
+    /// match events.broadcast(&announcement).await {
+    ///     Ok(client_count) => println!("Announcement sent to {} clients", client_count),
+    ///     Err(e) => println!("Broadcast failed: {}", e),
+    /// }
+    /// ```
+    pub async fn broadcast<T>(&self, event: &T) -> Result<usize, EventError>
+    where
+        T: Event + serde::Serialize,
+    {
+        // Check if client response sender is configured
+        let sender = self.client_response_sender.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("Client response sender not configured for broadcasting".to_string())
+        })?;
+
+        // Serialize the event data using our serialization pool
+        let data = self.serialization_pool.serialize_event(event)?;
+        
+        // Convert Arc<Vec<u8>> to Vec<u8> for the broadcast method
+        let broadcast_data = (*data).clone();
+        
+        // Send to all clients via the client response sender
+        match sender.broadcast_to_all(broadcast_data).await {
+            Ok(client_count) => {
+                if cfg!(debug_assertions) {
+                    debug!("📡 Broadcasted event to {} clients", client_count);
+                }
+                
+                // Update stats
+                let mut stats = self.stats.write().await;
+                stats.events_emitted += 1;
+                
+                Ok(client_count)
+            },
+            Err(e) => {
+                error!("❌ Broadcast failed: {}", e);
+                Err(EventError::HandlerExecution(format!("Broadcast failed: {}", e)))
+            }
+        }
+    }
+
     /// Internal emit implementation that handles the actual event dispatch.
     /// Optimized for high throughput (500k messages/sec target).
     /// Now uses lock-free DashMap + serialization pool for maximum performance.

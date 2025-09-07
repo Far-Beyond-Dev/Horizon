@@ -147,4 +147,28 @@ impl ClientResponseSender for GameServerResponseSender {
             None
         })
     }
+
+    /// Broadcasts data to all currently connected clients.
+    /// 
+    /// This method sends the provided data to every client currently connected
+    /// to the server. The data is queued for delivery through the connection
+    /// manager's broadcast system.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `data` - The raw bytes to broadcast to all clients
+    /// 
+    /// # Returns
+    /// 
+    /// A future that resolves to `Ok(usize)` with the number of clients that
+    /// received the broadcast, or `Err(String)` if the broadcast failed.
+    fn broadcast_to_all(&self, data: Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<usize, String>> + Send + '_>> {
+        let connection_manager = self.connection_manager.clone();
+        Box::pin(async move {
+            tracing::debug!("🔧 GameServerResponseSender: Broadcasting to all connected clients");
+            let client_count = connection_manager.broadcast_to_all(data).await;
+            tracing::debug!("🔧 GameServerResponseSender: Broadcast sent to {} clients", client_count);
+            Ok(client_count)
+        })
+    }
 }

@@ -185,6 +185,32 @@ impl ConnectionManager {
         }
     }
 
+    /// Broadcasts a message to all currently connected clients.
+    /// 
+    /// Sends the same message to every active connection. The message is
+    /// cloned for each connection to ensure proper delivery.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `message` - The message data to broadcast to all clients
+    /// 
+    /// # Returns
+    /// 
+    /// The number of connections that the message was queued for.
+    pub async fn broadcast_to_all(&self, message: Vec<u8>) -> usize {
+        let connections = self.connections.read().await;
+        let connection_count = connections.len();
+        
+        for &connection_id in connections.keys() {
+            if let Err(e) = self.sender.send((connection_id, message.clone())) {
+                tracing::error!("Failed to broadcast message to connection {}: {:?}", connection_id, e);
+            }
+        }
+        
+        tracing::debug!("📡 Broadcasted message to {} connections", connection_count);
+        connection_count
+    }
+
     /// Creates a new receiver for outgoing messages.
     /// 
     /// Each connection handler should call this to get a receiver
