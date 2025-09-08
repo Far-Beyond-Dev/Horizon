@@ -101,25 +101,13 @@ impl SimplePlugin for PlayerPlugin {
                             println!("🎮 GORC: ✅ Player {} registered with REAL GORC instance ID {:?} at position {:?}", 
                                 event.player_id, gorc_id, spawn_position);
 
-                            // CRITICAL FIX: Trigger zone enter messages directly via GORC instances
-                            // This bypasses EventSystem's player tracking to ensure old_position is None
-                            let (zone_entries, _zone_exits) = gorc_instances.update_player_position(event.player_id, spawn_position).await;
-                            println!("🎮 GORC: Direct zone calculation found {} entries, {} exits", zone_entries.len(), 0);
-                            
-                            for (object_id, channel) in zone_entries {
-                                // Send zone enter message directly to client
-                                let zone_enter_event = serde_json::json!({
-                                    "type": "gorc_zone_enter",
-                                    "object_id": object_id.to_string(),
-                                    "channel": channel,
-                                    "player_id": event.player_id.to_string()
-                                });
-                                
-                                if let Err(e) = events_clone.emit_client("system", "gorc_zone_enter", &zone_enter_event).await {
-                                    println!("🎮 GORC: ❌ Failed to send zone enter message: {}", e);
-                                } else {
-                                    println!("🎮 GORC: ✅ Sent zone enter message for object {} channel {}", object_id, channel);
-                                }
+                            // CRITICAL FIX: Use EventSystem's update_player_position to trigger zone messages
+                            // This will properly send zone enter messages to clients
+                            println!("🎮 GORC: Calling EventSystem.update_player_position to trigger zone messages");
+                            if let Err(e) = events_clone.update_player_position(event.player_id, spawn_position).await {
+                                println!("🎮 GORC: ❌ Failed to update player position via EventSystem: {}", e);
+                            } else {
+                                println!("🎮 GORC: ✅ EventSystem.update_player_position completed successfully");
                             }
                             
                             // Add player to GORC position tracking AFTER zone messages are sent
