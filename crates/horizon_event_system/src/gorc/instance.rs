@@ -394,6 +394,7 @@ impl GorcInstanceManager {
 
         // Check all objects for zone membership changes
         let objects = self.objects.read().await;
+        
         for (object_id, instance) in objects.iter() {
             let layers = instance.object.get_layers();
             
