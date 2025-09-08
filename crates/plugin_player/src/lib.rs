@@ -104,24 +104,6 @@ impl SimplePlugin for PlayerPlugin {
                             
                             println!("🎮 GORC: ✅ Player {} registered with REAL GORC ID {:?} at position {:?}", 
                                 event.player_id, gorc_id, spawn_position);
-
-                            // Test: Try to emit a GORC event immediately
-                            println!("🎮 GORC: Testing immediate GORC event emission for player {}", event.player_id);
-                            #[derive(Debug, serde::Serialize, serde::Deserialize)]
-                            struct TestEvent {
-                                message: String,
-                                player_id: horizon_event_system::PlayerId,
-                            }
-                            let test_event = TestEvent {
-                                message: "Hello from GORC!".to_string(),
-                                player_id: event.player_id,
-                            };
-
-                            if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 0, "test_event", &test_event, horizon_event_system::Dest::Both).await {
-                                println!("🎮 GORC: ❌ Failed to emit test GORC event: {}", e);
-                            } else {
-                                println!("🎮 GORC: ✅ Test GORC event emitted successfully");
-                            }
                         });
                     } else {
                         println!("🎮 GORC: ❌ No GORC instances manager available for player {}", event.player_id);
