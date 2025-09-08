@@ -102,8 +102,11 @@ impl SimplePlugin for PlayerPlugin {
                             // Store the GORC ID for cleanup later
                             players_conn_clone.insert(event.player_id, gorc_id);
                             
-                            println!("🎮 GORC: ✅ Player {} registered with REAL GORC ID {:?} at position {:?}", 
+                            println!("🎮 GORC: ✅ Player {} registered with REAL GORC instance ID {:?} at position {:?}", 
                                 event.player_id, gorc_id, spawn_position);
+
+                            // GORC will automatically handle zone entry messages when players move
+                            println!("🎮 GORC: ✅ Player registered - GORC system will send zone messages as needed");
                         });
                     } else {
                         println!("🎮 GORC: ❌ No GORC instances manager available for player {}", event.player_id);
@@ -124,6 +127,87 @@ impl SimplePlugin for PlayerPlugin {
                     
                     if let Some((_, gorc_id)) = players_disc.remove(&event.player_id) {
                         println!("🎮 GORC: Player {} disconnected and unregistered (ID {:?})", event.player_id, gorc_id);
+                    }
+                    
+                    Ok(())
+                },
+            )
+            .await
+            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        // Register GORC event handlers to process incoming client GORC events
+        let players_gorc = Arc::clone(&self.players);
+        let events_for_gorc = Arc::clone(&events);
+        
+        // Handle GORC movement events (channel 0)
+        events
+            .on_gorc_instance(
+                "GorcPlayer",
+                0,
+                "move",
+                move |gorc_event: horizon_event_system::GorcEvent, object_instance: &mut horizon_event_system::ObjectInstance| {
+                    println!("🎮 GORC: Received movement event for instance {}: {:?}", gorc_event.object_id, gorc_event);
+                    
+                    // Parse movement data from the GORC event
+                    if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
+                        if let Ok(move_data) = serde_json::from_value::<events::PlayerMoveRequest>(event_data) {
+                            println!("🎮 GORC: Processing movement for player {} to position {:?}", move_data.player_id, move_data.new_position);
+                            
+                            // Update the object instance position directly
+                            object_instance.object.update_position(move_data.new_position);
+                            println!("🎮 GORC: ✅ Updated position for instance {} to {:?}", gorc_event.object_id, move_data.new_position);
+                        } else {
+                            println!("🎮 GORC: ❌ Failed to parse PlayerMoveRequest from event data");
+                        }
+                    } else {
+                        println!("🎮 GORC: ❌ Failed to parse JSON from GORC event data");
+                    }
+                    
+                    Ok(())
+                },
+            )
+            .await
+            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        // Handle GORC chat events (channel 2)  
+        let events_for_chat = Arc::clone(&events);
+        events
+            .on_gorc_instance(
+                "GorcPlayer", 
+                2,
+                "chat",
+                move |gorc_event: horizon_event_system::GorcEvent, _object_instance: &mut horizon_event_system::ObjectInstance| {
+                    println!("🎮 GORC: Received chat event for instance {}: {:?}", gorc_event.object_id, gorc_event);
+                    
+                    // Parse chat data from GORC event
+                    if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
+                        if let Ok(chat_data) = serde_json::from_value::<events::PlayerChatRequest>(event_data) {
+                            println!("🎮 GORC: Player {} says: '{}'", chat_data.player_id, chat_data.message);
+                            
+                            // Create chat response for nearby players
+                            let chat_response = serde_json::json!({
+                                "player_id": chat_data.player_id,
+                                "message": chat_data.message,
+                                "timestamp": chrono::Utc::now()
+                            });
+                            
+                            // Broadcast to nearby players via GORC (using Client destination for replication)
+                            let events_clone = events_for_chat.clone();
+                            let object_id_str = gorc_event.object_id.clone(); 
+                            tokio::spawn(async move {
+                                if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
+                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 2, "chat_message", &chat_response, horizon_event_system::Dest::Client).await {
+                                        println!("🎮 GORC: ❌ Failed to broadcast chat: {}", e);
+                                    } else {
+                                        println!("🎮 GORC: ✅ Broadcasted chat from player {}", chat_data.player_id);
+                                    }
+                                }
+                            });
+                        } else {
+                            println!("🎮 GORC: ❌ Failed to parse PlayerChatRequest from event data");
+                        }
+                    } else {
+                        println!("🎮 GORC: ❌ Failed to parse JSON from GORC event data");
                     }
                     
                     Ok(())

@@ -19,7 +19,8 @@
       "Bash(timeout 5 cargo run --bin simulate -- --players 1)",
       "Bash(timeout 10 cargo run --bin simulate -- --players 1)",
       "Bash(taskkill:*)",
-      "Bash(timeout 10 cargo run --bin horizon)"
+      "Bash(timeout 10 cargo run --bin horizon)",
+      "Read(//c/Users/redst/OneDrive/**)"
     ],
     "deny": []
   }

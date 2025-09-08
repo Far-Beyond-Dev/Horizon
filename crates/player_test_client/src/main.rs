@@ -65,11 +65,103 @@ struct GorcClientMessage {
     player_id: String,
 }
 
+/// GORC replication validation tracker
+#[derive(Debug, Clone)]
+struct GorcReplicationValidator {
+    /// Expected events based on GORC zone ranges
+    expected_events: std::collections::HashMap<String, u32>,
+    /// Actually received events
+    received_events: std::collections::HashMap<String, u32>,
+    /// Player positions for distance calculations
+    player_positions: std::collections::HashMap<PlayerId, Vec3>,
+    /// Events that should have been received but weren't
+    missing_events: Vec<String>,
+    /// Events that were received but shouldn't have been
+    extra_events: Vec<String>,
+}
+
+impl GorcReplicationValidator {
+    fn new() -> Self {
+        Self {
+            expected_events: std::collections::HashMap::new(),
+            received_events: std::collections::HashMap::new(),
+            player_positions: std::collections::HashMap::new(),
+            missing_events: Vec::new(),
+            extra_events: Vec::new(),
+        }
+    }
+
+    /// Update a player's position for distance-based validation
+    fn update_player_position(&mut self, player_id: PlayerId, position: Vec3) {
+        self.player_positions.insert(player_id, position);
+    }
+
+    /// Calculate if two players should be in range for a given GORC channel
+    fn is_in_range(&self, player1: PlayerId, player2: PlayerId, channel: u8) -> bool {
+        if let (Some(pos1), Some(pos2)) = (self.player_positions.get(&player1), self.player_positions.get(&player2)) {
+            let distance = pos1.distance(*pos2);
+            match channel {
+                0 => distance <= 25.0,  // Critical: 25m range
+                1 => distance <= 100.0, // Detailed: 100m range  
+                2 => distance <= 200.0, // Social: 200m range
+                3 => distance <= 1000.0, // Metadata: 1000m range
+                _ => false,
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Record that we expect to receive an event from another player
+    fn expect_event(&mut self, from_player: PlayerId, to_player: PlayerId, channel: u8, event_type: &str) {
+        if self.is_in_range(from_player, to_player, channel) {
+            let key = format!("{}->{}:{}:{}", from_player, to_player, channel, event_type);
+            *self.expected_events.entry(key).or_insert(0) += 1;
+        }
+    }
+
+    /// Record that we actually received an event
+    fn record_received_event(&mut self, from_player: PlayerId, to_player: PlayerId, channel: u8, event_type: &str) {
+        let key = format!("{}->{}:{}:{}", from_player, to_player, channel, event_type);
+        *self.received_events.entry(key.clone()).or_insert(0) += 1;
+        
+        // Check if this was expected
+        if !self.expected_events.contains_key(&key) {
+            self.extra_events.push(key.clone());
+        }
+    }
+
+    /// Generate final validation report
+    fn generate_report(&mut self, player_id: PlayerId) -> String {
+        // Find missing events
+        for (expected_key, expected_count) in &self.expected_events {
+            let received_count = self.received_events.get(expected_key).unwrap_or(&0);
+            if received_count < expected_count {
+                self.missing_events.push(format!("{} (expected: {}, got: {})", expected_key, expected_count, received_count));
+            }
+        }
+
+        let total_expected = self.expected_events.values().sum::<u32>();
+        let total_received = self.received_events.values().sum::<u32>();
+        let missing_count = self.missing_events.len();
+        let extra_count = self.extra_events.len();
+
+        format!(
+            "🧪 GORC Replication Test Results for Player {}:\n\
+             📊 Total Expected: {}, Total Received: {}\n\
+             ❌ Missing Events: {} | ➕ Extra Events: {}\n\
+             📋 Missing Details: {:#?}\n\
+             📋 Extra Details: {:#?}",
+            player_id, total_expected, total_received, missing_count, extra_count,
+            self.missing_events, self.extra_events
+        )
+    }
+}
+
 /// Simulated player client
 #[derive(Debug)]
 struct SimulatedPlayer {
     player_id: PlayerId,
-    gorc_object_id: GorcObjectId,
     position: Vec3,
     velocity: Vec3,
     last_chat: std::time::Instant,
@@ -77,13 +169,16 @@ struct SimulatedPlayer {
     move_target: Vec3,
     health: f32,
     level: u32,
+    /// GORC instance ID received from server (None until server registers the player)
+    server_gorc_instance_id: Option<GorcObjectId>,
+    /// GORC replication validation tracker
+    replication_validator: GorcReplicationValidator,
 }
 
 impl SimulatedPlayer {
     fn new(player_id: PlayerId, spawn_pos: Vec3) -> Self {
         Self {
             player_id,
-            gorc_object_id: GorcObjectId::new(),
             position: spawn_pos,
             velocity: Vec3::zero(),
             last_chat: std::time::Instant::now(),
@@ -91,6 +186,8 @@ impl SimulatedPlayer {
             move_target: spawn_pos,
             health: 100.0,
             level: 1,
+            server_gorc_instance_id: None, // Will be set when server sends registration
+            replication_validator: GorcReplicationValidator::new(),
         }
     }
 
@@ -133,8 +230,9 @@ impl SimulatedPlayer {
         false
     }
 
-    /// Create a GORC movement message
-    fn create_move_message(&self) -> GorcClientMessage {
+    /// Create a GORC movement message (returns None if no server instance ID yet)
+    fn create_move_message(&self) -> Option<GorcClientMessage> {
+        let instance_id = self.server_gorc_instance_id?;
         let move_request = PlayerMoveRequest {
             player_id: self.player_id,
             new_position: self.position,
@@ -147,18 +245,19 @@ impl SimulatedPlayer {
             client_timestamp: chrono::Utc::now(),
         };
 
-        GorcClientMessage {
+        Some(GorcClientMessage {
             msg_type: "gorc_event".to_string(),
-            object_id: format!("{:?}", self.gorc_object_id),
+            object_id: format!("{:?}", instance_id),
             channel: 0, // Critical channel for movement
             event: "move".to_string(),
             data: serde_json::to_value(&move_request).unwrap(),
             player_id: format!("{}", self.player_id),
-        }
+        })
     }
 
-    /// Create a GORC attack message
-    fn create_attack_message(&self) -> GorcClientMessage {
+    /// Create a GORC attack message (returns None if no server instance ID yet)
+    fn create_attack_message(&self) -> Option<GorcClientMessage> {
+        let instance_id = self.server_gorc_instance_id?;
         use rand::Rng;
         let (offset_x, offset_z) = {
             let mut rng = rand::thread_rng();
@@ -180,18 +279,19 @@ impl SimulatedPlayer {
             client_timestamp: chrono::Utc::now(),
         };
 
-        GorcClientMessage {
+        Some(GorcClientMessage {
             msg_type: "gorc_event".to_string(),
-            object_id: format!("{:?}", self.gorc_object_id),
+            object_id: format!("{:?}", instance_id),
             channel: 1, // Detailed channel for combat
             event: "attack".to_string(),
             data: serde_json::to_value(&attack_request).unwrap(),
             player_id: format!("{}", self.player_id),
-        }
+        })
     }
 
-    /// Create a GORC chat message
-    fn create_chat_message(&self, message: &str) -> GorcClientMessage {
+    /// Create a GORC chat message (returns None if no server instance ID yet)
+    fn create_chat_message(&self, message: &str) -> Option<GorcClientMessage> {
+        let instance_id = self.server_gorc_instance_id?;
         let chat_request = PlayerChatRequest {
             player_id: self.player_id,
             message: message.to_string(),
@@ -199,23 +299,24 @@ impl SimulatedPlayer {
             target_player: None,
         };
 
-        GorcClientMessage {
+        Some(GorcClientMessage {
             msg_type: "gorc_event".to_string(),
-            object_id: format!("{:?}", self.gorc_object_id),
+            object_id: format!("{:?}", instance_id),
             channel: 2, // Social channel for chat
             event: "chat".to_string(),
             data: serde_json::to_value(&chat_request).unwrap(),
             player_id: format!("{}", self.player_id),
-        }
+        })
     }
 
-    /// Create a level up message
-    fn create_level_up_message(&mut self) -> GorcClientMessage {
+    /// Create a level up message (returns None if no server instance ID yet)
+    fn create_level_up_message(&mut self) -> Option<GorcClientMessage> {
+        let instance_id = self.server_gorc_instance_id?;
         self.level += 1;
 
-        GorcClientMessage {
+        Some(GorcClientMessage {
             msg_type: "gorc_event".to_string(),
-            object_id: format!("{:?}", self.gorc_object_id),
+            object_id: format!("{:?}", instance_id),
             channel: 3, // Metadata channel for progression
             event: "level_up".to_string(),
             data: serde_json::json!({
@@ -224,7 +325,7 @@ impl SimulatedPlayer {
                 "experience": self.level * 1000
             }),
             player_id: format!("{}", self.player_id),
-        }
+        })
     }
 }
 
@@ -289,11 +390,41 @@ async fn simulate_player(
                                 Ok(json) => {
                                     info!("📋 Player {} parsed JSON structure: {:#}", player_id, json);
                                     
-                                    // Check if it's a GORC event
+                                    // Check message type
                                     if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
-                                        if msg_type == "gorc_event" {
-                                            info!("🎯 Player {} received GORC EVENT: {:#}", player_id, json);
-                                            received_events += 1;
+                                        match msg_type {
+                                            "gorc_zone_enter" => {
+                                                info!("🎯 Player {} received GORC ZONE ENTER: {:#}", player_id, json);
+                                                
+                                                // Extract GORC instance ID from zone enter message
+                                                if let Some(instance_id_str) = json.get("object_id").and_then(|v| v.as_str()) {
+                                                    match GorcObjectId::from_str(instance_id_str) {
+                                                        Ok(instance_id) => {
+                                                            player.server_gorc_instance_id = Some(instance_id);
+                                                            let zone = json.get("zone").and_then(|v| v.as_u64()).unwrap_or(0);
+                                                            let object_type = json.get("object_type").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                                                            info!("✅ Player {} entered GORC zone {} for {} (ID: {})", player_id, zone, object_type, instance_id);
+                                                        }
+                                                        Err(e) => {
+                                                            error!("❌ Player {} failed to parse GORC instance ID '{}': {}", player_id, instance_id_str, e);
+                                                        }
+                                                    }
+                                                } else {
+                                                    error!("❌ Player {} received GORC zone enter without instance ID", player_id);
+                                                }
+                                                received_events += 1;
+                                            }
+                                            "gorc_zone_exit" => {
+                                                info!("🎯 Player {} received GORC ZONE EXIT: {:#}", player_id, json);
+                                                received_events += 1;
+                                            }
+                                            "gorc_event" => {
+                                                info!("🎯 Player {} received GORC EVENT: {:#}", player_id, json);
+                                                received_events += 1;
+                                            }
+                                            _ => {
+                                                // Other message types handled below
+                                            }
                                         }
                                     }
                                     
@@ -360,20 +491,26 @@ async fn simulate_player(
             _ = move_timer.tick() => {
                 let delta_time = 1.0 / args.move_freq as f32;
                 if player.update_movement(delta_time, args.world_size) {
-                    let move_msg = player.create_move_message();
-                    let json = serde_json::to_string(&move_msg)?;
-                    
-                    // Log outgoing message details  
-                    info!("📤 Player {} sending movement (event #{}) to server: {}", player_id, sent_events + 1, json);
-                    
-                    if let Err(e) = ws_sender.send(Message::Text(json)).await {
-                        error!("❌ Player {} failed to send movement: {}", player_id, e);
-                        break;
-                    }
-                    sent_events += 1;
-                    
-                    if sent_events % 50 == 0 {
-                        info!("📊 Player {} has sent {} events so far", player_id, sent_events);
+                    if let Some(move_msg) = player.create_move_message() {
+                        let json = serde_json::to_string(&move_msg)?;
+                        
+                        // Log outgoing message details  
+                        info!("📤 Player {} sending movement (event #{}) to server: {}", player_id, sent_events + 1, json);
+                        
+                        if let Err(e) = ws_sender.send(Message::Text(json)).await {
+                            error!("❌ Player {} failed to send movement: {}", player_id, e);
+                            break;
+                        }
+                        sent_events += 1;
+                        
+                        if sent_events % 50 == 0 {
+                            info!("📊 Player {} has sent {} events so far", player_id, sent_events);
+                        }
+                    } else {
+                        // No server instance ID yet, skip sending movement
+                        if sent_events == 0 {
+                            info!("⏳ Player {} waiting for GORC registration from server...", player_id);
+                        }
                     }
                 }
             }
@@ -386,41 +523,44 @@ async fn simulate_player(
                     rng.gen_range(0..chat_messages.len())
                 };
                 let message = chat_messages[message_idx];
-                let chat_msg = player.create_chat_message(message);
-                let json = serde_json::to_string(&chat_msg)?;
-                
-                if let Err(e) = ws_sender.send(Message::Text(json)).await {
-                    error!("❌ Player {} failed to send chat: {}", player_id, e);
-                    break;
+                if let Some(chat_msg) = player.create_chat_message(message) {
+                    let json = serde_json::to_string(&chat_msg)?;
+                    
+                    if let Err(e) = ws_sender.send(Message::Text(json)).await {
+                        error!("❌ Player {} failed to send chat: {}", player_id, e);
+                        break;
+                    }
+                    sent_events += 1;
+                    info!("💬 Player {} says: '{}'", player_id, message);
                 }
-                sent_events += 1;
-                info!("💬 Player {} says: '{}'", player_id, message);
             }
             
             // Send attack actions
             _ = attack_timer.tick() => {
-                let attack_msg = player.create_attack_message();
-                let json = serde_json::to_string(&attack_msg)?;
-                
-                if let Err(e) = ws_sender.send(Message::Text(json)).await {
-                    error!("❌ Player {} failed to send attack: {}", player_id, e);
-                    break;
+                if let Some(attack_msg) = player.create_attack_message() {
+                    let json = serde_json::to_string(&attack_msg)?;
+                    
+                    if let Err(e) = ws_sender.send(Message::Text(json)).await {
+                        error!("❌ Player {} failed to send attack: {}", player_id, e);
+                        break;
+                    }
+                    sent_events += 1;
+                    info!("⚔️ Player {} attacks at {:?}", player_id, player.position);
                 }
-                sent_events += 1;
-                info!("⚔️ Player {} attacks at {:?}", player_id, player.position);
             }
             
             // Send level up events
             _ = level_timer.tick() => {
-                let level_msg = player.create_level_up_message();
-                let json = serde_json::to_string(&level_msg)?;
-                
-                if let Err(e) = ws_sender.send(Message::Text(json)).await {
-                    error!("❌ Player {} failed to send level up: {}", player_id, e);
-                    break;
+                if let Some(level_msg) = player.create_level_up_message() {
+                    let json = serde_json::to_string(&level_msg)?;
+                    
+                    if let Err(e) = ws_sender.send(Message::Text(json)).await {
+                        error!("❌ Player {} failed to send level up: {}", player_id, e);
+                        break;
+                    }
+                    sent_events += 1;
+                    info!("⭐ Player {} leveled up to {}", player_id, player.level);
                 }
-                sent_events += 1;
-                info!("⭐ Player {} leveled up to {}", player_id, player.level);
             }
             
             // Check simulation duration
