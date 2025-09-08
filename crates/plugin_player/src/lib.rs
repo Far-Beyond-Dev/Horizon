@@ -61,6 +61,7 @@ impl SimplePlugin for PlayerPlugin {
         // Register player connection handler exactly like LoggerPlugin
         let players_conn = Arc::clone(&self.players);
         let events_for_conn = Arc::clone(&events);
+        let context_for_conn = Arc::clone(&context);
         events
             .on_core(
                 "player_connected",
@@ -85,45 +86,43 @@ impl SimplePlugin for PlayerPlugin {
                         // Use async block to handle the real GORC registration
                         let players_conn_clone = players_conn.clone();
                         let events_clone = Arc::clone(&events_for_conn);
-                        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                            handle.block_on(async move {
-                                println!("🎮 GORC: About to register player {} with GORC instances", event.player_id);
-                                
-                                // Register the player object with GORC
-                                let gorc_id = gorc_instances.register_object(player, spawn_position).await;
-                                println!("🎮 GORC: register_object returned GORC ID: {:?}", gorc_id);
-                                
-                                // Also add player to GORC position tracking  
-                                gorc_instances.add_player(event.player_id, spawn_position).await;
-                                println!("🎮 GORC: add_player completed for player {}", event.player_id);
-                                
-                                // Store the GORC ID for cleanup later
-                                players_conn_clone.insert(event.player_id, gorc_id);
-                                
-                                println!("🎮 GORC: ✅ Player {} registered with REAL GORC ID {:?} at position {:?}", 
-                                    event.player_id, gorc_id, spawn_position);
-                                    
-                                // Test: Try to emit a GORC event immediately
-                                println!("🎮 GORC: Testing immediate GORC event emission for player {}", event.player_id);
-                                #[derive(Debug, serde::Serialize, serde::Deserialize)]
-                                struct TestEvent {
-                                    message: String,
-                                    player_id: horizon_event_system::PlayerId,
-                                }
-                                let test_event = TestEvent {
-                                    message: "Hello from GORC!".to_string(),
-                                    player_id: event.player_id,
-                                };
-                                
-                                if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 0, "test_event", &test_event, horizon_event_system::Dest::Both).await {
-                                    println!("🎮 GORC: ❌ Failed to emit test GORC event: {}", e);
-                                } else {
-                                    println!("🎮 GORC: ✅ Test GORC event emitted successfully");
-                                }
-                            });
-                        } else {
-                            println!("🎮 GORC: ❌ Failed to get tokio runtime handle");
-                        }
+                        let context_clone = Arc::clone(&context_for_conn);
+                        let handle = context_clone.tokio_handle();
+                        handle.block_on(async move {
+                            println!("🎮 GORC: About to register player {} with GORC instances", event.player_id);
+
+                            // Register the player object with GORC
+                            let gorc_id = gorc_instances.register_object(player, spawn_position).await;
+                            println!("🎮 GORC: register_object returned GORC ID: {:?}", gorc_id);
+                            
+                            // Also add player to GORC position tracking  
+                            gorc_instances.add_player(event.player_id, spawn_position).await;
+                            println!("🎮 GORC: add_player completed for player {}", event.player_id);
+                            
+                            // Store the GORC ID for cleanup later
+                            players_conn_clone.insert(event.player_id, gorc_id);
+                            
+                            println!("🎮 GORC: ✅ Player {} registered with REAL GORC ID {:?} at position {:?}", 
+                                event.player_id, gorc_id, spawn_position);
+
+                            // Test: Try to emit a GORC event immediately
+                            println!("🎮 GORC: Testing immediate GORC event emission for player {}", event.player_id);
+                            #[derive(Debug, serde::Serialize, serde::Deserialize)]
+                            struct TestEvent {
+                                message: String,
+                                player_id: horizon_event_system::PlayerId,
+                            }
+                            let test_event = TestEvent {
+                                message: "Hello from GORC!".to_string(),
+                                player_id: event.player_id,
+                            };
+
+                            if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 0, "test_event", &test_event, horizon_event_system::Dest::Both).await {
+                                println!("🎮 GORC: ❌ Failed to emit test GORC event: {}", e);
+                            } else {
+                                println!("🎮 GORC: ✅ Test GORC event emitted successfully");
+                            }
+                        });
                     } else {
                         println!("🎮 GORC: ❌ No GORC instances manager available for player {}", event.player_id);
                     }
