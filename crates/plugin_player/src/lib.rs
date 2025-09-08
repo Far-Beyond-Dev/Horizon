@@ -95,22 +95,36 @@ impl SimplePlugin for PlayerPlugin {
                             let gorc_id = gorc_instances.register_object(player, spawn_position).await;
                             println!("🎮 GORC: register_object returned GORC ID: {:?}", gorc_id);
                             
-                            // Also add player to GORC position tracking  
-                            gorc_instances.add_player(event.player_id, spawn_position).await;
-                            println!("🎮 GORC: add_player completed for player {}", event.player_id);
-                            
                             // Store the GORC ID for cleanup later
                             players_conn_clone.insert(event.player_id, gorc_id);
                             
                             println!("🎮 GORC: ✅ Player {} registered with REAL GORC instance ID {:?} at position {:?}", 
                                 event.player_id, gorc_id, spawn_position);
 
-                            // Trigger zone entry messages by updating player position (this sends zone enter messages automatically)
-                            if let Err(e) = events_clone.update_player_position(event.player_id, spawn_position).await {
-                                println!("🎮 GORC: ❌ Failed to trigger zone messages for player {}: {}", event.player_id, e);
-                            } else {
-                                println!("🎮 GORC: ✅ Zone enter messages sent for player {} at spawn", event.player_id);
+                            // CRITICAL FIX: Trigger zone enter messages directly via GORC instances
+                            // This bypasses EventSystem's player tracking to ensure old_position is None
+                            let (zone_entries, _zone_exits) = gorc_instances.update_player_position(event.player_id, spawn_position).await;
+                            println!("🎮 GORC: Direct zone calculation found {} entries, {} exits", zone_entries.len(), 0);
+                            
+                            for (object_id, channel) in zone_entries {
+                                // Send zone enter message directly to client
+                                let zone_enter_event = serde_json::json!({
+                                    "type": "gorc_zone_enter",
+                                    "object_id": object_id.to_string(),
+                                    "channel": channel,
+                                    "player_id": event.player_id.to_string()
+                                });
+                                
+                                if let Err(e) = events_clone.emit_client("system", "gorc_zone_enter", &zone_enter_event).await {
+                                    println!("🎮 GORC: ❌ Failed to send zone enter message: {}", e);
+                                } else {
+                                    println!("🎮 GORC: ✅ Sent zone enter message for object {} channel {}", object_id, channel);
+                                }
                             }
+                            
+                            // Add player to GORC position tracking AFTER zone messages are sent
+                            gorc_instances.add_player(event.player_id, spawn_position).await;
+                            println!("🎮 GORC: add_player completed for player {}", event.player_id);
                         });
                     } else {
                         println!("🎮 GORC: ❌ No GORC instances manager available for player {}", event.player_id);

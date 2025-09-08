@@ -392,11 +392,16 @@ impl GorcInstanceManager {
             old_pos
         };
 
+        println!("🎮 GORC ZONE DEBUG: Player {} position update: {:?} -> {:?}", 
+            player_id, old_position, new_position);
+
         // Check all objects for zone membership changes
         let objects = self.objects.read().await;
+        println!("🎮 GORC ZONE DEBUG: Checking {} objects for zone changes", objects.len());
         
         for (object_id, instance) in objects.iter() {
             let layers = instance.object.get_layers();
+            println!("🎮 GORC ZONE DEBUG: Object {} has {} layers", object_id, layers.len());
             
             for layer in layers {
                 let object_position = instance.object.position();
@@ -404,13 +409,32 @@ impl GorcInstanceManager {
                 let was_in_zone = old_position.map_or(false, |pos| pos.distance(object_position) <= layer.radius);
                 let is_in_zone = distance_to_object <= layer.radius;
                 
+                println!("🎮 GORC ZONE DEBUG: Object {} channel {} - distance: {:.2}, radius: {:.2}, was_in_zone: {}, is_in_zone: {}",
+                    object_id, layer.channel, distance_to_object, layer.radius, was_in_zone, is_in_zone);
+                
                 match (was_in_zone, is_in_zone) {
-                    (false, true) => zone_entries.push((*object_id, layer.channel)),
-                    (true, false) => zone_exits.push((*object_id, layer.channel)),
-                    _ => {} // No change
+                    (false, true) => {
+                        println!("🎮 GORC ZONE DEBUG: ✅ ZONE ENTRY detected for object {} channel {}", object_id, layer.channel);
+                        zone_entries.push((*object_id, layer.channel));
+                    },
+                    (true, false) => {
+                        println!("🎮 GORC ZONE DEBUG: ❌ ZONE EXIT detected for object {} channel {}", object_id, layer.channel);
+                        zone_exits.push((*object_id, layer.channel));
+                    },
+                    _ => {
+                        // Special case: if this is a first spawn (old_position is None) and player is in range,
+                        // force zone entry even if the logic above didn't catch it
+                        if old_position.is_none() && is_in_zone {
+                            println!("🎮 GORC ZONE DEBUG: 🚀 FORCE ZONE ENTRY for first spawn - object {} channel {}", object_id, layer.channel);
+                            zone_entries.push((*object_id, layer.channel));
+                        }
+                    }
                 }
             }
         }
+
+        println!("🎮 GORC ZONE DEBUG: Final results - {} zone entries, {} zone exits", 
+            zone_entries.len(), zone_exits.len());
 
         // If this is a new player or they moved significantly, recalculate subscriptions
         if old_position.is_none() || 

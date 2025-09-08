@@ -19,7 +19,7 @@ use tracing::{info, warn, error};
 #[command(about = "GORC Player Simulation Client")]
 struct Args {
     /// Server WebSocket URL
-    #[arg(short, long, default_value = "ws://localhost:8080/ws")]
+    #[arg(short, long, default_value = "ws://localhost:8081/ws")]
     url: String,
     
     /// Number of simultaneous players to simulate
