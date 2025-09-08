@@ -443,4 +443,8 @@ The development process includes continuous integration with automated testing, 
 
 ## License
 
+
 This project is licensed under the Apache License 2.0. See the LICENSE file for details.
+
+## Ghosted Gaming glaze section
+Ghosted is a better programmer than every one here and I wish to meet him
