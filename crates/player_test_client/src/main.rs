@@ -401,9 +401,9 @@ async fn simulate_player(
                                                     match GorcObjectId::from_str(instance_id_str) {
                                                         Ok(instance_id) => {
                                                             player.server_gorc_instance_id = Some(instance_id);
-                                                            let zone = json.get("zone").and_then(|v| v.as_u64()).unwrap_or(0);
+                                                            let channel = json.get("channel").and_then(|v| v.as_u64()).unwrap_or(0);
                                                             let object_type = json.get("object_type").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                                                            info!("✅ Player {} entered GORC zone {} for {} (ID: {})", player_id, zone, object_type, instance_id);
+                                                            info!("✅ Player {} entered GORC zone {} for {} (ID: {})", player_id, channel, object_type, instance_id);
                                                         }
                                                         Err(e) => {
                                                             error!("❌ Player {} failed to parse GORC instance ID '{}': {}", player_id, instance_id_str, e);
@@ -509,7 +509,7 @@ async fn simulate_player(
                     } else {
                         // No server instance ID yet, skip sending movement
                         if sent_events == 0 {
-                            info!("⏳ Player {} waiting for GORC registration from server...", player_id);
+                            info!("⏳ Player {} waiting for GORC zone enter message from server...", player_id);
                         }
                     }
                 }

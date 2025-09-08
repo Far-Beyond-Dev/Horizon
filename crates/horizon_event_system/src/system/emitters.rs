@@ -5,7 +5,7 @@ use crate::{PlayerId, Vec3};
 use super::core::EventSystem;
 use super::stats::{DetailedEventSystemStats, HandlerCategoryStats};
 use futures::{self, stream::{FuturesUnordered, StreamExt}};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use compact_str::CompactString;
 
 /// Helper function to extract namespace from event key for debugging
