@@ -105,8 +105,12 @@ impl SimplePlugin for PlayerPlugin {
                             println!("🎮 GORC: ✅ Player {} registered with REAL GORC instance ID {:?} at position {:?}", 
                                 event.player_id, gorc_id, spawn_position);
 
-                            // GORC will automatically handle zone entry messages when players move
-                            println!("🎮 GORC: ✅ Player registered - GORC system will send zone messages as needed");
+                            // Trigger zone entry messages by updating player position (this sends zone enter messages automatically)
+                            if let Err(e) = events_clone.update_player_position(event.player_id, spawn_position).await {
+                                println!("🎮 GORC: ❌ Failed to trigger zone messages for player {}: {}", event.player_id, e);
+                            } else {
+                                println!("🎮 GORC: ✅ Zone enter messages sent for player {} at spawn", event.player_id);
+                            }
                         });
                     } else {
                         println!("🎮 GORC: ❌ No GORC instances manager available for player {}", event.player_id);
