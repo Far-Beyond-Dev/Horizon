@@ -279,37 +279,66 @@ async fn simulate_player(
             msg = ws_receiver.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        // DEBUG: Log ALL incoming messages
-                        info!("🔍 Player {} received RAW message: {}", player_id, text);
+                        // DEBUG: Log ALL incoming messages with full details
+                        info!("🔍 Player {} received RAW message (length: {}): {}", player_id, text.len(), text);
                         
-                        if let Ok(server_event) = serde_json::from_str::<ServerEvent>(&text) {
-                            received_events += 1;
-                            info!("✅ Player {} parsed valid ServerEvent: {:?}", player_id, server_event);
-                            
-                            // Log different types of received events
-                            match server_event.event_type.as_str() {
-                                "position_update" => {
-                                    if let Some(other_player) = server_event.player_id.as_ref() {
-                                        if *other_player != format!("{}", player_id) {
-                                            info!("📍 Player {} sees {} moved", player_id, other_player);
+                        // Try to parse as different message types
+                        if text.starts_with("{") {
+                            // Try parsing as JSON
+                            match serde_json::from_str::<serde_json::Value>(&text) {
+                                Ok(json) => {
+                                    info!("📋 Player {} parsed JSON structure: {:#}", player_id, json);
+                                    
+                                    // Check if it's a GORC event
+                                    if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
+                                        if msg_type == "gorc_event" {
+                                            info!("🎯 Player {} received GORC EVENT: {:#}", player_id, json);
+                                            received_events += 1;
                                         }
                                     }
-                                }
-                                "combat_event" => {
-                                    info!("⚔️ Player {} sees combat event", player_id);
-                                }
-                                "chat_message" => {
-                                    if let Some(msg) = server_event.data.get("message") {
-                                        info!("💬 Player {} received chat: {}", player_id, msg);
+                                    
+                                    // Try parsing as ServerEvent
+                                    if let Ok(server_event) = serde_json::from_str::<ServerEvent>(&text) {
+                                        received_events += 1;
+                                        info!("✅ Player {} parsed valid ServerEvent: {:?}", player_id, server_event);
+                                        
+                                        // Log different types of received events
+                                        match server_event.event_type.as_str() {
+                                            "position_update" => {
+                                                if let Some(other_player) = server_event.player_id.as_ref() {
+                                                    if *other_player != format!("{}", player_id) {
+                                                        info!("📍 Player {} sees {} moved", player_id, other_player);
+                                                    }
+                                                }
+                                            }
+                                            "combat_event" => {
+                                                info!("⚔️ Player {} sees combat event", player_id);
+                                            }
+                                            "chat_message" => {
+                                                if let Some(msg) = server_event.data.get("message") {
+                                                    info!("💬 Player {} received chat: {}", player_id, msg);
+                                                }
+                                            }
+                                            "level_update" => {
+                                                info!("⭐ Player {} sees level update", player_id);
+                                            }
+                                            "test_event" => {
+                                                info!("🧪 Player {} received test event from server!", player_id);
+                                            }
+                                            _ => {
+                                                info!("📨 Player {} received: {}", player_id, server_event.event_type);
+                                            }
+                                        }
+                                    } else {
+                                        info!("⚠️ Player {} received JSON but not ServerEvent format", player_id);
                                     }
                                 }
-                                "level_update" => {
-                                    info!("⭐ Player {} sees level update", player_id);
-                                }
-                                _ => {
-                                    info!("📨 Player {} received: {}", player_id, server_event.event_type);
+                                Err(e) => {
+                                    info!("❌ Player {} failed to parse JSON: {}", player_id, e);
                                 }
                             }
+                        } else {
+                            info!("📝 Player {} received non-JSON message: {}", player_id, text);
                         }
                     }
                     Some(Ok(Message::Binary(_))) => {
@@ -334,11 +363,18 @@ async fn simulate_player(
                     let move_msg = player.create_move_message();
                     let json = serde_json::to_string(&move_msg)?;
                     
+                    // Log outgoing message details  
+                    info!("📤 Player {} sending movement (event #{}) to server: {}", player_id, sent_events + 1, json);
+                    
                     if let Err(e) = ws_sender.send(Message::Text(json)).await {
                         error!("❌ Player {} failed to send movement: {}", player_id, e);
                         break;
                     }
                     sent_events += 1;
+                    
+                    if sent_events % 50 == 0 {
+                        info!("📊 Player {} has sent {} events so far", player_id, sent_events);
+                    }
                 }
             }
             

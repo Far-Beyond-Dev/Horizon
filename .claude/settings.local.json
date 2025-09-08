@@ -12,7 +12,14 @@
       "Bash(./target/debug/horizon.exe)",
       "Bash(copy targetreleasestars_beyond.dll plugins)",
       "Bash(cp:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(RUST_LOG=debug cargo run --bin simulate)",
+      "Bash(copy target/release/plugin_player.dll plugins/)",
+      "Bash(timeout 8 cargo run --bin simulate)",
+      "Bash(timeout 5 cargo run --bin simulate -- --players 1)",
+      "Bash(timeout 10 cargo run --bin simulate -- --players 1)",
+      "Bash(taskkill:*)",
+      "Bash(timeout 10 cargo run --bin horizon)"
     ],
     "deny": []
   }

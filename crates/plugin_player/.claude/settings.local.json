@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rg:*)",
+      "Bash(rmdir:*)",
+      "Bash(rm:*)",
+      "Bash(cargo:*)"
+    ],
+    "deny": []
+  }
+}
