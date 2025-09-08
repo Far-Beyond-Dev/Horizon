@@ -251,21 +251,21 @@ impl EventSystem {
         // Update position and get zone changes
         let (zone_entries, zone_exits) = gorc_instances.update_player_position(player_id, new_position).await;
         
-        // Handle zone entries - send current layer state
+        // Handle zone entries - send zone entry messages with current layer state
         for (object_id, channel) in zone_entries {
-            self.send_layer_state_to_player(player_id, object_id, channel).await?;
+            self.send_zone_entry_message(player_id, object_id, channel).await?;
         }
         
-        // Zone exits don't need explicit messages - player just stops receiving updates
-        if !zone_exits.is_empty() {
-            debug!("📡 GORC: Player {} exited {} zones", player_id, zone_exits.len());
+        // Handle zone exits - send zone exit messages to inform client
+        for (object_id, channel) in zone_exits {
+            self.send_zone_exit_message(player_id, object_id, channel).await?;
         }
         
         Ok(())
     }
     
-    /// Send current object state for a specific layer to a player (zone entry)
-    async fn send_layer_state_to_player(&self, player_id: PlayerId, object_id: GorcObjectId, channel: u8) -> Result<(), EventError> {
+    /// Send zone entry message with current object state for a specific layer to a player
+    async fn send_zone_entry_message(&self, player_id: PlayerId, object_id: GorcObjectId, channel: u8) -> Result<(), EventError> {
         // Get the client response sender
         let sender = self.client_response_sender.as_ref().ok_or_else(|| {
             EventError::HandlerExecution("Client response sender not configured".to_string())
@@ -283,14 +283,14 @@ impl EventSystem {
         
         // Get current state for this layer
         if let Some(layer_data) = gorc_instances.get_object_state_for_layer(object_id, channel).await {
-            // Create zone entry message
+            // Create zone entry message with proper format
             let zone_entry_event = serde_json::json!({
-                "event_type": "zone_entry",
+                "type": "gorc_zone_enter",
                 "object_id": object_id.to_string(),
                 "object_type": instance.type_name,
                 "channel": channel,
-                "player_id": object_id.to_string(),
-                "data": serde_json::from_slice::<serde_json::Value>(&layer_data)
+                "player_id": player_id.to_string(),
+                "zone_data": serde_json::from_slice::<serde_json::Value>(&layer_data)
                     .unwrap_or(serde_json::Value::Null),
                 "timestamp": crate::utils::current_timestamp()
             });
@@ -300,11 +300,56 @@ impl EventSystem {
                 .map_err(|e| EventError::Serialization(e))?;
             
             if let Err(e) = sender.send_to_client(player_id, data).await {
-                warn!("Failed to send zone entry state to player {}: {}", player_id, e);
+                warn!("❌ Failed to send zone entry message to player {}: {}", player_id, e);
             } else {
-                debug!("📡 GORC: Sent layer {} state to player {} for object {} (zone entry)", 
-                       channel, player_id, object_id);
+                info!("🔔 GORC: Player {} entered zone {} of object {} ({})", 
+                      player_id, channel, object_id, instance.type_name);
             }
+        } else {
+            warn!("❌ GORC: No layer data available for object {} channel {}", object_id, channel);
+        }
+        
+        Ok(())
+    }
+
+    /// Send zone exit message to inform player they left an object's zone
+    async fn send_zone_exit_message(&self, player_id: PlayerId, object_id: GorcObjectId, channel: u8) -> Result<(), EventError> {
+        // Get the client response sender
+        let sender = self.client_response_sender.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("Client response sender not configured".to_string())
+        })?;
+        
+        // Get the GORC instances manager for object type lookup
+        let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("GORC instance manager not available".to_string())
+        })?;
+        
+        // Get object type for logging (optional - graceful fallback if object no longer exists)
+        let object_type = if let Some(instance) = gorc_instances.get_object(object_id).await {
+            instance.type_name.clone()
+        } else {
+            "Unknown".to_string()
+        };
+        
+        // Create zone exit message
+        let zone_exit_event = serde_json::json!({
+            "type": "gorc_zone_exit",
+            "object_id": object_id.to_string(),
+            "object_type": object_type,
+            "channel": channel,
+            "player_id": player_id.to_string(),
+            "timestamp": crate::utils::current_timestamp()
+        });
+        
+        // Serialize and send
+        let data = serde_json::to_vec(&zone_exit_event)
+            .map_err(|e| EventError::Serialization(e))?;
+        
+        if let Err(e) = sender.send_to_client(player_id, data).await {
+            warn!("❌ Failed to send zone exit message to player {}: {}", player_id, e);
+        } else {
+            info!("🚪 GORC: Player {} exited zone {} of object {} ({})", 
+                  player_id, channel, object_id, object_type);
         }
         
         Ok(())
