@@ -57,11 +57,11 @@ impl SimplePlugin for PlayerPlugin {
             LogLevel::Info,
             "🎮 PlayerPlugin: Registering GORC player event handlers...",
         );
+        let tokio_handle = context.tokio_handle();
 
-        // Register player connection handler exactly like LoggerPlugin
+        // Register player connection handler as async to avoid deadlock
         let players_conn = Arc::clone(&self.players);
         let events_for_conn = Arc::clone(&events);
-        let context_for_conn = Arc::clone(&context);
         events
             .on_core(
                 "player_connected",
@@ -81,29 +81,21 @@ impl SimplePlugin for PlayerPlugin {
                             spawn_position
                         );
                         
-                        println!("🎮 GORC: Created GorcPlayer: {:?}", player);
-                        
-                        // Use async block to handle the real GORC registration
+                        // Use tokio::spawn to handle async operations without blocking
                         let players_conn_clone = players_conn.clone();
                         let events_clone = Arc::clone(&events_for_conn);
-                        let context_clone = Arc::clone(&context_for_conn);
-                        let handle = context_clone.tokio_handle();
-                        handle.block_on(async move {
-                            println!("🎮 GORC: About to register player {} with GORC instances", event.player_id);
-
+                        
+                        tokio_handle.block_on(async move {
                             // Register the player object with GORC
                             let gorc_id = gorc_instances.register_object(player, spawn_position).await;
-                            println!("🎮 GORC: register_object returned GORC ID: {:?}", gorc_id);
                             
                             // Store the GORC ID for cleanup later
                             players_conn_clone.insert(event.player_id, gorc_id);
                             
-                            println!("🎮 GORC: ✅ Player {} registered with REAL GORC instance ID {:?} at position {:?}", 
+                            println!("🎮 GORC: ✅ Player {} registered with GORC instance ID {:?} at position {:?}", 
                                 event.player_id, gorc_id, spawn_position);
 
                             // CRITICAL FIX: Use EventSystem's update_player_position to trigger zone messages
-                            // This will properly send zone enter messages to clients
-                            println!("🎮 GORC: Calling EventSystem.update_player_position to trigger zone messages");
                             if let Err(e) = events_clone.update_player_position(event.player_id, spawn_position).await {
                                 println!("🎮 GORC: ❌ Failed to update player position via EventSystem: {}", e);
                             } else {
@@ -112,7 +104,6 @@ impl SimplePlugin for PlayerPlugin {
                             
                             // Add player to GORC position tracking AFTER zone messages are sent
                             gorc_instances.add_player(event.player_id, spawn_position).await;
-                            println!("🎮 GORC: add_player completed for player {}", event.player_id);
                         });
                     } else {
                         println!("🎮 GORC: ❌ No GORC instances manager available for player {}", event.player_id);
@@ -142,8 +133,6 @@ impl SimplePlugin for PlayerPlugin {
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         // Register GORC event handlers to process incoming client GORC events
-        let players_gorc = Arc::clone(&self.players);
-        let events_for_gorc = Arc::clone(&events);
         
         // Handle GORC movement events (channel 0)
         events
@@ -175,7 +164,9 @@ impl SimplePlugin for PlayerPlugin {
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
+
         // Handle GORC chat events (channel 2)  
+        let tokio_handle = context.tokio_handle();
         let events_for_chat = Arc::clone(&events);
         events
             .on_gorc_instance(
@@ -200,7 +191,7 @@ impl SimplePlugin for PlayerPlugin {
                             // Broadcast to nearby players via GORC (using Client destination for replication)
                             let events_clone = events_for_chat.clone();
                             let object_id_str = gorc_event.object_id.clone(); 
-                            tokio::spawn(async move {
+                            tokio_handle.block_on(async move {
                                 if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
                                     if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 2, "chat_message", &chat_response, horizon_event_system::Dest::Client).await {
                                         println!("🎮 GORC: ❌ Failed to broadcast chat: {}", e);

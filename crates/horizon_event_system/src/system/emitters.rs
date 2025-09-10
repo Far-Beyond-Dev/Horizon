@@ -243,14 +243,12 @@ impl EventSystem {
     
     /// Update player position and handle zone membership changes (event-driven GORC)
     pub async fn update_player_position(&self, player_id: PlayerId, new_position: Vec3) -> Result<(), EventError> {
-        println!("🎮 EVENT DEBUG: EventSystem.update_player_position called for player {} at position {:?}", player_id, new_position);
         
         // Get the GORC instances manager
         let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
             EventError::HandlerExecution("GORC instance manager not available".to_string())
         })?;
         
-        println!("🎮 EVENT DEBUG: About to call gorc_instances.update_player_position");
         
         // Update position and get zone changes
         let (zone_entries, zone_exits) = gorc_instances.update_player_position(player_id, new_position).await;
@@ -269,7 +267,6 @@ impl EventSystem {
             self.send_zone_exit_message(player_id, object_id, channel).await?;
         }
         
-        println!("🎮 EVENT DEBUG: EventSystem.update_player_position completed");
         Ok(())
     }
     

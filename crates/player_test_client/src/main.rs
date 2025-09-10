@@ -379,111 +379,152 @@ async fn simulate_player(
             // Handle incoming messages from server
             msg = ws_receiver.next() => {
                 match msg {
-                    Some(Ok(Message::Text(text))) => {
-                        // DEBUG: Log ALL incoming messages with full details
-                        info!("🔍 Player {} received RAW message (length: {}): {}", player_id, text.len(), text);
-                        
-                        // Try to parse as different message types
-                        if text.starts_with("{") {
-                            // Try parsing as JSON
-                            match serde_json::from_str::<serde_json::Value>(&text) {
-                                Ok(json) => {
-                                    info!("📋 Player {} parsed JSON structure: {:#}", player_id, json);
-                                    
-                                    // Check message type
-                                    if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
-                                        match msg_type {
-                                            "gorc_zone_enter" => {
-                                                info!("🎯 Player {} received GORC ZONE ENTER: {:#}", player_id, json);
-                                                
-                                                // Extract GORC instance ID from zone enter message
-                                                if let Some(instance_id_str) = json.get("object_id").and_then(|v| v.as_str()) {
-                                                    match GorcObjectId::from_str(instance_id_str) {
-                                                        Ok(instance_id) => {
-                                                            player.server_gorc_instance_id = Some(instance_id);
-                                                            let channel = json.get("channel").and_then(|v| v.as_u64()).unwrap_or(0);
-                                                            let object_type = json.get("object_type").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                                                            info!("✅ Player {} entered GORC zone {} for {} (ID: {})", player_id, channel, object_type, instance_id);
+                    Some(Ok(message)) => {
+                        // Log the variant and content where possible
+                        match &message {
+                            Message::Text(text) => {
+                                // Raw text received
+                                info!("🔍 Player {} received RAW message (length: {}): {}", player_id, text.len(), text);
+
+                                // Try to parse as different message types (preserve existing behavior)
+                                if text.starts_with("{") {
+                                    // Try parsing as JSON
+                                    match serde_json::from_str::<serde_json::Value>(&text) {
+                                        Ok(json) => {
+                                            info!("📋 Player {} parsed JSON structure: {:#}", player_id, json);
+
+                                            // Check message type
+                                            if let Some(msg_type) = json.get("type").and_then(|v| v.as_str()) {
+                                                match msg_type {
+                                                    "gorc_zone_enter" => {
+                                                        info!("🎯 Player {} received GORC ZONE ENTER: {:#}", player_id, json);
+
+                                                        // Extract GORC instance ID from zone enter message
+                                                        if let Some(instance_id_str) = json.get("object_id").and_then(|v| v.as_str()) {
+                                                            match GorcObjectId::from_str(instance_id_str) {
+                                                                Ok(instance_id) => {
+                                                                    player.server_gorc_instance_id = Some(instance_id);
+                                                                    let channel = json.get("channel").and_then(|v| v.as_u64()).unwrap_or(0);
+                                                                    let object_type = json.get("object_type").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                                                                    info!("✅ Player {} entered GORC zone {} for {} (ID: {})", player_id, channel, object_type, instance_id);
+                                                                }
+                                                                Err(e) => {
+                                                                    error!("❌ Player {} failed to parse GORC instance ID '{}': {}", player_id, instance_id_str, e);
+                                                                }
+                                                            }
+                                                        } else {
+                                                            error!("❌ Player {} received GORC zone enter without instance ID", player_id);
                                                         }
-                                                        Err(e) => {
-                                                            error!("❌ Player {} failed to parse GORC instance ID '{}': {}", player_id, instance_id_str, e);
-                                                        }
+                                                        received_events += 1;
                                                     }
-                                                } else {
-                                                    error!("❌ Player {} received GORC zone enter without instance ID", player_id);
-                                                }
-                                                received_events += 1;
-                                            }
-                                            "gorc_zone_exit" => {
-                                                info!("🎯 Player {} received GORC ZONE EXIT: {:#}", player_id, json);
-                                                received_events += 1;
-                                            }
-                                            "gorc_event" => {
-                                                info!("🎯 Player {} received GORC EVENT: {:#}", player_id, json);
-                                                received_events += 1;
-                                            }
-                                            _ => {
-                                                // Other message types handled below
-                                            }
-                                        }
-                                    }
-                                    
-                                    // Try parsing as ServerEvent
-                                    if let Ok(server_event) = serde_json::from_str::<ServerEvent>(&text) {
-                                        received_events += 1;
-                                        info!("✅ Player {} parsed valid ServerEvent: {:?}", player_id, server_event);
-                                        
-                                        // Log different types of received events
-                                        match server_event.event_type.as_str() {
-                                            "position_update" => {
-                                                if let Some(other_player) = server_event.player_id.as_ref() {
-                                                    if *other_player != format!("{}", player_id) {
-                                                        info!("📍 Player {} sees {} moved", player_id, other_player);
+                                                    "gorc_zone_exit" => {
+                                                        info!("🎯 Player {} received GORC ZONE EXIT: {:#}", player_id, json);
+                                                        received_events += 1;
+                                                    }
+                                                    "gorc_event" => {
+                                                        info!("🎯 Player {} received GORC EVENT: {:#}", player_id, json);
+                                                        received_events += 1;
+                                                    }
+                                                    _ => {
+                                                        // Other message types handled below
                                                     }
                                                 }
                                             }
-                                            "combat_event" => {
-                                                info!("⚔️ Player {} sees combat event", player_id);
-                                            }
-                                            "chat_message" => {
-                                                if let Some(msg) = server_event.data.get("message") {
-                                                    info!("💬 Player {} received chat: {}", player_id, msg);
+
+                                            // Try parsing as ServerEvent
+                                            if let Ok(server_event) = serde_json::from_str::<ServerEvent>(&text) {
+                                                received_events += 1;
+                                                info!("✅ Player {} parsed valid ServerEvent: {:?}", player_id, server_event);
+
+                                                // Log different types of received events
+                                                match server_event.event_type.as_str() {
+                                                    "position_update" => {
+                                                        if let Some(other_player) = server_event.player_id.as_ref() {
+                                                            if *other_player != format!("{}", player_id) {
+                                                                info!("📍 Player {} sees {} moved", player_id, other_player);
+                                                            }
+                                                        }
+                                                    }
+                                                    "combat_event" => {
+                                                        info!("⚔️ Player {} sees combat event", player_id);
+                                                    }
+                                                    "chat_message" => {
+                                                        if let Some(msg) = server_event.data.get("message") {
+                                                            info!("💬 Player {} received chat: {}", player_id, msg);
+                                                        }
+                                                    }
+                                                    "level_update" => {
+                                                        info!("⭐ Player {} sees level update", player_id);
+                                                    }
+                                                    "test_event" => {
+                                                        info!("🧪 Player {} received test event from server!", player_id);
+                                                    }
+                                                    _ => {
+                                                        info!("📨 Player {} received: {}", player_id, server_event.event_type);
+                                                    }
                                                 }
-                                            }
-                                            "level_update" => {
-                                                info!("⭐ Player {} sees level update", player_id);
-                                            }
-                                            "test_event" => {
-                                                info!("🧪 Player {} received test event from server!", player_id);
-                                            }
-                                            _ => {
-                                                info!("📨 Player {} received: {}", player_id, server_event.event_type);
+                                            } else {
+                                                info!("⚠️ Player {} received JSON but not ServerEvent format", player_id);
                                             }
                                         }
-                                    } else {
-                                        info!("⚠️ Player {} received JSON but not ServerEvent format", player_id);
+                                        Err(e) => {
+                                            info!("❌ Player {} failed to parse JSON: {}", player_id, e);
+                                        }
                                     }
-                                }
-                                Err(e) => {
-                                    info!("❌ Player {} failed to parse JSON: {}", player_id, e);
+                                } else {
+                                    info!("📝 Player {} received non-JSON message: {}", player_id, text);
                                 }
                             }
-                        } else {
-                            info!("📝 Player {} received non-JSON message: {}", player_id, text);
+                            Message::Binary(bin) => {
+                                // Try UTF-8 first, otherwise present a truncated hex snippet
+                                if let Ok(s) = std::str::from_utf8(&bin) {
+                                    info!("📦 Player {} received BINARY (as UTF-8) length {}: {}", player_id, bin.len(), s);
+                                } else {
+                                    // Truncate long binary payloads in logs
+                                    let display_len = 256.min(bin.len());
+                                    let hex_snippet: String = bin.iter().take(display_len).map(|b| format!("{:02x}", b)).collect::<Vec<_>>().join("");
+                                    if bin.len() > display_len {
+                                        info!("📦 Player {} received BINARY length {} hex (first {} bytes): {}...", player_id, bin.len(), display_len, hex_snippet);
+                                    } else {
+                                        info!("📦 Player {} received BINARY length {} hex: {}", player_id, bin.len(), hex_snippet);
+                                    }
+                                }
+                                received_events += 1;
+                            }
+                            Message::Ping(payload) => {
+                                let payload_str = std::str::from_utf8(payload).unwrap_or("<non-utf8>");
+                                info!("🔔 Player {} received PING (len {}): {}", player_id, payload.len(), payload_str);
+                                received_events += 1;
+                            }
+                            Message::Pong(payload) => {
+                                let payload_str = std::str::from_utf8(payload).unwrap_or("<non-utf8>");
+                                info!("🔔 Player {} received PONG (len {}): {}", player_id, payload.len(), payload_str);
+                                received_events += 1;
+                            }
+                            Message::Close(frame) => {
+                                info!("🔌 Player {} received CLOSE: {:?}", player_id, frame);
+                                // Do not increment received_events for close; we'll break below
+                            }
+                            _ => {
+                                info!("📨 Player {} received unhandled message variant: {:?}", player_id, message);
+                                received_events += 1;
+                            }
                         }
-                    }
-                    Some(Ok(Message::Binary(_))) => {
-                        info!("📦 Player {} received binary data", player_id);
+
+                        // If the message was a Close, stop the loop
+                        if let Message::Close(_) = message {
+                            info!("🔌 Player {} connection closed by server", player_id);
+                            break;
+                        }
                     }
                     Some(Err(e)) => {
                         warn!("⚠️ Player {} WebSocket error: {}", player_id, e);
                         break;
                     }
                     None => {
-                        info!("🔌 Player {} connection closed", player_id);
+                        info!("🔌 Player {} connection closed (stream ended)", player_id);
                         break;
                     }
-                    _ => {}
                 }
             }
             
