@@ -429,7 +429,12 @@ impl GorcInstanceManager {
 
         println!("🎮 GORC: Zone changes for player {} - {} entries, {} exits", player_id, zone_entries.len(), zone_exits.len());
 
+
         // If this is a new player or they moved significantly, recalculate subscriptions
+        //
+        // N.B. `recalculate_player_subscriptions` tries to acquire a write lock to `objects`,
+        // which will deadlock. release the read lock now
+        drop(objects);
         if old_position.is_none() || 
            old_position.map(|old| old.distance(new_position) > 5.0).unwrap_or(true) {
             self.recalculate_player_subscriptions(player_id, new_position).await;
