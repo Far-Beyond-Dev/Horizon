@@ -424,6 +424,7 @@ impl EventSystem {
                 }
             };
 
+            // TODO: This blocking call is not ideal - we should implement this in a non-blocking way
             let result = tokio::task::block_in_place(move || {
                 let runtime = tokio::runtime::Handle::current();
                 runtime.block_on(async move {

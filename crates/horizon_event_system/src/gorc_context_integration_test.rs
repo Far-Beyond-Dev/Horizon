@@ -39,8 +39,10 @@ impl ServerContext for TestServerContextWithGorc {
         Ok(())
     }
 
-    fn tokio_handle(&self) -> tokio::runtime::Handle {
-        tokio::runtime::Handle::current()
+    fn luminal_handle(&self) -> luminal::Handle {
+        // Create a new luminal runtime for testing
+        let rt = luminal::Runtime::new().expect("Failed to create luminal runtime for tests");
+        rt.handle().clone()
     }
 
     fn gorc_instance_manager(&self) -> Option<Arc<gorc::GorcInstanceManager>> {
@@ -102,7 +104,10 @@ mod tests {
             fn log(&self, _level: LogLevel, _message: &str) {}
             async fn send_to_player(&self, _player_id: PlayerId, _data: &[u8]) -> Result<(), ServerError> { Ok(()) }
             async fn broadcast(&self, _data: &[u8]) -> Result<(), ServerError> { Ok(()) }
-            fn tokio_handle(&self) -> tokio::runtime::Handle { tokio::runtime::Handle::current() }
+            fn luminal_handle(&self) -> luminal::Handle { 
+                let rt = luminal::Runtime::new().expect("Failed to create luminal runtime for tests");
+                rt.handle().clone()
+            }
             fn gorc_instance_manager(&self) -> Option<Arc<gorc::GorcInstanceManager>> { None }
         }
         

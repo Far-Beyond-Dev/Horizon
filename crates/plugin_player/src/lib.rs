@@ -57,7 +57,7 @@ impl SimplePlugin for PlayerPlugin {
             LogLevel::Info,
             "🎮 PlayerPlugin: Registering GORC player event handlers...",
         );
-        let tokio_handle = context.tokio_handle();
+        let luminal_handle = context.luminal_handle();
 
         // Register player connection handler as async to avoid deadlock
         let players_conn = Arc::clone(&self.players);
@@ -85,7 +85,9 @@ impl SimplePlugin for PlayerPlugin {
                         let players_conn_clone = players_conn.clone();
                         let events_clone = Arc::clone(&events_for_conn);
                         
-                        tokio_handle.block_on(async move {
+                        println!("🎮 GORC: Spawning async task to register player {} with GORC", event.player_id);
+                        luminal_handle.spawn(async move {
+                            println!("🎮 GORC: Async task started for player {}", event.player_id);
                             // Register the player object with GORC
                             let gorc_id = gorc_instances.register_object(player, spawn_position).await;
                             
@@ -166,7 +168,7 @@ impl SimplePlugin for PlayerPlugin {
 
 
         // Handle GORC chat events (channel 2)  
-        let tokio_handle = context.tokio_handle();
+        let luminal_handle = context.luminal_handle();
         let events_for_chat = Arc::clone(&events);
         events
             .on_gorc_instance(
@@ -191,7 +193,7 @@ impl SimplePlugin for PlayerPlugin {
                             // Broadcast to nearby players via GORC (using Client destination for replication)
                             let events_clone = events_for_chat.clone();
                             let object_id_str = gorc_event.object_id.clone(); 
-                            tokio_handle.block_on(async move {
+                            luminal_handle.spawn(async move {
                                 if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
                                     if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 2, "chat_message", &chat_response, horizon_event_system::Dest::Client).await {
                                         println!("🎮 GORC: ❌ Failed to broadcast chat: {}", e);

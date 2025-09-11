@@ -36,8 +36,10 @@ impl ServerContext for MockServerContext {
         Ok(())
     }
 
-    fn tokio_handle(&self) -> tokio::runtime::Handle {
-        tokio::runtime::Handle::try_current().expect("No tokio runtime handle available")
+    fn luminal_handle(&self) -> luminal::Handle {
+        // Create a new luminal runtime for testing
+        let rt = luminal::Runtime::new().expect("Failed to create luminal runtime for tests");
+        rt.handle().clone()
     }
 
     fn gorc_instance_manager(&self) -> Option<Arc<crate::gorc::GorcInstanceManager>> {

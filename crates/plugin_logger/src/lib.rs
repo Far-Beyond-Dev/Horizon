@@ -155,7 +155,7 @@ impl SimplePlugin for LoggerPlugin {
                     });
 
                     let context_for_async = context_clone.clone();
-                    context_clone.tokio_handle().block_on(async move {
+                    context_clone.luminal_handle().spawn(async move {
                         if let Err(e) = connection.respond_json(&response).await {
                             context_for_async.log(
                                 LogLevel::Error,
@@ -204,7 +204,7 @@ impl SimplePlugin for LoggerPlugin {
 
                             let events_system = events_clone.clone();
                             if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                                handle.block_on(async move {
+                                handle.spawn(async move {
                                     if let Err(_e) = events_system
                                         .emit_core("player_movement", &core_movement_event)
                                         .await
@@ -329,7 +329,7 @@ impl SimplePlugin for LoggerPlugin {
         // Set up a periodic summary using async event emission with tokio handle from context
         let events_clone = context.events();
         let events_ref = events_clone.clone();
-        let tokio_handle = context.tokio_handle();
+        let luminal_handle = context.luminal_handle();
         let context_clone = context.clone();
 
         use std::sync::atomic::{AtomicU32, Ordering};
@@ -345,7 +345,7 @@ impl SimplePlugin for LoggerPlugin {
                 let context_inner = context_clone.clone();
 
                 // Use the tokio runtime handle passed from the main process via context
-                tokio_handle.block_on(async {
+                luminal_handle.spawn(async move {
                     // Emit periodic summary every 30 server ticks (assuming ~1 tick per second)
                     let tick = tick_counter.fetch_add(1, Ordering::SeqCst) + 1;
                     if tick % 2 == 0 {
