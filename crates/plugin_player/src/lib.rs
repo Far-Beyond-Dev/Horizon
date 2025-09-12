@@ -4,6 +4,7 @@ use horizon_event_system::{
     ServerContext, SimplePlugin, Vec3, GorcObjectId,
     PlayerConnectedEvent, PlayerDisconnectedEvent,
 };
+use tracing::{debug, error};
 use std::sync::Arc;
 use dashmap::DashMap;
 
@@ -62,6 +63,7 @@ impl SimplePlugin for PlayerPlugin {
         // Register player connection handler as async to avoid deadlock
         let players_conn = Arc::clone(&self.players);
         let events_for_conn = Arc::clone(&events);
+        let luminal_handle_player_connect = luminal_handle.clone();
         events
             .on_core(
                 "player_connected",
@@ -86,7 +88,7 @@ impl SimplePlugin for PlayerPlugin {
                         let events_clone = Arc::clone(&events_for_conn);
                         
                         println!("🎮 GORC: Spawning async task to register player {} with GORC", event.player_id);
-                        luminal_handle.spawn(async move {
+                        luminal_handle_player_connect.spawn(async move {
                             println!("🎮 GORC: Async task started for player {}", event.player_id);
                             // Register the player object with GORC
                             let gorc_id = gorc_instances.register_object(player, spawn_position).await;
@@ -141,33 +143,31 @@ impl SimplePlugin for PlayerPlugin {
         let events_for_move = Arc::clone(&events);
         events
             .on_gorc_client(
+                luminal_handle.clone(),
                 "GorcPlayer",
                 0,
                 "move", 
                 move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, connection: horizon_event_system::ClientConnectionRef, object_instance: &mut horizon_event_system::ObjectInstance| {
-                    println!("🚀 GORC: Received client movement request from player {} (IP: {}) for instance {}: {:?}", 
-                        client_player, connection.remote_addr, gorc_event.object_id, gorc_event);
-                    
                     // Validate connection authentication
                     if !connection.is_authenticated() {
-                        println!("🚀 GORC: ❌ Unauthenticated movement request from {}", connection.remote_addr);
+                        error!("🚀 GORC: ❌ Unauthenticated movement request from {}", connection.remote_addr);
                         return Err(horizon_event_system::EventError::HandlerExecution("Unauthenticated request".to_string()));
                     }
                     
                     // Parse movement data from the GORC event
                     if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
                         if let Ok(move_data) = serde_json::from_value::<events::PlayerMoveRequest>(event_data) {
-                            println!("🚀 GORC: Processing movement for ship {} to position {:?}", move_data.player_id, move_data.new_position);
+                            debug!("🚀 GORC: Processing movement for ship {} to position {:?}", move_data.player_id, move_data.new_position);
                             
                             // Validate the player owns this ship
                             if move_data.player_id != client_player {
-                                println!("🚀 GORC: ❌ Security violation: Player {} tried to move ship belonging to {}", client_player, move_data.player_id);
+                                error!("🚀 GORC: ❌ Security violation: Player {} tried to move ship belonging to {}", client_player, move_data.player_id);
                                 return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized ship movement".to_string()));
                             }
                             
                             // Update the object instance position directly
                             object_instance.object.update_position(move_data.new_position);
-                            println!("🚀 GORC: ✅ Updated ship position for {} to {:?}", client_player, move_data.new_position);
+                            debug!("🚀 GORC: ✅ Updated ship position for {} to {:?}", client_player, move_data.new_position);
                             
                             // Emit position update to nearby players via GORC instance event
                             let events_clone = events_for_move.clone();
@@ -183,17 +183,17 @@ impl SimplePlugin for PlayerPlugin {
                             tokio::spawn(async move {
                                 if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
                                     if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 0, "position_update", &position_update, horizon_event_system::Dest::Client).await {
-                                        println!("🚀 GORC: ❌ Failed to broadcast position update: {}", e);
+                                        error!("🚀 GORC: ❌ Failed to broadcast position update: {}", e);
                                     } else {
-                                        println!("🚀 GORC: ✅ Broadcasted position update for ship {}", client_player);
+                                        debug!("🚀 GORC: ✅ Broadcasted position update for ship {}", client_player);
                                     }
                                 }
                             });
                         } else {
-                            println!("🚀 GORC: ❌ Failed to parse PlayerMoveRequest from event data");
+                            error!("🚀 GORC: ❌ Failed to parse PlayerMoveRequest from event data");
                         }
                     } else {
-                        println!("🚀 GORC: ❌ Failed to parse JSON from GORC event data");
+                        error!("🚀 GORC: ❌ Failed to parse JSON from GORC event data");
                     }
                     
                     Ok(())
@@ -206,20 +206,21 @@ impl SimplePlugin for PlayerPlugin {
         let events_for_combat = Arc::clone(&events);
         events
             .on_gorc_client(
+                luminal_handle.clone(),
                 "GorcPlayer",
                 1,
                 "attack",
                 move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef, _object_instance: &mut horizon_event_system::ObjectInstance| {
-                    println!("⚡ GORC: Received client combat request from ship {}: {:?}", client_player, gorc_event);
+                    debug!("⚡ GORC: Received client combat request from ship {}: {:?}", client_player, gorc_event);
                     
                     // Parse attack data from GORC event
                     if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
                         if let Ok(attack_data) = serde_json::from_value::<events::PlayerAttackRequest>(event_data) {
-                            println!("⚡ GORC: Ship {} fires {} at {:?}", attack_data.player_id, attack_data.attack_type, attack_data.target_position);
+                            debug!("⚡ GORC: Ship {} fires {} at {:?}", attack_data.player_id, attack_data.attack_type, attack_data.target_position);
                             
                             // Validate the player owns this ship
                             if attack_data.player_id != client_player {
-                                println!("⚡ GORC: ❌ Security violation: Player {} tried to fire weapons as {}", client_player, attack_data.player_id);
+                                error!("⚡ GORC: ❌ Security violation: Player {} tried to fire weapons as {}", client_player, attack_data.player_id);
                                 return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized weapon fire".to_string()));
                             }
                             
@@ -237,17 +238,17 @@ impl SimplePlugin for PlayerPlugin {
                             tokio::spawn(async move {
                                 if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
                                     if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 1, "weapon_fire", &weapon_fire, horizon_event_system::Dest::Client).await {
-                                        println!("⚡ GORC: ❌ Failed to broadcast weapon fire: {}", e);
+                                        error!("⚡ GORC: ❌ Failed to broadcast weapon fire: {}", e);
                                     } else {
-                                        println!("⚡ GORC: ✅ Broadcasting weapon fire from ship {} (auto-replicated to ships within 500m)", attack_data.player_id);
+                                        debug!("⚡ GORC: ✅ Broadcasting weapon fire from ship {} (auto-replicated to ships within 500m)", attack_data.player_id);
                                     }
                                 }
                             });
                         } else {
-                            println!("⚡ GORC: ❌ Failed to parse PlayerAttackRequest from event data");
+                            error!("⚡ GORC: ❌ Failed to parse PlayerAttackRequest from event data");
                         }
                     } else {
-                        println!("⚡ GORC: ❌ Failed to parse JSON from GORC combat event data");
+                        error!("⚡ GORC: ❌ Failed to parse JSON from GORC combat event data");
                     }
                     
                     Ok(())
@@ -261,6 +262,7 @@ impl SimplePlugin for PlayerPlugin {
         let events_for_chat = Arc::clone(&events);
         events
             .on_gorc_client(
+                luminal_handle.clone(),
                 "GorcPlayer", 
                 2,
                 "chat",
@@ -316,7 +318,8 @@ impl SimplePlugin for PlayerPlugin {
         let events_for_scan = Arc::clone(&events);
         events
             .on_gorc_client(
-                "GorcPlayer", 
+                luminal_handle.clone(),
+                "GorcPlayer",
                 3,
                 "ship_scan",
                 move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef, _object_instance: &mut horizon_event_system::ObjectInstance| {

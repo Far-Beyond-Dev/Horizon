@@ -6,6 +6,8 @@ use super::client::ClientConnectionRef;
 use std::sync::Arc;
 use tracing::{error, info};
 use compact_str::CompactString;
+#[cfg(debug_assertions)]
+use backtrace;
 
 impl EventSystem {
     /// Registers a handler for core server events.
@@ -181,6 +183,7 @@ impl EventSystem {
     /// ```
     pub async fn on_gorc_client<F>(
         &self,
+        luminal_rt: luminal::Handle,
         object_type: &str,
         channel: u8,
         event_name: &str,
@@ -194,7 +197,7 @@ impl EventSystem {
             + 'static,
     {
         let event_key = CompactString::new_inline("gorc_client:") + object_type + ":" + &channel.to_string() + ":" + event_name;
-        self.register_gorc_client_handler(event_key, event_name, handler)
+        self.register_gorc_client_handler(event_key, event_name, handler, luminal_rt)
             .await
     }
 
@@ -519,6 +522,7 @@ impl EventSystem {
         event_key: CompactString,
         _event_name: &str,
         handler: F,
+        luminal_rt: luminal::Handle,
     ) -> Result<(), EventError>
     where
         F: Fn(GorcEvent, crate::types::PlayerId, ClientConnectionRef, &mut ObjectInstance) -> Result<(), EventError>
@@ -556,12 +560,31 @@ impl EventSystem {
                 }
             };
 
-            let gorc_event = match serde_json::from_value::<GorcEvent>(event_data) {
-                Ok(event) => event,
-                Err(e) => {
-                    error!("❌ Failed to deserialize GORC event: {}", e);
-                    return Err(EventError::HandlerExecution("Invalid GORC event format".to_string()));
-                }
+            // Create a GorcEvent from the client event data structure
+            let gorc_event = GorcEvent {
+                object_id: event_data.get("object_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
+                instance_uuid: event_data.get("object_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown")
+                    .to_string(),
+                object_type: event_data.get("object_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string(),
+                channel: event_data.get("channel")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u8,
+                data: serde_json::to_vec(
+                    event_data.get("data")
+                        .unwrap_or(&serde_json::Value::Null)
+                ).unwrap_or_default(),
+                priority: "Normal".to_string(),
+                timestamp: event_data.get("timestamp")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(crate::utils::current_timestamp()),
             };
 
             // Create client connection ref
@@ -596,16 +619,24 @@ impl EventSystem {
             };
 
             // Execute the handler with instance access and connection context
-            tokio::task::block_in_place(move || {
-                let runtime = tokio::runtime::Handle::current();
-                runtime.block_on(async move {
-                    if let Some(mut instance) = instances.get_object(object_id).await {
-                        handler_fn(gorc_event, player_id, client_ref, &mut instance)
-                    } else {
-                        Err(EventError::HandlerExecution("Object instance not found".to_string()))
-                    }
-                })
-            })
+            let luminal_rt_clone = luminal_rt.clone();
+            let spawn_result = luminal_rt_clone.spawn({
+                let luminal_rt_inner = luminal_rt_clone.clone();
+                async move {
+                    luminal_rt_inner.block_on(async move {
+                        if let Some(mut instance) = instances.get_object(object_id).await {
+                            handler_fn(gorc_event, player_id, client_ref, &mut instance)
+                        } else {
+                            Err(EventError::HandlerExecution("Object instance not found".to_string()))
+                        }
+                    })
+                }
+            });
+
+            // Always return Ok(()) to satisfy the expected return type
+            match spawn_result {
+                _ => Ok(()),
+            }
         });
 
         let handler_arc: Arc<dyn EventHandler> = Arc::new(gorc_client_handler);
