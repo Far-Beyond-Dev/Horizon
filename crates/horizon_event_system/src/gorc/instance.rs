@@ -470,12 +470,16 @@ impl GorcInstanceManager {
 
     /// Add a player to the position tracking system
     pub async fn add_player(&self, player_id: PlayerId, position: Vec3) {
+        println!("🎮 GORC: Adding player {} at position {:?}", player_id, position);
+
         let mut player_positions = self.player_positions.write().await;
         player_positions.insert(player_id, position);
         
         // Update statistics
         let mut stats = self.stats.write().await;
         stats.total_subscriptions += 1;
+
+        println!("🎮 GORC: Player {} added. Total tracked players: {}", player_id, player_positions.len());
     }
     
     /// Remove a player from all subscriptions

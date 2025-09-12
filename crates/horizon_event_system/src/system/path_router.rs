@@ -9,7 +9,7 @@ use compact_str::CompactString;
 #[derive(Debug, Default)]
 pub struct PathNode {
     /// Handlers registered at this exact path
-    pub handlers: SmallVec<[Arc<dyn EventHandler>; 4]>,
+    pub handlers: Vec<Arc<dyn EventHandler>>,
     /// Child nodes for deeper paths
     pub children: HashMap<CompactString, PathNode>,
 }
@@ -41,22 +41,19 @@ impl PathRouter {
     pub fn register_handler(&mut self, path: &str, handler: Arc<dyn EventHandler>) {
         let parts: Vec<&str> = path.split(':').collect();
         let mut current = &mut self.root;
-        
         // Navigate/create the path
         for part in parts {
             let key = CompactString::new(part);
             current = current.children.entry(key).or_default();
         }
-        
         // Add handler at the final node
         current.handlers.push(handler);
     }
 
     /// Find handlers for the given path
-    pub fn find_handlers(&self, path: &str) -> Option<&SmallVec<[Arc<dyn EventHandler>; 4]>> {
+    pub fn find_handlers(&self, path: &str) -> Option<&Vec<Arc<dyn EventHandler>>> {
         let parts: Vec<&str> = path.split(':').collect();
         let mut current = &self.root;
-        
         // Navigate the path
         for part in parts {
             let key = CompactString::new(part);
@@ -65,7 +62,6 @@ impl PathRouter {
                 None => return None,
             }
         }
-        
         // Return handlers if any exist at this path
         if current.handlers.is_empty() {
             None

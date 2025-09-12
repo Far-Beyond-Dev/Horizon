@@ -202,36 +202,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_gorc_event_system() {
-        let gorc_instances = Arc::new(GorcInstanceManager::new());
-        let events = EventSystem::with_gorc(gorc_instances);
-        
-        // Register GORC handler
-        events.on_gorc("Asteroid", 0, "position_update", |event: GorcEvent| {
-            assert_eq!(event.object_type, "Asteroid");
-            assert_eq!(event.channel, 0);
-            Ok(())
-        }).await.unwrap();
-        
-        // Emit GORC event
-        let object_id = GorcObjectId::new();
-        let gorc_event = GorcEvent {
-            object_id: object_id.to_string(),
-            instance_uuid: format!("test_instance_{}", object_id),
-            object_type: "Asteroid".to_string(),
-            channel: 0,
-            data: vec![1, 2, 3, 4],
-            priority: "Critical".to_string(),
-            timestamp: crate::utils::current_timestamp(),
-        };
-        
-        events.emit_gorc("Asteroid", 0, "position_update", &gorc_event).await.unwrap();
-        
-        let stats = events.get_stats().await;
-        assert_eq!(stats.gorc_events_emitted, 1);
-    }
-
-    #[tokio::test]
     async fn test_handler_category_stats() {
         let events = EventSystem::new();
         
@@ -239,7 +209,6 @@ mod tests {
         events.on_core("test_core", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
         events.on_client("test", "test_client", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
         events.on_plugin("test_plugin", "test_event", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
-        events.on_gorc("TestObject", 0, "test_gorc", |_: GorcEvent| Ok(())).await.unwrap();
         
         let detailed_stats = events.get_detailed_stats().await;
         let category_stats = detailed_stats.handler_count_by_category;

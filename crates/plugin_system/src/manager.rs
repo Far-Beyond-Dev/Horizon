@@ -30,7 +30,6 @@ pub struct PluginSafetyConfig {
 
 //TODO: provide real region and player communication.
 /// Minimal server context for plugin initialization and testing.
-///
 #[derive(Clone)]
 struct BasicServerContext {
     event_system: Arc<EventSystem>,

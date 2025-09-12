@@ -6,7 +6,7 @@ use super::stats::EventSystemStats;
 use super::path_router::PathRouter;
 use std::sync::Arc;
 use dashmap::DashMap;
-use smallvec::SmallVec;
+// use smallvec::SmallVec;
 use compact_str::CompactString;
 use super::cache::SerializationBufferPool;
 use tokio::sync::RwLock;
@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 /// Uses SmallVec to eliminate heap allocations for the common case of 1-4 handlers per event.
 pub struct EventSystem {
     /// Lock-free map of event keys to their registered handlers (optimized with SmallVec + CompactString)  
-    pub(super) handlers: DashMap<CompactString, SmallVec<[Arc<dyn EventHandler>; 4]>>,
+    pub(super) handlers: DashMap<CompactString, Vec<Arc<dyn EventHandler>>>,
     /// Path-based router for efficient similarity searches and hierarchical organization
     pub(super) path_router: RwLock<PathRouter>,
     /// System statistics for monitoring (kept as RwLock for atomic updates)

@@ -284,7 +284,7 @@ impl EventSystem {
         // Lock-free insertion using DashMap with SmallVec optimization
         self.handlers
             .entry(event_key.clone())
-            .or_insert_with(smallvec::SmallVec::new)
+            .or_insert_with(Vec::new)
             .push(handler_arc.clone());
 
         // Also register with path router for efficient similarity searches
@@ -336,7 +336,7 @@ impl EventSystem {
         // Lock-free insertion using DashMap with SmallVec optimization
         self.handlers
             .entry(event_key.clone())
-            .or_insert_with(smallvec::SmallVec::new)
+            .or_insert_with(Vec::new)
             .push(handler_arc.clone());
 
         // Also register with path router for efficient similarity searches
@@ -424,7 +424,7 @@ impl EventSystem {
         // Lock-free insertion using DashMap with SmallVec optimization
         self.handlers
             .entry(event_key.clone())
-            .or_insert_with(smallvec::SmallVec::new)
+            .or_insert_with(Vec::new)
             .push(handler_arc.clone());
 
         // Also register with path router for efficient similarity searches
@@ -497,7 +497,7 @@ impl EventSystem {
         // Lock-free insertion using DashMap with SmallVec optimization
         self.handlers
             .entry(event_key.clone())
-            .or_insert_with(smallvec::SmallVec::new)
+            .or_insert_with(Vec::new)
             .push(handler_arc.clone());
 
         // Also register with path router for efficient similarity searches
@@ -593,7 +593,7 @@ impl EventSystem {
         // Lock-free insertion using DashMap with SmallVec optimization
         self.handlers
             .entry(event_key.clone())
-            .or_insert_with(smallvec::SmallVec::new)
+            .or_insert_with(Vec::new)
             .push(handler_arc.clone());
 
         // Also register with path router for efficient similarity searches
