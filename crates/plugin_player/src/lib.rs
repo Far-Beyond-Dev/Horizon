@@ -136,28 +136,64 @@ impl SimplePlugin for PlayerPlugin {
 
         // Register GORC event handlers to process incoming client GORC events
         
-        // Handle GORC movement events (channel 0)
+        // Handle GORC client movement events (channel 0)  
+        // This processes client requests to move their ship
+        let events_for_move = Arc::clone(&events);
         events
-            .on_gorc_instance(
+            .on_gorc_client(
                 "GorcPlayer",
                 0,
-                "move",
-                move |gorc_event: horizon_event_system::GorcEvent, object_instance: &mut horizon_event_system::ObjectInstance| {
-                    println!("🎮 GORC: Received movement event for instance {}: {:?}", gorc_event.object_id, gorc_event);
+                "move", 
+                move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, connection: horizon_event_system::ClientConnectionRef, object_instance: &mut horizon_event_system::ObjectInstance| {
+                    println!("🚀 GORC: Received client movement request from player {} (IP: {}) for instance {}: {:?}", 
+                        client_player, connection.remote_addr, gorc_event.object_id, gorc_event);
+                    
+                    // Validate connection authentication
+                    if !connection.is_authenticated() {
+                        println!("🚀 GORC: ❌ Unauthenticated movement request from {}", connection.remote_addr);
+                        return Err(horizon_event_system::EventError::HandlerExecution("Unauthenticated request".to_string()));
+                    }
                     
                     // Parse movement data from the GORC event
                     if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
                         if let Ok(move_data) = serde_json::from_value::<events::PlayerMoveRequest>(event_data) {
-                            println!("🎮 GORC: Processing movement for player {} to position {:?}", move_data.player_id, move_data.new_position);
+                            println!("🚀 GORC: Processing movement for ship {} to position {:?}", move_data.player_id, move_data.new_position);
+                            
+                            // Validate the player owns this ship
+                            if move_data.player_id != client_player {
+                                println!("🚀 GORC: ❌ Security violation: Player {} tried to move ship belonging to {}", client_player, move_data.player_id);
+                                return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized ship movement".to_string()));
+                            }
                             
                             // Update the object instance position directly
                             object_instance.object.update_position(move_data.new_position);
-                            println!("🎮 GORC: ✅ Updated position for instance {} to {:?}", gorc_event.object_id, move_data.new_position);
+                            println!("🚀 GORC: ✅ Updated ship position for {} to {:?}", client_player, move_data.new_position);
+                            
+                            // Emit position update to nearby players via GORC instance event
+                            let events_clone = events_for_move.clone();
+                            let object_id_str = gorc_event.object_id.clone();
+                            let position_update = serde_json::json!({
+                                "player_id": client_player,
+                                "position": move_data.new_position,
+                                "velocity": move_data.velocity,
+                                "movement_state": move_data.movement_state,
+                                "timestamp": chrono::Utc::now()
+                            });
+                            
+                            tokio::spawn(async move {
+                                if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
+                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 0, "position_update", &position_update, horizon_event_system::Dest::Client).await {
+                                        println!("🚀 GORC: ❌ Failed to broadcast position update: {}", e);
+                                    } else {
+                                        println!("🚀 GORC: ✅ Broadcasted position update for ship {}", client_player);
+                                    }
+                                }
+                            });
                         } else {
-                            println!("🎮 GORC: ❌ Failed to parse PlayerMoveRequest from event data");
+                            println!("🚀 GORC: ❌ Failed to parse PlayerMoveRequest from event data");
                         }
                     } else {
-                        println!("🎮 GORC: ❌ Failed to parse JSON from GORC event data");
+                        println!("🚀 GORC: ❌ Failed to parse JSON from GORC event data");
                     }
                     
                     Ok(())
@@ -166,47 +202,177 @@ impl SimplePlugin for PlayerPlugin {
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-
-        // Handle GORC chat events (channel 2)  
-        let luminal_handle = context.luminal_handle();
-        let events_for_chat = Arc::clone(&events);
+        // Handle GORC client combat events (channel 1) - Weapon fire
+        let events_for_combat = Arc::clone(&events);
         events
-            .on_gorc_instance(
-                "GorcPlayer", 
-                2,
-                "chat",
-                move |gorc_event: horizon_event_system::GorcEvent, _object_instance: &mut horizon_event_system::ObjectInstance| {
-                    println!("🎮 GORC: Received chat event for instance {}: {:?}", gorc_event.object_id, gorc_event);
+            .on_gorc_client(
+                "GorcPlayer",
+                1,
+                "attack",
+                move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef, _object_instance: &mut horizon_event_system::ObjectInstance| {
+                    println!("⚡ GORC: Received client combat request from ship {}: {:?}", client_player, gorc_event);
                     
-                    // Parse chat data from GORC event
+                    // Parse attack data from GORC event
                     if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
-                        if let Ok(chat_data) = serde_json::from_value::<events::PlayerChatRequest>(event_data) {
-                            println!("🎮 GORC: Player {} says: '{}'", chat_data.player_id, chat_data.message);
+                        if let Ok(attack_data) = serde_json::from_value::<events::PlayerAttackRequest>(event_data) {
+                            println!("⚡ GORC: Ship {} fires {} at {:?}", attack_data.player_id, attack_data.attack_type, attack_data.target_position);
                             
-                            // Create chat response for nearby players
-                            let chat_response = serde_json::json!({
-                                "player_id": chat_data.player_id,
-                                "message": chat_data.message,
-                                "timestamp": chrono::Utc::now()
+                            // Validate the player owns this ship
+                            if attack_data.player_id != client_player {
+                                println!("⚡ GORC: ❌ Security violation: Player {} tried to fire weapons as {}", client_player, attack_data.player_id);
+                                return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized weapon fire".to_string()));
+                            }
+                            
+                            // Create weapon fire broadcast for replication to nearby ships (500m range)
+                            let weapon_fire = serde_json::json!({
+                                "attacker_player": attack_data.player_id,
+                                "weapon_type": attack_data.attack_type,
+                                "target_position": attack_data.target_position,
+                                "fire_timestamp": chrono::Utc::now()
                             });
                             
-                            // Broadcast to nearby players via GORC (using Client destination for replication)
-                            let events_clone = events_for_chat.clone();
-                            let object_id_str = gorc_event.object_id.clone(); 
-                            luminal_handle.spawn(async move {
+                            // Emit as gorc_instance event - this will replicate to nearby ships (500m range)
+                            let events_clone = events_for_combat.clone();
+                            let object_id_str = gorc_event.object_id.clone();
+                            tokio::spawn(async move {
                                 if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
-                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 2, "chat_message", &chat_response, horizon_event_system::Dest::Client).await {
-                                        println!("🎮 GORC: ❌ Failed to broadcast chat: {}", e);
+                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 1, "weapon_fire", &weapon_fire, horizon_event_system::Dest::Client).await {
+                                        println!("⚡ GORC: ❌ Failed to broadcast weapon fire: {}", e);
                                     } else {
-                                        println!("🎮 GORC: ✅ Broadcasted chat from player {}", chat_data.player_id);
+                                        println!("⚡ GORC: ✅ Broadcasting weapon fire from ship {} (auto-replicated to ships within 500m)", attack_data.player_id);
                                     }
                                 }
                             });
                         } else {
-                            println!("🎮 GORC: ❌ Failed to parse PlayerChatRequest from event data");
+                            println!("⚡ GORC: ❌ Failed to parse PlayerAttackRequest from event data");
                         }
                     } else {
-                        println!("🎮 GORC: ❌ Failed to parse JSON from GORC event data");
+                        println!("⚡ GORC: ❌ Failed to parse JSON from GORC combat event data");
+                    }
+                    
+                    Ok(())
+                },
+            )
+            .await
+            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        // Handle GORC client chat events (channel 2) - Space communications
+        let luminal_handle_chat = context.luminal_handle();
+        let events_for_chat = Arc::clone(&events);
+        events
+            .on_gorc_client(
+                "GorcPlayer", 
+                2,
+                "chat",
+                move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef, _object_instance: &mut horizon_event_system::ObjectInstance| {
+                    println!("📡 GORC: Received client communication request from ship {}: {:?}", client_player, gorc_event);
+                    
+                    // Parse chat data from GORC event
+                    if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
+                        if let Ok(chat_data) = serde_json::from_value::<events::PlayerChatRequest>(event_data) {
+                            println!("📡 GORC: Ship {} requests to transmit: '{}'", chat_data.player_id, chat_data.message);
+                            
+                            // Validate the player owns this ship
+                            if chat_data.player_id != client_player {
+                                println!("📡 GORC: ❌ Security violation: Player {} tried to send message as {}", client_player, chat_data.player_id);
+                                return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized communication".to_string()));
+                            }
+                            
+                            // Create communication for replication to nearby ships (300m range)
+                            let chat_broadcast = serde_json::json!({
+                                "sender_player": chat_data.player_id,
+                                "message": chat_data.message,
+                                "channel": chat_data.channel,
+                                "timestamp": chrono::Utc::now()
+                            });
+                            
+                            // Emit as gorc_instance event - this will replicate to nearby clients
+                            let events_clone = events_for_chat.clone();
+                            let object_id_str = gorc_event.object_id.clone(); 
+                            luminal_handle_chat.spawn(async move {
+                                if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
+                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 2, "space_communication", &chat_broadcast, horizon_event_system::Dest::Client).await {
+                                        println!("📡 GORC: ❌ Failed to broadcast communication: {}", e);
+                                    } else {
+                                        println!("📡 GORC: ✅ Broadcasting communication from ship {} (auto-replicated to nearby ships)", chat_data.player_id);
+                                    }
+                                }
+                            });
+                        } else {
+                            println!("📡 GORC: ❌ Failed to parse PlayerChatRequest from event data");
+                        }
+                    } else {
+                        println!("📡 GORC: ❌ Failed to parse JSON from GORC event data");
+                    }
+                    
+                    Ok(())
+                },
+            )
+            .await
+            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        // Handle GORC client ship scan events (channel 3) - Detailed metadata
+        let luminal_handle_scan = context.luminal_handle();
+        let events_for_scan = Arc::clone(&events);
+        events
+            .on_gorc_client(
+                "GorcPlayer", 
+                3,
+                "ship_scan",
+                move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef, _object_instance: &mut horizon_event_system::ObjectInstance| {
+                    println!("🔍 GORC: Received client ship scan request from {}: {:?}", client_player, gorc_event);
+                    
+                    // Parse scan data from GORC event
+                    if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
+                        if let Some(player_id) = event_data.get("player_id") {
+                            println!("🔍 GORC: Ship {} requesting detailed scan", player_id);
+                            
+                            // Validate the player owns this ship
+                            if let Ok(request_player) = serde_json::from_value::<horizon_event_system::PlayerId>(player_id.clone()) {
+                                if request_player != client_player {
+                                    println!("🔍 GORC: ❌ Security violation: Player {} tried to scan as {}", client_player, request_player);
+                                    return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized scan request".to_string()));
+                                }
+                            }
+                            
+                            // Extract scan data values  
+                            let player_id_value = player_id.clone();
+                            let ship_class = event_data.get("ship_class").cloned().unwrap_or(serde_json::Value::String("Unknown".to_string()));
+                            let hull_integrity = event_data.get("hull_integrity").cloned().unwrap_or(serde_json::Value::Number(serde_json::Number::from(100)));
+                            let shield_strength = event_data.get("shield_strength").cloned().unwrap_or(serde_json::Value::Number(serde_json::Number::from(85)));
+                            let cargo_manifest = event_data.get("cargo_manifest").cloned().unwrap_or(serde_json::Value::Array(vec![]));
+                            let pilot_level = event_data.get("pilot_level").cloned().unwrap_or(serde_json::Value::Number(serde_json::Number::from(1)));
+                            
+                            // Create scan broadcast for replication to very close ships (100m range)
+                            let scan_broadcast = serde_json::json!({
+                                "scanner_ship": player_id_value,
+                                "scan_data": {
+                                    "ship_class": ship_class,
+                                    "hull_integrity": hull_integrity,
+                                    "shield_strength": shield_strength,
+                                    "cargo_manifest": cargo_manifest,
+                                    "pilot_level": pilot_level
+                                },
+                                "scan_timestamp": chrono::Utc::now()
+                            });
+                            
+                            // Emit as gorc_instance event - this will replicate to very close ships (100m range)
+                            let events_clone = events_for_scan.clone();
+                            let object_id_str = gorc_event.object_id.clone();
+                            luminal_handle_scan.spawn(async move {
+                                if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
+                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 3, "scan_results", &scan_broadcast, horizon_event_system::Dest::Client).await {
+                                        println!("🔍 GORC: ❌ Failed to broadcast scan results: {}", e);
+                                    } else {
+                                        println!("🔍 GORC: ✅ Broadcasting scan results from ship {} (auto-replicated to ships within 100m)", player_id_value);
+                                    }
+                                }
+                            });
+                        } else {
+                            println!("🔍 GORC: ❌ Ship scan event missing player_id");
+                        }
+                    } else {
+                        println!("🔍 GORC: ❌ Failed to parse JSON from ship scan event data");
                     }
                     
                     Ok(())

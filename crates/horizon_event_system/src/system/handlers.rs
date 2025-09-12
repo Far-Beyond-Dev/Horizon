@@ -20,6 +20,35 @@ impl EventSystem {
     }
 
     /// Registers a handler for client events with namespace.
+    /// 
+    /// **NEW UNIFIED API**: All client handlers now receive connection context by default.
+    /// This provides consistent access to player ID, connection information, and response capabilities
+    /// across all client event handlers, improving security and enabling better request handling.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `namespace` - The client event namespace (e.g., "chat", "movement")  
+    /// * `event_name` - The specific event name within the namespace
+    /// * `handler` - Function that receives event, player ID, and connection reference
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust
+    /// // All client handlers now get connection context
+    /// events.on_client("chat", "send_message", 
+    ///     |event: ChatMessageEvent, player_id: PlayerId, connection: ClientConnectionRef| {
+    ///         // Validate player permissions
+    ///         if !connection.is_authenticated() {
+    ///             return Err(EventError::HandlerExecution("Not authenticated".to_string()));
+    ///         }
+    ///         
+    ///         // Process the message and respond
+    ///         let response = ChatResponse { message_id: event.id };
+    ///         connection.respond_json(&response).await?;
+    ///         Ok(())
+    ///     }
+    /// ).await?;
+    /// ```
     pub async fn on_client<T, F>(
         &self,
         namespace: &str,
@@ -27,58 +56,14 @@ impl EventSystem {
         handler: F,
     ) -> Result<(), EventError>
     where
-        T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
-    {
-        let event_key = CompactString::new_inline("client:") + namespace + ":" + event_name;
-        self.register_typed_handler(event_key, event_name, handler)
-            .await
-    }
-
-    /// Registers a connection-aware handler for client events with namespace.
-    /// 
-    /// This variant provides the handler with a `ClientConnectionRef` that allows
-    /// direct response to the specific client that triggered the event. This enables
-    /// easy responses without needing to use global broadcast methods.
-    /// 
-    /// # Arguments
-    /// 
-    /// * `namespace` - The client event namespace (e.g., "chat", "movement")
-    /// * `event_name` - The specific event name within the namespace
-    /// * `handler` - Function that receives both the event and client connection reference
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// // Handler with direct client response capability
-    /// events.on_client_with_connection("chat", "send_message", 
-    ///     |event: ChatMessageEvent, client: &ClientConnectionRef| async move {
-    ///         // Process the chat message
-    ///         let response = ChatResponse {
-    ///             message_id: event.id,
-    ///             status: "received".to_string(),
-    ///         };
-    ///         
-    ///         // Respond directly to this client
-    ///         client.respond_json(&response).await?;
-    ///         Ok(())
-    ///     }
-    /// ).await?;
-    /// ```
-    pub async fn on_client_with_connection<T, F>(
-        &self,
-        namespace: &str,
-        event_name: &str,
-        handler: F,
-    ) -> Result<(), EventError>
-    where
         T: Event + serde::Serialize + 'static,
-        F: Fn(T, ClientConnectionRef) -> Result<(), EventError> + Send + Sync + Clone + 'static,
+        F: Fn(T, crate::types::PlayerId, ClientConnectionRef) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let event_key = CompactString::new_inline("client:") + namespace + ":" + event_name;
         self.register_connection_aware_handler(event_key, event_name, handler)
             .await
     }
+
 
     /// Registers an async handler for client events with namespace.
     /// 
@@ -155,6 +140,7 @@ impl EventSystem {
 
     /// Registers a handler for client-initiated GORC events targeting server objects.
     /// 
+    /// **NEW UNIFIED API**: All GORC client handlers now receive connection context by default.
     /// This handler type is specifically for events that originate from clients but target
     /// server objects. It provides security boundaries by separating client-initiated events
     /// from server-internal events, and includes validation that the client has permission
@@ -165,22 +151,30 @@ impl EventSystem {
     /// * `object_type` - The type name of the target object (e.g., "Player", "Asteroid")
     /// * `channel` - The replication channel (0-3)  
     /// * `event_name` - The specific event name within the channel
-    /// * `handler` - Function that receives the event, source player, and object instance
+    /// * `handler` - Function that receives the event, player ID, connection, and object instance
     /// 
     /// # Examples
     /// 
     /// ```rust,no_run
-    /// use horizon_event_system::{EventSystem, GorcEvent, gorc::ObjectInstance, EventError, PlayerId};
+    /// use horizon_event_system::{EventSystem, GorcEvent, gorc::ObjectInstance, EventError, PlayerId, ClientConnectionRef};
     /// use std::sync::Arc;
     /// 
     /// let events = Arc::new(EventSystem::new());
     /// 
-    /// // Handler for client attempting to interact with objects
+    /// // Handler for client attempting to interact with objects (with connection context)
     /// events.on_gorc_client("Asteroid", 3, "mine", 
-    ///     |event: GorcEvent, client_player: PlayerId, instance: &mut ObjectInstance| {
+    ///     |event: GorcEvent, client_player: PlayerId, connection: ClientConnectionRef, instance: &mut ObjectInstance| {
+    ///         // Validate authentication status
+    ///         if !connection.is_authenticated() {
+    ///             return Err(EventError::HandlerExecution("Not authenticated".to_string()));
+    ///         }
+    ///         
     ///         // Validate that the client is close enough to mine
     ///         // Update object state if valid
-    ///         println!("Player {} attempting to mine asteroid {}", client_player, event.object_id);
+    ///         println!("Player {} from {} attempting to mine asteroid {}", client_player, connection.remote_addr, event.object_id);
+    ///         
+    ///         // Send direct response to client
+    ///         connection.respond_json(&serde_json::json!({"status": "mining_started"})).await?;
     ///         Ok(())
     ///     }
     /// );
@@ -193,7 +187,7 @@ impl EventSystem {
         handler: F,
     ) -> Result<(), EventError>
     where
-        F: Fn(GorcEvent, crate::types::PlayerId, &mut ObjectInstance) -> Result<(), EventError>
+        F: Fn(GorcEvent, crate::types::PlayerId, ClientConnectionRef, &mut ObjectInstance) -> Result<(), EventError>
             + Send
             + Sync
             + Clone
@@ -354,6 +348,7 @@ impl EventSystem {
     }
 
     /// Internal helper for registering connection-aware handlers.
+    /// **UPDATED**: Now supports the unified API signature with player_id parameter.
     async fn register_connection_aware_handler<T, F>(
         &self,
         event_key: CompactString,
@@ -362,7 +357,7 @@ impl EventSystem {
     ) -> Result<(), EventError>
     where
         T: Event + serde::Serialize + 'static,
-        F: Fn(T, ClientConnectionRef) -> Result<(), EventError> + Send + Sync + Clone + 'static,
+        F: Fn(T, crate::types::PlayerId, ClientConnectionRef) -> Result<(), EventError> + Send + Sync + Clone + 'static,
     {
         let handler_name = format!("{}::{}", event_key, T::type_name());
         let client_response_sender = self.client_response_sender.clone();
@@ -414,8 +409,8 @@ impl EventSystem {
                 sender.clone(),
             );
             
-            // Call the sync handler directly - no async spawning needed
-            handler(event, client_ref)
+            // Call the sync handler directly with both player_id and connection - no async spawning needed
+            handler(event, player_id, client_ref)
         };
         
         let typed_handler = TypedEventHandler::new(handler_name, conn_aware_wrapper);
@@ -516,8 +511,9 @@ impl EventSystem {
 
     /// Internal helper for registering client-to-server GORC handlers.
     /// 
-    /// These handlers are specifically for events initiated by clients that target server objects.
-    /// They include the originating player ID for security validation and authorization.
+    /// **UNIFIED API**: These handlers now include full connection context in addition to player ID.
+    /// They are specifically for events initiated by clients that target server objects, providing
+    /// both player identification and connection information for security validation and responses.
     async fn register_gorc_client_handler<F>(
         &self,
         event_key: CompactString,
@@ -525,7 +521,7 @@ impl EventSystem {
         handler: F,
     ) -> Result<(), EventError>
     where
-        F: Fn(GorcEvent, crate::types::PlayerId, &mut ObjectInstance) -> Result<(), EventError>
+        F: Fn(GorcEvent, crate::types::PlayerId, ClientConnectionRef, &mut ObjectInstance) -> Result<(), EventError>
             + Send
             + Sync
             + Clone
@@ -536,11 +532,13 @@ impl EventSystem {
         })?;
 
         let instances_ref = gorc_instances.clone();
+        let client_response_sender = self.client_response_sender.clone();
         let handler_name = format!("{}::GorcClient", event_key);
 
-        // Create a handler that wraps the client event with player context and instance access
+        // Create a handler that wraps the client event with player context, connection, and instance access
         let gorc_client_handler = TypedEventHandler::new(handler_name, move |event_data: serde_json::Value| {
             let instances = instances_ref.clone();
+            let sender = client_response_sender.clone();
             let handler_fn = handler.clone();
 
             // Extract player ID and GORC event from the client event data
@@ -566,6 +564,28 @@ impl EventSystem {
                 }
             };
 
+            // Create client connection ref
+            let client_ref = match sender.as_ref() {
+                Some(sender) => {
+                    const UNSPECIFIED_ADDR: &str = "0.0.0.0:0";
+                    let default_addr = UNSPECIFIED_ADDR.parse()
+                        .unwrap_or_else(|_| std::net::SocketAddr::from(([0, 0, 0, 0], 0)));
+                    
+                    ClientConnectionRef::new(
+                        player_id,
+                        default_addr, // Default unknown address - could be enhanced with actual connection info
+                        format!("gorc_conn_{}", player_id.0),
+                        crate::utils::current_timestamp(),
+                        crate::types::AuthenticationStatus::default(),
+                        sender.clone(),
+                    )
+                },
+                None => {
+                    error!("❌ Client response sender not configured for GORC client handler");
+                    return Err(EventError::HandlerExecution("Client response sender not available".to_string()));
+                }
+            };
+
             // Parse object ID and get the instance
             let object_id = match GorcObjectId::from_str(&gorc_event.object_id) {
                 Ok(id) => id,
@@ -575,12 +595,12 @@ impl EventSystem {
                 }
             };
 
-            // Execute the handler with instance access
+            // Execute the handler with instance access and connection context
             tokio::task::block_in_place(move || {
                 let runtime = tokio::runtime::Handle::current();
                 runtime.block_on(async move {
                     if let Some(mut instance) = instances.get_object(object_id).await {
-                        handler_fn(gorc_event, player_id, &mut instance)
+                        handler_fn(gorc_event, player_id, client_ref, &mut instance)
                     } else {
                         Err(EventError::HandlerExecution("Object instance not found".to_string()))
                     }
@@ -609,4 +629,5 @@ impl EventSystem {
         info!("📝 Registered GORC client handler for {}", event_key);
         Ok(())
     }
+
 }
