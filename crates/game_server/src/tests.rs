@@ -38,7 +38,7 @@ mod tests {
 
         // Register handlers that plugins would register
         events
-            .on_client("movement", "move_request", |event: serde_json::Value| {
+            .on_client("movement", "move_request", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
                 println!("Movement plugin would handle: {:?}", event);
                 Ok(())
             })
@@ -46,7 +46,7 @@ mod tests {
             .expect("Failed to register movement handler");
 
         events
-            .on_client("chat", "send_message", |event: serde_json::Value| {
+            .on_client("chat", "send_message", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
                 println!("Chat plugin would handle: {:?}", event);
                 Ok(())
             })
@@ -87,7 +87,7 @@ mod tests {
 
         // Register handlers for different namespaces/events
         events
-            .on_client("movement", "jump", |event: serde_json::Value| {
+            .on_client("movement", "jump", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
                 println!("Movement plugin handles jump: {:?}", event);
                 Ok(())
             })
@@ -95,7 +95,7 @@ mod tests {
             .expect("Failed to register movement handler");
 
         events
-            .on_client("inventory", "use_item", |event: serde_json::Value| {
+            .on_client("inventory", "use_item", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
                 println!("Inventory plugin handles use_item: {:?}", event);
                 Ok(())
             })
@@ -106,7 +106,7 @@ mod tests {
             .on_client(
                 "custom_plugin",
                 "custom_event",
-                |event: serde_json::Value| {
+                |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
                     println!("Custom plugin handles custom_event: {:?}", event);
                     Ok(())
                 },
@@ -180,7 +180,7 @@ mod tests {
 
         // This would be handled by movement plugin, not core
         events
-            .on_client("movement", "jump", |event: serde_json::Value| {
+            .on_client("movement", "jump", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
                 println!("🦘 Movement Plugin: Jump event {:?}", event);
                 Ok(())
             })

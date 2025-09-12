@@ -50,7 +50,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }).await?;
     
     // Register a game logic handler that demonstrates auth status checking
-    events.on_client("game", "move_request", |event: RawClientMessageEvent| {
+    events.on_client("game", "move_request", |event: RawClientMessageEvent, player_id: horizon_event_system::PlayerId, connection: horizon_event_system::ClientConnectionRef| {
         println!("🎮 Move request from player: {}", event.player_id);
         
         // In a real implementation, you would check the auth status before processing

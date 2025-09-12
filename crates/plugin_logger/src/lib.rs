@@ -143,10 +143,10 @@ impl SimplePlugin for LoggerPlugin {
         // Client events from players
         let context_clone = context.clone();
         events
-            .on_client_with_connection(
+            .on_client(
                 "chat",
                 "message",
-                move |wrapper: ClientEventWrapper<PlayerChatEvent>, connection| {
+                move |wrapper: ClientEventWrapper<PlayerChatEvent>, player_id: horizon_event_system::PlayerId, connection| {
                     context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 💬 CHAT - Player {} in {}: '{}'", wrapper.data.data.player_id, wrapper.data.data.channel, wrapper.data.data.message).as_str());
 
                     let response = serde_json::json!({
@@ -173,10 +173,10 @@ impl SimplePlugin for LoggerPlugin {
         let context_clone = context.clone();
         let events_clone = events.clone();
         events
-            .on_client_with_connection(
+            .on_client(
                 "movement",
                 "update_position",
-                move |wrapper: ClientEventWrapper<serde_json::Value>, _connection| {
+                move |wrapper: ClientEventWrapper<serde_json::Value>, player_id: horizon_event_system::PlayerId, _connection| {
                     context_clone.log(LogLevel::Info, format!("📝 LoggerPlugin: 🦘 Client movement from player {}", wrapper.player_id).as_str(),);
 
                     // Parse the movement data

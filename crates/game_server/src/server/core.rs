@@ -542,7 +542,7 @@ impl GameServer {
 
         // Register a simple ping handler for testing validity of the client connection
         self.horizon_event_system
-            .on_client_with_connection("system", "ping", |data: serde_json::Value, conn| {
+            .on_client("system", "ping", |data: serde_json::Value, player_id: horizon_event_system::PlayerId, conn| {
                 info!("🔧 GameServer: Received 'ping' event with connection: {:?}, data: {:?}", conn, data);
 
                 let response = serde_json::json!({

@@ -68,8 +68,8 @@ mod tests {
         let response_received_clone = response_received.clone();
         
         // Register a connection-aware handler
-        events.on_client_with_connection("test", "message", 
-            move |_event: RawClientMessageEvent, client: ClientConnectionRef| {
+        events.on_client("test", "message", 
+            move |_event: RawClientMessageEvent, _player_id: crate::types::PlayerId, client: ClientConnectionRef| {
                 let response_received = response_received_clone.clone();
                 // Mark that we received the event
                 *response_received.lock().unwrap() = true;
@@ -149,7 +149,7 @@ mod tests {
         
         // Register various handler types
         events.on_core("test_core", |_: serde_json::Value| Ok(())).await.unwrap();
-        events.on_client("test", "client_event", |_: serde_json::Value| Ok(())).await.unwrap();
+        events.on_client("test", "client_event", |_: serde_json::Value, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| Ok(())).await.unwrap();
         events.on_plugin("test_plugin", "plugin_event", |_: serde_json::Value| Ok(())).await.unwrap();
         
         let stats = events.get_stats().await;
@@ -207,7 +207,7 @@ mod tests {
         
         // Register different types of handlers
         events.on_core("test_core", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
-        events.on_client("test", "test_client", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        events.on_client("test", "test_client", |_: PlayerConnectedEvent, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| Ok(())).await.unwrap();
         events.on_plugin("test_plugin", "test_event", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
         
         let detailed_stats = events.get_detailed_stats().await;
@@ -238,7 +238,7 @@ mod tests {
         
         events.on_core("test1", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
         events.on_core("test2", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
-        events.on_client("namespace", "test3", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        events.on_client("namespace", "test3", |_: PlayerConnectedEvent, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| Ok(())).await.unwrap();
         
         let initial_stats = events.get_stats().await;
         assert_eq!(initial_stats.total_handlers, 3);

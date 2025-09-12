@@ -119,7 +119,7 @@ async fn test_debug_event_emission_and_handling() {
     let json_count_clone = json_count.clone();
     
     events
-        .on_client("debug", "test", move |wrapper: serde_json::Value| {
+        .on_client("debug", "test", move |wrapper: serde_json::Value, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             json_count_clone.fetch_add(1, Ordering::SeqCst);
             println!("JSON handler called with: {}", wrapper);
             Ok(())
@@ -160,7 +160,7 @@ async fn test_typed_client_event_handlers() {
     
     // Register typed handler for client events
     events
-        .on_client("chat", "message", move |wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("chat", "message", move |wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             call_count_clone.fetch_add(1, Ordering::SeqCst);
             
             // Verify we can access typed data
@@ -212,7 +212,7 @@ async fn test_typed_vs_json_handlers_compatibility() {
     // Register both typed and JSON handlers for the same event
     let typed_count_clone = typed_count.clone();
     events
-        .on_client("movement", "update", move |wrapper: ClientEventWrapper<TestMovementEvent>| {
+        .on_client("movement", "update", move |wrapper: ClientEventWrapper<TestMovementEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             typed_count_clone.fetch_add(1, Ordering::SeqCst);
             
             // Verify typed access works
@@ -228,7 +228,7 @@ async fn test_typed_vs_json_handlers_compatibility() {
     
     let json_count_clone = json_count.clone();
     events
-        .on_client("movement", "update", move |wrapper: serde_json::Value| {
+        .on_client("movement", "update", move |wrapper: serde_json::Value, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             json_count_clone.fetch_add(1, Ordering::SeqCst);
             
             // Verify JSON handler still works
@@ -320,7 +320,7 @@ async fn test_event_handler_error_handling() {
     
     // Register handler that intentionally fails
     events
-        .on_client("error_test", "fail", move |_wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("error_test", "fail", move |_wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             Err(EventError::HandlerExecution("Intentional test failure".to_string()))
         })
         .await
@@ -358,7 +358,7 @@ async fn test_multiple_typed_handlers_same_event() {
     // Register multiple typed handlers for the same event
     let h1_count = handler1_count.clone();
     events
-        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             h1_count.fetch_add(1, Ordering::SeqCst);
             assert_eq!(wrapper.data.channel, "multi_handler_test");
             Ok(())
@@ -368,7 +368,7 @@ async fn test_multiple_typed_handlers_same_event() {
     
     let h2_count = handler2_count.clone();
     events
-        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             h2_count.fetch_add(1, Ordering::SeqCst);
             assert!(wrapper.data.message.contains("multi"));
             Ok(())
@@ -378,7 +378,7 @@ async fn test_multiple_typed_handlers_same_event() {
     
     let h3_count = handler3_count.clone();
     events
-        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             h3_count.fetch_add(1, Ordering::SeqCst);
             assert!(wrapper.data.timestamp > 0);
             Ok(())
