@@ -8,18 +8,6 @@ use futures::{self, stream::{FuturesUnordered, StreamExt}};
 use tracing::{debug, error, info, warn};
 use compact_str::CompactString;
 
-/// Helper function to extract namespace from event key for debugging
-fn namespace_from_key(event_key: &str) -> &str {
-    if let Some(colon_pos) = event_key.find(':') {
-        if let Some(second_colon) = event_key[colon_pos + 1..].find(':') {
-            &event_key[colon_pos + 1..colon_pos + 1 + second_colon]
-        } else {
-            &event_key[colon_pos + 1..]
-        }
-    } else {
-        ""
-    }
-}
 
 impl EventSystem {
     /// Emits a core server event to all registered handlers.
@@ -145,16 +133,10 @@ impl EventSystem {
                 // Handle Server or Both destinations - emit to server-side handlers
                 if dest == Dest::Server || dest == Dest::Both {
                     let instance_key = CompactString::new_inline("gorc_instance:") + object_type + ":" + &channel.to_string() + ":" + event_name;
-                    let general_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
                     
-                    // Emit to instance-specific handlers first
+                    // Emit to instance-specific handlers only
                     if let Err(e) = self.emit_event(&instance_key, event).await {
                         warn!("Failed to emit instance event: {}", e);
-                    }
-                    
-                    // Emit to general handlers for backward compatibility
-                    if let Err(e) = self.emit_event(&general_key, event).await {
-                        warn!("Failed to emit general event: {}", e);
                     }
                 }
                 
@@ -361,34 +343,16 @@ impl EventSystem {
         Ok(())
     }
 
-    /// Emits a GORC event using the legacy API (object type string).
-    /// 
-    /// This method is kept for backward compatibility but it's recommended to use
-    /// `emit_gorc_instance` for better type safety and instance targeting.
-    #[inline]
-    pub async fn emit_gorc<T>(
-        &self,
-        object_type: &str,
-        channel: u8,
-        event_name: &str,
-        event: &T,
-    ) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        let event_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
-        self.emit_event(&event_key, event).await
-    }
 
-    /// Routes a client message to GORC instance handlers for a specific player.
+    /// Routes a client message to GORC client handlers, providing security and authorization.
     /// 
-    /// This method is designed for the message router to handle client messages
-    /// that should trigger server-side GORC instance handlers. It finds the player's
-    /// GORC object and emits to server handlers only.
-    pub async fn route_client_message_to_gorc<T>(
+    /// This method is specifically for client-initiated events targeting server objects.
+    /// It emits to handlers registered with `on_gorc_client` that can validate permissions
+    /// and apply security checks before modifying server state.
+    pub async fn emit_gorc_client<T>(
         &self,
-        player_id: crate::PlayerId,
-        object_type: &str,
+        client_player_id: crate::PlayerId,
+        target_object_id: GorcObjectId,
         channel: u8,
         event_name: &str,
         event: &T,
@@ -396,18 +360,34 @@ impl EventSystem {
     where
         T: Event + serde::Serialize,
     {
-        // Find the player's GORC object ID
-        if let Some(gorc_instances) = &self.gorc_instances {
-            if let Some(object_id) = gorc_instances.find_player_object(player_id).await {
-                // Route to server-side handlers only (client message was already processed)
-                return self.emit_gorc_instance(object_id, channel, event_name, event, crate::events::Dest::Server).await;
-            }
+        // Get the GORC instances manager
+        let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("GORC instance manager not available".to_string())
+        })?;
+
+        // Get the target object instance to determine its type
+        if let Some(instance) = gorc_instances.get_object(target_object_id).await {
+            let object_type = &instance.type_name;
+            
+            // Create the event key for client-to-server GORC events
+            let event_key = CompactString::new_inline("gorc_client:") + object_type + ":" + &channel.to_string() + ":" + event_name;
+            
+            // Wrap the event with player context for the handler
+            let client_event = serde_json::json!({
+                "player_id": client_player_id,
+                "object_id": target_object_id.to_string(),
+                "object_type": object_type,
+                "channel": channel,
+                "data": event,
+                "timestamp": crate::utils::current_timestamp()
+            });
+
+            self.emit_event(&event_key, &client_event).await
+        } else {
+            Err(EventError::HandlerNotFound(format!("Target object {} not found", target_object_id)))
         }
-        
-        // If no GORC object found for this player, that's expected for some cases
-        tracing::debug!("No GORC object found for player {} (type: {})", player_id, object_type);
-        Ok(())
     }
+
 
     /// Broadcasts an event to all connected clients.
     /// 
@@ -522,21 +502,14 @@ impl EventSystem {
         } else {
             // Show debugging info for missing handlers (except server_tick spam)
             if event_key != "core:server_tick" && event_key != "core:raw_client_message" {
-                // Show available handlers for debugging using DashMap iteration
-                let available_keys: Vec<String> = self.handlers
-                    .iter()
-                    .filter_map(|entry| {
-                        let key = entry.key();
-                        if key.contains(&namespace_from_key(event_key)) {
-                            Some(key.to_string()) // Convert CompactString to String
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+                // Use PathRouter for efficient similarity search instead of expensive linear scan
+                let similar_paths = {
+                    let path_router = self.path_router.read().await;
+                    path_router.find_similar_paths(event_key, 5)
+                };
                 
-                if !available_keys.is_empty() {
-                    warn!("⚠️ No handlers for event: {} (similar keys available: {:?})", event_key, available_keys);
+                if !similar_paths.is_empty() {
+                    warn!("⚠️ No handlers for event: {} (similar keys available: {:?})", event_key, similar_paths);
                 } else {
                     warn!("⚠️ No handlers for event: {} (no similar handlers found)", event_key);
                 }

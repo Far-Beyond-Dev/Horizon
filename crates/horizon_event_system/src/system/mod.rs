@@ -7,11 +7,13 @@ mod management;
 mod stats;
 mod cache;
 mod tests;
+mod path_router;
 
 // Re-export all public items from submodules
 pub use client::{ClientConnectionRef, ClientResponseSender, ClientConnectionInfo};
 pub use core::EventSystem;
 pub use stats::{EventSystemStats, DetailedEventSystemStats, HandlerCategoryStats};
+pub use path_router::PathRouter;
 
 // Re-export utility functions
 use crate::gorc::instance::GorcInstanceManager;

@@ -133,22 +133,6 @@ impl EventSystem {
             .await
     }
 
-    /// Registers a handler for GORC object events on a specific channel.
-    pub async fn on_gorc<T, F>(
-        &self,
-        object_type: &str,
-        channel: u8,
-        event_name: &str,
-        handler: F,
-    ) -> Result<(), EventError>
-    where
-        T: Event + 'static,
-        F: Fn(T) -> Result<(), EventError> + Send + Sync + Clone + 'static,
-    {
-        let event_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
-        self.register_typed_handler(event_key, event_name, handler)
-            .await
-    }
 
     /// On Core Async handler registration.
     ///
@@ -166,6 +150,57 @@ impl EventSystem {
     {
         let event_key = CompactString::new_inline("core:") + event_name;
         self.register_async_handler(event_key, event_name, handler)
+            .await
+    }
+
+    /// Registers a handler for client-initiated GORC events targeting server objects.
+    /// 
+    /// This handler type is specifically for events that originate from clients but target
+    /// server objects. It provides security boundaries by separating client-initiated events
+    /// from server-internal events, and includes validation that the client has permission
+    /// to interact with the target object.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `object_type` - The type name of the target object (e.g., "Player", "Asteroid")
+    /// * `channel` - The replication channel (0-3)  
+    /// * `event_name` - The specific event name within the channel
+    /// * `handler` - Function that receives the event, source player, and object instance
+    /// 
+    /// # Examples
+    /// 
+    /// ```rust,no_run
+    /// use horizon_event_system::{EventSystem, GorcEvent, gorc::ObjectInstance, EventError, PlayerId};
+    /// use std::sync::Arc;
+    /// 
+    /// let events = Arc::new(EventSystem::new());
+    /// 
+    /// // Handler for client attempting to interact with objects
+    /// events.on_gorc_client("Asteroid", 3, "mine", 
+    ///     |event: GorcEvent, client_player: PlayerId, instance: &mut ObjectInstance| {
+    ///         // Validate that the client is close enough to mine
+    ///         // Update object state if valid
+    ///         println!("Player {} attempting to mine asteroid {}", client_player, event.object_id);
+    ///         Ok(())
+    ///     }
+    /// );
+    /// ```
+    pub async fn on_gorc_client<F>(
+        &self,
+        object_type: &str,
+        channel: u8,
+        event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        F: Fn(GorcEvent, crate::types::PlayerId, &mut ObjectInstance) -> Result<(), EventError>
+            + Send
+            + Sync
+            + Clone
+            + 'static,
+    {
+        let event_key = CompactString::new_inline("gorc_client:") + object_type + ":" + &channel.to_string() + ":" + event_name;
+        self.register_gorc_client_handler(event_key, event_name, handler)
             .await
     }
 
@@ -250,7 +285,13 @@ impl EventSystem {
         self.handlers
             .entry(event_key.clone())
             .or_insert_with(smallvec::SmallVec::new)
-            .push(handler_arc);
+            .push(handler_arc.clone());
+
+        // Also register with path router for efficient similarity searches
+        {
+            let mut path_router = self.path_router.write().await;
+            path_router.register_handler(&event_key, handler_arc);
+        }
 
         // Update stats atomically
         let mut stats = self.stats.write().await;
@@ -296,7 +337,13 @@ impl EventSystem {
         self.handlers
             .entry(event_key.clone())
             .or_insert_with(smallvec::SmallVec::new)
-            .push(handler_arc);
+            .push(handler_arc.clone());
+
+        // Also register with path router for efficient similarity searches
+        {
+            let mut path_router = self.path_router.write().await;
+            path_router.register_handler(&event_key, handler_arc);
+        }
 
         // Update stats atomically
         let mut stats = self.stats.write().await;
@@ -378,7 +425,13 @@ impl EventSystem {
         self.handlers
             .entry(event_key.clone())
             .or_insert_with(smallvec::SmallVec::new)
-            .push(handler_arc);
+            .push(handler_arc.clone());
+
+        // Also register with path router for efficient similarity searches
+        {
+            let mut path_router = self.path_router.write().await;
+            path_router.register_handler(&event_key, handler_arc);
+        }
 
         // Update stats atomically
         let mut stats = self.stats.write().await;
@@ -445,13 +498,115 @@ impl EventSystem {
         self.handlers
             .entry(event_key.clone())
             .or_insert_with(smallvec::SmallVec::new)
-            .push(handler_arc);
+            .push(handler_arc.clone());
+
+        // Also register with path router for efficient similarity searches
+        {
+            let mut path_router = self.path_router.write().await;
+            path_router.register_handler(&event_key, handler_arc);
+        }
 
         // Update stats atomically
         let mut stats = self.stats.write().await;
         stats.total_handlers += 1;
 
         info!("📝 Registered GORC instance handler for {}", event_key);
+        Ok(())
+    }
+
+    /// Internal helper for registering client-to-server GORC handlers.
+    /// 
+    /// These handlers are specifically for events initiated by clients that target server objects.
+    /// They include the originating player ID for security validation and authorization.
+    async fn register_gorc_client_handler<F>(
+        &self,
+        event_key: CompactString,
+        _event_name: &str,
+        handler: F,
+    ) -> Result<(), EventError>
+    where
+        F: Fn(GorcEvent, crate::types::PlayerId, &mut ObjectInstance) -> Result<(), EventError>
+            + Send
+            + Sync
+            + Clone
+            + 'static,
+    {
+        let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("GORC instance manager not available".to_string())
+        })?;
+
+        let instances_ref = gorc_instances.clone();
+        let handler_name = format!("{}::GorcClient", event_key);
+
+        // Create a handler that wraps the client event with player context and instance access
+        let gorc_client_handler = TypedEventHandler::new(handler_name, move |event_data: serde_json::Value| {
+            let instances = instances_ref.clone();
+            let handler_fn = handler.clone();
+
+            // Extract player ID and GORC event from the client event data
+            let player_id = match event_data.get("player_id") {
+                Some(pid) => match serde_json::from_value::<crate::types::PlayerId>(pid.clone()) {
+                    Ok(id) => id,
+                    Err(_) => {
+                        error!("❌ Invalid player ID in client GORC event");
+                        return Err(EventError::HandlerExecution("Invalid player ID".to_string()));
+                    }
+                },
+                None => {
+                    error!("❌ Missing player_id in client GORC event");
+                    return Err(EventError::HandlerExecution("Missing player ID".to_string()));
+                }
+            };
+
+            let gorc_event = match serde_json::from_value::<GorcEvent>(event_data) {
+                Ok(event) => event,
+                Err(e) => {
+                    error!("❌ Failed to deserialize GORC event: {}", e);
+                    return Err(EventError::HandlerExecution("Invalid GORC event format".to_string()));
+                }
+            };
+
+            // Parse object ID and get the instance
+            let object_id = match GorcObjectId::from_str(&gorc_event.object_id) {
+                Ok(id) => id,
+                Err(_) => {
+                    error!("❌ Invalid object ID format: {}", gorc_event.object_id);
+                    return Err(EventError::HandlerExecution("Invalid object ID".to_string()));
+                }
+            };
+
+            // Execute the handler with instance access
+            tokio::task::block_in_place(move || {
+                let runtime = tokio::runtime::Handle::current();
+                runtime.block_on(async move {
+                    if let Some(mut instance) = instances.get_object(object_id).await {
+                        handler_fn(gorc_event, player_id, &mut instance)
+                    } else {
+                        Err(EventError::HandlerExecution("Object instance not found".to_string()))
+                    }
+                })
+            })
+        });
+
+        let handler_arc: Arc<dyn EventHandler> = Arc::new(gorc_client_handler);
+
+        // Lock-free insertion using DashMap with SmallVec optimization
+        self.handlers
+            .entry(event_key.clone())
+            .or_insert_with(smallvec::SmallVec::new)
+            .push(handler_arc.clone());
+
+        // Also register with path router for efficient similarity searches
+        {
+            let mut path_router = self.path_router.write().await;
+            path_router.register_handler(&event_key, handler_arc);
+        }
+
+        // Update stats atomically
+        let mut stats = self.stats.write().await;
+        stats.total_handlers += 1;
+
+        info!("📝 Registered GORC client handler for {}", event_key);
         Ok(())
     }
 }

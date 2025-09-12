@@ -3,11 +3,13 @@ use crate::events::EventHandler;
 use crate::gorc::instance::GorcInstanceManager;
 use super::client::ClientResponseSender;
 use super::stats::EventSystemStats;
+use super::path_router::PathRouter;
 use std::sync::Arc;
 use dashmap::DashMap;
 use smallvec::SmallVec;
 use compact_str::CompactString;
 use super::cache::SerializationBufferPool;
+use tokio::sync::RwLock;
 
 /// The core event system that manages event routing and handler execution.
 /// 
@@ -21,6 +23,8 @@ use super::cache::SerializationBufferPool;
 pub struct EventSystem {
     /// Lock-free map of event keys to their registered handlers (optimized with SmallVec + CompactString)  
     pub(super) handlers: DashMap<CompactString, SmallVec<[Arc<dyn EventHandler>; 4]>>,
+    /// Path-based router for efficient similarity searches and hierarchical organization
+    pub(super) path_router: RwLock<PathRouter>,
     /// System statistics for monitoring (kept as RwLock for atomic updates)
     pub(super) stats: tokio::sync::RwLock<EventSystemStats>,
     /// High-performance serialization buffer pool to reduce allocations
@@ -47,6 +51,7 @@ impl EventSystem {
     pub fn new() -> Self {
         Self {
             handlers: DashMap::new(),
+            path_router: RwLock::new(PathRouter::new()),
             stats: tokio::sync::RwLock::new(EventSystemStats::default()),
             serialization_pool: SerializationBufferPool::default(),
             gorc_instances: None,
@@ -58,6 +63,7 @@ impl EventSystem {
     pub fn with_gorc(gorc_instances: Arc<GorcInstanceManager>) -> Self {
         Self {
             handlers: DashMap::new(),
+            path_router: RwLock::new(PathRouter::new()),
             stats: tokio::sync::RwLock::new(EventSystemStats::default()),
             serialization_pool: SerializationBufferPool::default(),
             gorc_instances: Some(gorc_instances),

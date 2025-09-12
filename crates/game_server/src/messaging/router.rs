@@ -210,21 +210,21 @@ async fn route_native_gorc_event(
         return Err(ServerError::Network("Invalid GORC object_id format".to_string()));
     };
     
-    // Route to GORC handlers using the EventSystem's native GORC routing
-    match horizon_event_system.emit_gorc_instance(
-        gorc_id,
-        gorc_msg.channel, 
+    // Route to client-to-server GORC handlers with security validation
+    match horizon_event_system.emit_gorc_client(
+        player_id,
+        gorc_id, 
+        gorc_msg.channel,
         &gorc_msg.event,
-        &gorc_msg.data,
-        horizon_event_system::Dest::Both
+        &gorc_msg.data
     ).await {
         Ok(()) => {
-            debug!("✅ Successfully routed native GORC event to handlers: {}:{}:{}", 
-                gorc_id, gorc_msg.channel, gorc_msg.event);
+            debug!("✅ Successfully routed client GORC event to handlers: player {} -> {}:{}:{}", 
+                player_id, gorc_id, gorc_msg.channel, gorc_msg.event);
         }
         Err(e) => {
             // Log as warning but don't fail - might be no handlers registered yet
-            warn!("📝 No GORC handlers found for {}:{}:{}: {}", 
+            warn!("📝 No client GORC handlers found for {}:{}:{}: {}", 
                 gorc_id, gorc_msg.channel, gorc_msg.event, e);
         }
     }
@@ -292,32 +292,44 @@ async fn route_to_gorc_handlers(
     let instance_uuid = extract_instance_uuid_from_message(message);
     let object_id = extract_object_id_from_message(message);
     
-    // Create a proper GorcEvent structure
-    let gorc_event = horizon_event_system::GorcEvent {
-        object_id,
-        instance_uuid,
-        object_type: object_type.clone(),
-        channel,
-        data: serde_json::to_vec(&serde_json::json!({
-            "player_id": player_id,
-            "event_name": event_name,
-            "original_namespace": message.namespace,
-            "data": message.data,
-            "timestamp": current_timestamp()
-        })).unwrap_or_default(),
-        priority: "Normal".to_string(),
-        timestamp: current_timestamp(),
-    };
-    
-    // Try to route the client message to GORC instance handlers
-    match horizon_event_system.route_client_message_to_gorc(player_id, &object_type, channel, event_name, &gorc_event).await {
-        Ok(()) => {
-            debug!("✅ Successfully routed client message to GORC handlers: {}:{}:{}", object_type, channel, event_name);
+    // Parse the instance UUID to get the target object ID first
+    if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&instance_uuid) {
+        // Create a proper GorcEvent structure
+        let gorc_event = horizon_event_system::GorcEvent {
+            object_id,
+            instance_uuid,
+            object_type: object_type.clone(),
+            channel,
+            data: serde_json::to_vec(&serde_json::json!({
+                "player_id": player_id,
+                "event_name": event_name,
+                "original_namespace": message.namespace,
+                "data": message.data,
+                "timestamp": current_timestamp()
+            })).unwrap_or_default(),
+            priority: "Normal".to_string(),
+            timestamp: current_timestamp(),
+        };
+        
+        // Use the secure client-to-server GORC routing
+        match horizon_event_system.emit_gorc_client(
+            player_id,
+            gorc_id,
+            channel,
+            event_name,
+            &gorc_event
+        ).await {
+            Ok(()) => {
+                debug!("✅ Successfully routed legacy client message to GORC client handlers: player {} -> {}:{}:{}", 
+                    player_id, gorc_id, channel, event_name);
+            }
+            Err(e) => {
+                // This is expected if no GORC client handlers exist for this pattern
+                debug!("📝 No GORC client handlers found for {}:{}:{}: {}", gorc_id, channel, event_name, e);
+            }
         }
-        Err(e) => {
-            // This is expected if no GORC handlers exist for this pattern
-            debug!("📝 No GORC handlers found for {}:{}:{}: {}", object_type, channel, event_name, e);
-        }
+    } else {
+        debug!("❌ Invalid GORC object ID format in legacy message: {}", instance_uuid);
     }
     
     Ok(())
