@@ -570,13 +570,13 @@ graph TB
     end
     
     subgraph "Allowed Paths"
-        ClientEvents[client: events<br/>✅ UI updates, user actions]
-        GorcClientEvents[gorc_client: events<br/>✅ Object interactions]
+        ClientEvents[<span style="color:black">client: events<br/>✅ UI updates, user actions</span>]
+        GorcClientEvents[<span style="color:black">gorc_client: events<br/>✅ Object interactions</span>]
     end
     
     subgraph "Blocked Paths"  
-        GorcInstanceEvents[gorc_instance: events<br/>❌ Server-only]
-        CoreEvents[core: events<br/>❌ Server-only]
+        GorcInstanceEvents[<span style="color:black">gorc_instance: events<br/>❌ Server-only</span>]
+        CoreEvents[<span style="color:black">core: events<br/>❌ Server-only</span>]
     end
     
     ClientCode --> WebSocket
@@ -693,7 +693,3 @@ for handler in event_handlers.iter() {
     // ...
 }
 ```
-
----
-
-This event system provides a robust, secure, and performant foundation for MMO-scale multiplayer games. The clear separation between client-initiated events (`gorc_client:`) and server-internal events (`gorc_instance:`) ensures security while maintaining the flexibility needed for complex game mechanics.
