@@ -549,8 +549,8 @@ async fn simulate_player(
                         }
                     } else {
                         // No server instance ID yet, skip sending movement
-                        if sent_events == 0 {
-                            info!("⏳ Player {} waiting for GORC zone enter message from server...", player_id);
+                        if sent_events % 50 == 0 {
+                            info!("⏳ Player {} waiting for GORC zone enter message from server... (attempt #{})", player_id, sent_events + 1);
                         }
                     }
                 }
