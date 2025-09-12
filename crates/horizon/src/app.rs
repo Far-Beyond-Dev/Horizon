@@ -262,6 +262,7 @@ impl Application {
         info!("🧹 Phase 3: Final cleanup - stopping server accept loops...");
         
         // Wait for server accept loops to stop gracefully
+        server_handle.abort();
         info!("⏳ Waiting for server task to complete gracefully...");
         if let Err(e) = tokio::time::timeout(
             tokio::time::Duration::from_secs(8), 
