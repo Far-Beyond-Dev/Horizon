@@ -205,6 +205,17 @@ impl Application {
 
         // Wait for shutdown signal - this will update the shared shutdown state
         let signal_shutdown_state = setup_signal_handlers().await?;
+
+        // merciless shutdown
+        tokio::spawn(async move {
+            if let Err(e) = setup_signal_handlers().await {
+                error!("Failed to set up merciless shutdown signal handler: {e}");
+                return;
+            }
+
+            warn!("Shutdown handler received again! I'll make this quick.");
+            std::process::exit(1);
+        });
         
         // Transfer shutdown state to our server's shutdown state
         if signal_shutdown_state.is_shutdown_initiated() {
