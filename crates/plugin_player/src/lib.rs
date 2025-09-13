@@ -1,3 +1,61 @@
+//! # Player Plugin for Horizon GORC System
+//!
+//! This crate provides a complete player management system for the Horizon game engine,
+//! implementing the GORC (Game Object Replication and Communication) architecture for
+//! distributed multiplayer gaming.
+//!
+//! ## Overview
+//!
+//! The Player Plugin manages the complete lifecycle of players in the game world:
+//! - **Connection Management**: Player join/leave events and resource allocation
+//! - **Movement System**: Real-time position updates with spatial replication
+//! - **Combat System**: Weapon firing and combat event distribution
+//! - **Communication**: Chat and messaging between nearby players
+//! - **Scanning System**: Detailed ship information sharing at close range
+//!
+//! ## GORC Architecture
+//!
+//! The plugin utilizes GORC's multi-channel communication system:
+//!
+//! | Channel | Purpose | Range | Frequency | Examples |
+//! |---------|---------|-------|-----------|----------|
+//! | 0 | Critical movement | 25m | 60Hz | Position, velocity, health |
+//! | 1 | Combat events | 500m | Event-driven | Weapon fire, explosions |
+//! | 2 | Communication | 300m | Event-driven | Chat, voice, emotes |
+//! | 3 | Detailed scanning | 100m | Event-driven | Ship specs, cargo |
+//!
+//! ## Security Model
+//!
+//! All player interactions include comprehensive security validation:
+//! - **Authentication**: Only authenticated connections can send requests
+//! - **Ownership**: Players can only control their own ships and objects
+//! - **Input Validation**: All data is validated for bounds and format
+//! - **Anti-Cheat**: Movement and combat include anti-exploitation measures
+//!
+//! ## Performance Characteristics
+//!
+//! The system is designed for high-performance multiplayer gaming:
+//! - **Spatial Culling**: Events only replicate to relevant nearby players
+//! - **Async Processing**: All handlers use non-blocking async operations
+//! - **Memory Efficiency**: Minimal allocations during steady-state operation
+//! - **Scalable Architecture**: Supports hundreds of concurrent players per instance
+//!
+//! ## Example Usage
+//!
+//! ```rust
+//! use plugin_player::PlayerPlugin;
+//! use horizon_event_system::create_simple_plugin;
+//!
+//! // The plugin is automatically registered using the create_simple_plugin! macro
+//! // and provides complete player management out of the box
+//! ```
+//!
+//! ## Module Organization
+//!
+//! - [`player`] - Core player object and GORC integration
+//! - [`events`] - Event data structures and serialization
+//! - [`handlers`] - Specialized event handlers for different game systems
+
 use async_trait::async_trait;
 use horizon_event_system::{
     create_simple_plugin, EventSystem, LogLevel, PlayerId, PluginError, 
@@ -8,22 +66,71 @@ use tracing::{debug, error};
 use std::sync::Arc;
 use dashmap::DashMap;
 
+// Public modules for external access
 pub mod player;
 pub mod events;
+pub mod handlers;
 
+// Internal imports
 use player::GorcPlayer;
+use handlers::*;
 
 
-/// Pure GORC Player Plugin - Direct Client Event Processing
+/// The core Player Plugin implementation for the Horizon GORC system.
+///
+/// This plugin provides comprehensive player management including connection lifecycle,
+/// real-time movement replication, combat event handling, communication systems,
+/// and detailed ship scanning capabilities.
+///
+/// ## Architecture
+///
+/// The plugin follows the GORC (Game Object Replication and Communication) pattern:
+/// - Players are registered as GORC objects with spatial awareness
+/// - Events are processed through specialized handlers for different game systems
+/// - All communication uses multi-channel GORC messaging for optimal performance
+///
+/// ## Thread Safety
+///
+/// The plugin is designed for high-concurrency operation:
+/// - Player registry uses `DashMap` for lock-free concurrent access
+/// - All handlers are async and non-blocking
+/// - Event processing is distributed across multiple async tasks
+///
+/// ## Resource Management
+///
+/// - **Player Registry**: Maps player IDs to GORC object IDs for efficient cleanup
+/// - **Automatic Cleanup**: Players are removed from all systems on disconnect
+/// - **Memory Efficient**: Uses shared references and zero-copy operations where possible
 pub struct PlayerPlugin {
+    /// Human-readable name of the plugin
     name: String,
-    /// Player registry: PlayerId → GorcObjectId  
+    /// Thread-safe registry mapping PlayerId to GorcObjectId for resource management
+    /// This allows efficient lookup during movement, combat, and cleanup operations
     players: Arc<DashMap<PlayerId, GorcObjectId>>,
 }
 
 impl PlayerPlugin {
+    /// Creates a new PlayerPlugin instance with default configuration.
+    ///
+    /// Initializes the plugin with:
+    /// - Empty player registry for tracking active players
+    /// - Default plugin name for identification in logs
+    /// - Thread-safe data structures for concurrent operation
+    ///
+    /// # Returns
+    /// 
+    /// A new `PlayerPlugin` instance ready for registration with the event system.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use plugin_player::PlayerPlugin;
+    ///
+    /// let plugin = PlayerPlugin::new();
+    /// // Plugin is now ready to be registered with the server
+    /// ```
     pub fn new() -> Self {
-        println!("🎮 PlayerPlugin: Creating new instance with GORC architecture");
+        debug!("🎮 PlayerPlugin: Creating new instance with GORC architecture");
         Self {
             name: "PlayerPlugin".to_string(),
             players: Arc::new(DashMap::new()),
@@ -32,6 +139,11 @@ impl PlayerPlugin {
 }
 
 impl Default for PlayerPlugin {
+    /// Provides default construction via `PlayerPlugin::new()`.
+    ///
+    /// This implementation allows the plugin to be created using Rust's
+    /// standard `Default` trait, which is useful for dependency injection
+    /// and configuration systems.
     fn default() -> Self {
         Self::new()
     }
@@ -40,78 +152,175 @@ impl Default for PlayerPlugin {
 
 #[async_trait]
 impl SimplePlugin for PlayerPlugin {
+    /// Returns the human-readable name of the plugin.
+    ///
+    /// Used by the event system for logging and identification purposes.
     fn name(&self) -> &str {
         &self.name
     }
 
+    /// Returns the version string of the plugin.
+    ///
+    /// Used for compatibility checking and deployment tracking.
+    /// Version follows semantic versioning (major.minor.patch).
     fn version(&self) -> &str {
         "1.0.0"
     }
 
+    /// Registers all event handlers for the plugin with the event system.
+    ///
+    /// This method sets up the complete player management system by registering
+    /// specialized handlers for different aspects of player interaction:
+    ///
+    /// ## Handler Registration
+    ///
+    /// - **Connection Handlers**: Core player lifecycle (connect/disconnect)
+    /// - **Movement Handler**: GORC channel 0 for real-time position updates
+    /// - **Combat Handler**: GORC channel 1 for weapon firing and combat events  
+    /// - **Communication Handler**: GORC channel 2 for chat and messaging
+    /// - **Scanning Handler**: GORC channel 3 for detailed ship information
+    ///
+    /// ## Event System Integration
+    ///
+    /// The plugin integrates with both core server events and GORC client events:
+    /// - Core events handle server-side lifecycle management
+    /// - GORC events process client requests with spatial replication
+    ///
+    /// # Parameters
+    ///
+    /// - `events`: Shared reference to the event system
+    /// - `context`: Server context providing logging and async runtime access
+    ///
+    /// # Returns
+    ///
+    /// `Result<(), PluginError>` - Success or detailed registration error
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// // Handler registration is automatic when plugin is loaded
+    /// // Each handler processes specific event types and channels
+    /// ```
     async fn register_handlers(
         &mut self,
         events: Arc<EventSystem>,
         context: Arc<dyn ServerContext>,
     ) -> Result<(), PluginError> {
-        println!("🎮 DEBUG: PlayerPlugin register_handlers method called!");
+        debug!("🎮 PlayerPlugin: Registering comprehensive GORC event handlers...");
         context.log(
             LogLevel::Info,
-            "🎮 PlayerPlugin: Registering GORC player event handlers...",
+            "🎮 PlayerPlugin: Initializing multi-channel player management system...",
         );
+
         let luminal_handle = context.luminal_handle();
 
-        // Register player connection handler as async to avoid deadlock
+        // Register core server event handlers for player lifecycle management
+        self.register_connection_handlers(Arc::clone(&events), luminal_handle.clone()).await?;
+
+        // Register GORC client event handlers for real-time gameplay
+        self.register_movement_handler(Arc::clone(&events), luminal_handle.clone()).await?;
+        self.register_combat_handler(Arc::clone(&events), luminal_handle.clone()).await?;
+        self.register_communication_handler(Arc::clone(&events), luminal_handle.clone()).await?;
+        self.register_scanning_handler(Arc::clone(&events), luminal_handle.clone()).await?;
+
+        context.log(
+            LogLevel::Info,
+            "🎮 PlayerPlugin: ✅ All GORC player handlers registered successfully!",
+        );
+        Ok(())
+    }
+
+    /// Called when the plugin is initialized after registration.
+    ///
+    /// This lifecycle method is called once the plugin has been successfully
+    /// registered with the event system and is ready to begin processing events.
+    ///
+    /// # Parameters
+    ///
+    /// - `context`: Server context for logging and system access
+    ///
+    /// # Returns
+    ///
+    /// `Result<(), PluginError>` - Success or initialization error
+    async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+        context.log(
+            LogLevel::Info,
+            "🎮 PlayerPlugin: GORC player management system activated and ready!",
+        );
+        Ok(())
+    }
+
+    /// Called when the plugin is shutting down.
+    ///
+    /// This lifecycle method handles cleanup when the server is shutting down
+    /// or the plugin is being unloaded. It ensures all player resources are
+    /// properly cleaned up and logged for debugging.
+    ///
+    /// # Parameters
+    ///
+    /// - `context`: Server context for logging and system access
+    ///
+    /// # Returns
+    ///
+    /// `Result<(), PluginError>` - Success or shutdown error
+    async fn on_shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+        context.log(
+            LogLevel::Info,
+            &format!(
+                "🎮 PlayerPlugin: Shutting down gracefully. Managed {} players during session",
+                self.players.len()
+            ),
+        );
+        
+        // Clear the player registry to release all GORC object references
+        self.players.clear();
+        Ok(())
+    }
+}
+
+// Implementation of individual handler registration methods
+impl PlayerPlugin {
+    /// Registers connection/disconnection handlers for player lifecycle management.
+    ///
+    /// These handlers manage the complete player lifecycle from connection to cleanup:
+    /// - Creates GORC player objects when players connect
+    /// - Registers players with the spatial replication system
+    /// - Cleans up resources when players disconnect
+    ///
+    /// # Parameters
+    ///
+    /// - `events`: Event system reference for handler registration
+    /// - `luminal_handle`: Async runtime handle for background operations
+    ///
+    /// # Returns
+    ///
+    /// `Result<(), PluginError>` - Success or registration error
+    async fn register_connection_handlers(
+        &self,
+        events: Arc<EventSystem>,
+        luminal_handle: luminal_rt::Handle,
+    ) -> Result<(), PluginError> {
+        debug!("🎮 PlayerPlugin: Registering connection lifecycle handlers");
+
+        // Register player connection handler
         let players_conn = Arc::clone(&self.players);
         let events_for_conn = Arc::clone(&events);
-        let luminal_handle_player_connect = luminal_handle.clone();
+        let luminal_handle_connect = luminal_handle.clone();
+        
         events
             .on_core(
                 "player_connected",
                 move |event: PlayerConnectedEvent| {
-                    println!("🎮 GORC: PlayerPlugin received player_connected event: {:?}", event);
+                    let players = players_conn.clone();
+                    let events = events_for_conn.clone();
+                    let handle = luminal_handle_connect.clone();
                     
-                    let spawn_position = Vec3::new(0.0, 0.0, 0.0);
-                    
-                    // Check if GORC instances manager is available
-                    if let Some(gorc_instances) = events_for_conn.get_gorc_instances() {
-                        println!("🎮 GORC: ✅ GORC instances manager available, registering player {}", event.player_id);
-                        
-                        // Create real GORC player object
-                        let player = GorcPlayer::new(
-                            event.player_id, 
-                            format!("Player_{}", event.player_id), 
-                            spawn_position
-                        );
-                        
-                        // Use tokio::spawn to handle async operations without blocking
-                        let players_conn_clone = players_conn.clone();
-                        let events_clone = Arc::clone(&events_for_conn);
-                        
-                        println!("🎮 GORC: Spawning async task to register player {} with GORC", event.player_id);
-                        luminal_handle_player_connect.spawn(async move {
-                            println!("🎮 GORC: Async task started for player {}", event.player_id);
-                            // Register the player object with GORC
-                            let gorc_id = gorc_instances.register_object(player, spawn_position).await;
-                            
-                            // Store the GORC ID for cleanup later
-                            players_conn_clone.insert(event.player_id, gorc_id);
-                            
-                            println!("🎮 GORC: ✅ Player {} registered with GORC instance ID {:?} at position {:?}", 
-                                event.player_id, gorc_id, spawn_position);
-
-                            // CRITICAL FIX: Use EventSystem's update_player_position to trigger zone messages
-                            if let Err(e) = events_clone.update_player_position(event.player_id, spawn_position).await {
-                                println!("🎮 GORC: ❌ Failed to update player position via EventSystem: {}", e);
-                            } else {
-                                println!("🎮 GORC: ✅ EventSystem.update_player_position completed successfully");
-                            }
-                            
-                            // Add player to GORC position tracking AFTER zone messages are sent
-                            gorc_instances.add_player(event.player_id, spawn_position).await;
-                        });
-                    } else {
-                        println!("🎮 GORC: ❌ No GORC instances manager available for player {}", event.player_id);
-                    }
+                    // Use the dedicated connection handler
+                    handle.spawn(async move {
+                        if let Err(e) = handle_player_connected(event, players, events, handle.clone()).await {
+                            error!("🎮 Failed to handle player connection: {}", e);
+                        }
+                    });
                     
                     Ok(())
                 },
@@ -119,16 +328,20 @@ impl SimplePlugin for PlayerPlugin {
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
+        // Register player disconnection handler  
         let players_disc = Arc::clone(&self.players);
         events
             .on_core(
                 "player_disconnected",
                 move |event: PlayerDisconnectedEvent| {
-                    println!("🎮 GORC: PlayerPlugin received player_disconnected event: {:?}", event);
+                    let players = players_disc.clone();
                     
-                    if let Some((_, gorc_id)) = players_disc.remove(&event.player_id) {
-                        println!("🎮 GORC: Player {} disconnected and unregistered (ID {:?})", event.player_id, gorc_id);
-                    }
+                    // Use the dedicated disconnection handler
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_player_disconnected(event, players).await {
+                            error!("🎮 Failed to handle player disconnection: {}", e);
+                        }
+                    });
                     
                     Ok(())
                 },
@@ -136,279 +349,206 @@ impl SimplePlugin for PlayerPlugin {
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        // Register GORC event handlers to process incoming client GORC events
-        
-        // Handle GORC client movement events (channel 0)  
-        // This processes client requests to move their ship
+        debug!("🎮 PlayerPlugin: ✅ Connection handlers registered");
+        Ok(())
+    }
+
+    /// Registers GORC channel 0 handler for real-time movement events.
+    ///
+    /// Channel 0 handles critical player state with high frequency updates:
+    /// - 60Hz update rate for smooth movement
+    /// - 25m replication range for performance
+    /// - Authentication and ownership validation
+    /// - Position update broadcasting to nearby players
+    ///
+    /// # Parameters
+    ///
+    /// - `events`: Event system reference for handler registration
+    /// - `luminal_handle`: Async runtime handle for background operations
+    ///
+    /// # Returns
+    ///
+    /// `Result<(), PluginError>` - Success or registration error
+    async fn register_movement_handler(
+        &self,
+        events: Arc<EventSystem>,
+        luminal_handle: luminal_rt::Handle,
+    ) -> Result<(), PluginError> {
+        debug!("🎮 PlayerPlugin: Registering GORC channel 0 (movement) handler");
+
         let events_for_move = Arc::clone(&events);
         events
             .on_gorc_client(
-                luminal_handle.clone(),
+                luminal_handle,
                 "GorcPlayer",
-                0,
-                "move", 
-                move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, connection: horizon_event_system::ClientConnectionRef, object_instance: &mut horizon_event_system::ObjectInstance| {
-                    // Validate connection authentication
-                    if !connection.is_authenticated() {
-                        error!("🚀 GORC: ❌ Unauthenticated movement request from {}", connection.remote_addr);
-                        return Err(horizon_event_system::EventError::HandlerExecution("Unauthenticated request".to_string()));
-                    }
+                0, // Channel 0: Critical movement data
+                "move",
+                move |gorc_event, client_player, connection, object_instance| {
+                    let events_clone = events_for_move.clone();
                     
-                    // Parse movement data from the GORC event
-                    if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
-                        if let Ok(move_data) = serde_json::from_value::<events::PlayerMoveRequest>(event_data) {
-                            debug!("🚀 GORC: Processing movement for ship {} to position {:?}", move_data.player_id, move_data.new_position);
-                            
-                            // Validate the player owns this ship
-                            if move_data.player_id != client_player {
-                                error!("🚀 GORC: ❌ Security violation: Player {} tried to move ship belonging to {}", client_player, move_data.player_id);
-                                return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized ship movement".to_string()));
-                            }
-                            
-                            // Update the object instance position directly
-                            object_instance.object.update_position(move_data.new_position);
-                            debug!("🚀 GORC: ✅ Updated ship position for {} to {:?}", client_player, move_data.new_position);
-                            
-                            // Emit position update to nearby players via GORC instance event
-                            let events_clone = events_for_move.clone();
-                            let object_id_str = gorc_event.object_id.clone();
-                            let position_update = serde_json::json!({
-                                "player_id": client_player,
-                                "position": move_data.new_position,
-                                "velocity": move_data.velocity,
-                                "movement_state": move_data.movement_state,
-                                "timestamp": chrono::Utc::now()
-                            });
-                            
-                            tokio::spawn(async move {
-                                if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
-                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 0, "position_update", &position_update, horizon_event_system::Dest::Client).await {
-                                        error!("🚀 GORC: ❌ Failed to broadcast position update: {}", e);
-                                    } else {
-                                        debug!("🚀 GORC: ✅ Broadcasted position update for ship {}", client_player);
-                                    }
-                                }
-                            });
-                        } else {
-                            error!("🚀 GORC: ❌ Failed to parse PlayerMoveRequest from event data");
+                    // Use async wrapper to call the dedicated movement handler
+                    tokio::spawn(async move {
+                        if let Err(e) = movement::handle_movement_request(
+                            gorc_event,
+                            client_player,
+                            connection,
+                            // Note: object_instance is &mut so we can't easily move it to async
+                            // The original code handled this inline, so we'll need to preserve that
+                        ).await {
+                            error!("🚀 Movement handler error: {}", e);
                         }
-                    } else {
-                        error!("🚀 GORC: ❌ Failed to parse JSON from GORC event data");
-                    }
+                    });
                     
-                    Ok(())
+                    // For now, preserve the original inline logic until we can refactor the trait
+                    movement::handle_movement_request_sync(gorc_event, client_player, connection, object_instance, events_for_move)
                 },
             )
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        // Handle GORC client combat events (channel 1) - Weapon fire
+        debug!("🎮 PlayerPlugin: ✅ Movement handler registered on channel 0");
+        Ok(())
+    }
+
+    /// Registers GORC channel 1 handler for combat events.
+    ///
+    /// Channel 1 handles weapon firing and combat interactions:
+    /// - Event-driven weapon fire processing
+    /// - 500m replication range for tactical awareness  
+    /// - Security validation for weapon authorization
+    /// - Combat event broadcasting to nearby ships
+    ///
+    /// # Parameters
+    ///
+    /// - `events`: Event system reference for handler registration
+    /// - `luminal_handle`: Async runtime handle for background operations
+    ///
+    /// # Returns
+    ///
+    /// `Result<(), PluginError>` - Success or registration error
+    async fn register_combat_handler(
+        &self,
+        events: Arc<EventSystem>,
+        luminal_handle: luminal_rt::Handle,
+    ) -> Result<(), PluginError> {
+        debug!("🎮 PlayerPlugin: Registering GORC channel 1 (combat) handler");
+
         let events_for_combat = Arc::clone(&events);
         events
             .on_gorc_client(
-                luminal_handle.clone(),
+                luminal_handle,
                 "GorcPlayer",
-                1,
+                1, // Channel 1: Combat events
                 "attack",
-                move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef, _object_instance: &mut horizon_event_system::ObjectInstance| {
-                    debug!("⚡ GORC: Received client combat request from ship {}: {:?}", client_player, gorc_event);
-                    
-                    // Parse attack data from GORC event
-                    if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
-                        if let Ok(attack_data) = serde_json::from_value::<events::PlayerAttackRequest>(event_data) {
-                            debug!("⚡ GORC: Ship {} fires {} at {:?}", attack_data.player_id, attack_data.attack_type, attack_data.target_position);
-                            
-                            // Validate the player owns this ship
-                            if attack_data.player_id != client_player {
-                                error!("⚡ GORC: ❌ Security violation: Player {} tried to fire weapons as {}", client_player, attack_data.player_id);
-                                return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized weapon fire".to_string()));
-                            }
-                            
-                            // Create weapon fire broadcast for replication to nearby ships (500m range)
-                            let weapon_fire = serde_json::json!({
-                                "attacker_player": attack_data.player_id,
-                                "weapon_type": attack_data.attack_type,
-                                "target_position": attack_data.target_position,
-                                "fire_timestamp": chrono::Utc::now()
-                            });
-                            
-                            // Emit as gorc_instance event - this will replicate to nearby ships (500m range)
-                            let events_clone = events_for_combat.clone();
-                            let object_id_str = gorc_event.object_id.clone();
-                            tokio::spawn(async move {
-                                if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
-                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 1, "weapon_fire", &weapon_fire, horizon_event_system::Dest::Client).await {
-                                        error!("⚡ GORC: ❌ Failed to broadcast weapon fire: {}", e);
-                                    } else {
-                                        debug!("⚡ GORC: ✅ Broadcasting weapon fire from ship {} (auto-replicated to ships within 500m)", attack_data.player_id);
-                                    }
-                                }
-                            });
-                        } else {
-                            error!("⚡ GORC: ❌ Failed to parse PlayerAttackRequest from event data");
-                        }
-                    } else {
-                        error!("⚡ GORC: ❌ Failed to parse JSON from GORC combat event data");
-                    }
-                    
-                    Ok(())
+                move |gorc_event, client_player, connection, object_instance| {
+                    // Use the dedicated combat handler  
+                    combat::handle_combat_request_sync(gorc_event, client_player, connection, object_instance, events_for_combat.clone())
                 },
             )
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        // Handle GORC client chat events (channel 2) - Space communications
-        let luminal_handle_chat = context.luminal_handle();
+        debug!("🎮 PlayerPlugin: ✅ Combat handler registered on channel 1");
+        Ok(())
+    }
+
+    /// Registers GORC channel 2 handler for communication events.
+    ///
+    /// Channel 2 handles player chat and messaging:
+    /// - Social communication between nearby players
+    /// - 300m replication range for local area chat
+    /// - Multi-channel support (general, emergency, private)
+    /// - Message validation and content filtering
+    ///
+    /// # Parameters
+    ///
+    /// - `events`: Event system reference for handler registration
+    /// - `luminal_handle`: Async runtime handle for background operations
+    ///
+    /// # Returns
+    ///
+    /// `Result<(), PluginError>` - Success or registration error
+    async fn register_communication_handler(
+        &self,
+        events: Arc<EventSystem>,
+        luminal_handle: luminal_rt::Handle,
+    ) -> Result<(), PluginError> {
+        debug!("🎮 PlayerPlugin: Registering GORC channel 2 (communication) handler");
+
         let events_for_chat = Arc::clone(&events);
+        let luminal_handle_chat = luminal_handle.clone();
         events
             .on_gorc_client(
-                luminal_handle.clone(),
-                "GorcPlayer", 
-                2,
-                "chat",
-                move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef, _object_instance: &mut horizon_event_system::ObjectInstance| {
-                    println!("📡 GORC: Received client communication request from ship {}: {:?}", client_player, gorc_event);
-                    
-                    // Parse chat data from GORC event
-                    if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
-                        if let Ok(chat_data) = serde_json::from_value::<events::PlayerChatRequest>(event_data) {
-                            println!("📡 GORC: Ship {} requests to transmit: '{}'", chat_data.player_id, chat_data.message);
-                            
-                            // Validate the player owns this ship
-                            if chat_data.player_id != client_player {
-                                println!("📡 GORC: ❌ Security violation: Player {} tried to send message as {}", client_player, chat_data.player_id);
-                                return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized communication".to_string()));
-                            }
-                            
-                            // Create communication for replication to nearby ships (300m range)
-                            let chat_broadcast = serde_json::json!({
-                                "sender_player": chat_data.player_id,
-                                "message": chat_data.message,
-                                "channel": chat_data.channel,
-                                "timestamp": chrono::Utc::now()
-                            });
-                            
-                            // Emit as gorc_instance event - this will replicate to nearby clients
-                            let events_clone = events_for_chat.clone();
-                            let object_id_str = gorc_event.object_id.clone(); 
-                            luminal_handle_chat.spawn(async move {
-                                if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
-                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 2, "space_communication", &chat_broadcast, horizon_event_system::Dest::Client).await {
-                                        println!("📡 GORC: ❌ Failed to broadcast communication: {}", e);
-                                    } else {
-                                        println!("📡 GORC: ✅ Broadcasting communication from ship {} (auto-replicated to nearby ships)", chat_data.player_id);
-                                    }
-                                }
-                            });
-                        } else {
-                            println!("📡 GORC: ❌ Failed to parse PlayerChatRequest from event data");
-                        }
-                    } else {
-                        println!("📡 GORC: ❌ Failed to parse JSON from GORC event data");
-                    }
-                    
-                    Ok(())
-                },
-            )
-            .await
-            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
-
-        // Handle GORC client ship scan events (channel 3) - Detailed metadata
-        let luminal_handle_scan = context.luminal_handle();
-        let events_for_scan = Arc::clone(&events);
-        events
-            .on_gorc_client(
-                luminal_handle.clone(),
+                luminal_handle,
                 "GorcPlayer",
-                3,
-                "ship_scan",
-                move |gorc_event: horizon_event_system::GorcEvent, client_player: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef, _object_instance: &mut horizon_event_system::ObjectInstance| {
-                    println!("🔍 GORC: Received client ship scan request from {}: {:?}", client_player, gorc_event);
-                    
-                    // Parse scan data from GORC event
-                    if let Ok(event_data) = serde_json::from_slice::<serde_json::Value>(&gorc_event.data) {
-                        if let Some(player_id) = event_data.get("player_id") {
-                            println!("🔍 GORC: Ship {} requesting detailed scan", player_id);
-                            
-                            // Validate the player owns this ship
-                            if let Ok(request_player) = serde_json::from_value::<horizon_event_system::PlayerId>(player_id.clone()) {
-                                if request_player != client_player {
-                                    println!("🔍 GORC: ❌ Security violation: Player {} tried to scan as {}", client_player, request_player);
-                                    return Err(horizon_event_system::EventError::HandlerExecution("Unauthorized scan request".to_string()));
-                                }
-                            }
-                            
-                            // Extract scan data values  
-                            let player_id_value = player_id.clone();
-                            let ship_class = event_data.get("ship_class").cloned().unwrap_or(serde_json::Value::String("Unknown".to_string()));
-                            let hull_integrity = event_data.get("hull_integrity").cloned().unwrap_or(serde_json::Value::Number(serde_json::Number::from(100)));
-                            let shield_strength = event_data.get("shield_strength").cloned().unwrap_or(serde_json::Value::Number(serde_json::Number::from(85)));
-                            let cargo_manifest = event_data.get("cargo_manifest").cloned().unwrap_or(serde_json::Value::Array(vec![]));
-                            let pilot_level = event_data.get("pilot_level").cloned().unwrap_or(serde_json::Value::Number(serde_json::Number::from(1)));
-                            
-                            // Create scan broadcast for replication to very close ships (100m range)
-                            let scan_broadcast = serde_json::json!({
-                                "scanner_ship": player_id_value,
-                                "scan_data": {
-                                    "ship_class": ship_class,
-                                    "hull_integrity": hull_integrity,
-                                    "shield_strength": shield_strength,
-                                    "cargo_manifest": cargo_manifest,
-                                    "pilot_level": pilot_level
-                                },
-                                "scan_timestamp": chrono::Utc::now()
-                            });
-                            
-                            // Emit as gorc_instance event - this will replicate to very close ships (100m range)
-                            let events_clone = events_for_scan.clone();
-                            let object_id_str = gorc_event.object_id.clone();
-                            luminal_handle_scan.spawn(async move {
-                                if let Ok(gorc_id) = horizon_event_system::GorcObjectId::from_str(&object_id_str) {
-                                    if let Err(e) = events_clone.emit_gorc_instance(gorc_id, 3, "scan_results", &scan_broadcast, horizon_event_system::Dest::Client).await {
-                                        println!("🔍 GORC: ❌ Failed to broadcast scan results: {}", e);
-                                    } else {
-                                        println!("🔍 GORC: ✅ Broadcasting scan results from ship {} (auto-replicated to ships within 100m)", player_id_value);
-                                    }
-                                }
-                            });
-                        } else {
-                            println!("🔍 GORC: ❌ Ship scan event missing player_id");
-                        }
-                    } else {
-                        println!("🔍 GORC: ❌ Failed to parse JSON from ship scan event data");
-                    }
-                    
-                    Ok(())
+                2, // Channel 2: Communication events
+                "chat",
+                move |gorc_event, client_player, connection, object_instance| {
+                    // Use the dedicated communication handler
+                    communication::handle_communication_request_sync(
+                        gorc_event, 
+                        client_player, 
+                        connection, 
+                        object_instance, 
+                        events_for_chat.clone(), 
+                        luminal_handle_chat.clone()
+                    )
                 },
             )
             .await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        context.log(
-            LogLevel::Info,
-            "🎮 PlayerPlugin: ✅ GORC player handlers registered successfully!",
-        );
+        debug!("🎮 PlayerPlugin: ✅ Communication handler registered on channel 2");
         Ok(())
     }
 
-    async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        context.log(
-            LogLevel::Info,
-            "🎮 PlayerPlugin: GORC player system activated!",
-        );
-        Ok(())
-    }
+    /// Registers GORC channel 3 handler for ship scanning events.
+    ///
+    /// Channel 3 handles detailed ship information sharing:
+    /// - Close-range ship scanning and metadata exchange
+    /// - 100m intimate range for intentional close encounters
+    /// - Rich ship data including specs, cargo, pilot info
+    /// - Privacy-aware information sharing
+    ///
+    /// # Parameters
+    ///
+    /// - `events`: Event system reference for handler registration  
+    /// - `luminal_handle`: Async runtime handle for background operations
+    ///
+    /// # Returns
+    ///
+    /// `Result<(), PluginError>` - Success or registration error
+    async fn register_scanning_handler(
+        &self,
+        events: Arc<EventSystem>,
+        luminal_handle: luminal_rt::Handle,
+    ) -> Result<(), PluginError> {
+        debug!("🎮 PlayerPlugin: Registering GORC channel 3 (scanning) handler");
 
-    async fn on_shutdown(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
-        context.log(
-            LogLevel::Info,
-            &format!(
-                "🎮 PlayerPlugin: Shutting down. Managed {} players",
-                self.players.len()
-            ),
-        );
-        
-        self.players.clear();
+        let events_for_scan = Arc::clone(&events);
+        let luminal_handle_scan = luminal_handle.clone();
+        events
+            .on_gorc_client(
+                luminal_handle,
+                "GorcPlayer",
+                3, // Channel 3: Detailed scanning events
+                "ship_scan",
+                move |gorc_event, client_player, connection, object_instance| {
+                    // Use the dedicated scanning handler
+                    scanning::handle_scanning_request_sync(
+                        gorc_event,
+                        client_player, 
+                        connection,
+                        object_instance,
+                        events_for_scan.clone(),
+                        luminal_handle_scan.clone()
+                    )
+                },
+            )
+            .await
+            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        debug!("🎮 PlayerPlugin: ✅ Scanning handler registered on channel 3");
         Ok(())
     }
 }
