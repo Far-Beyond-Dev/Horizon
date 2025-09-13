@@ -298,7 +298,7 @@ impl PlayerPlugin {
     async fn register_connection_handlers(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal_rt::Handle,
+        luminal_handle: luminal::Handle,
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering connection lifecycle handlers");
 
@@ -372,7 +372,7 @@ impl PlayerPlugin {
     async fn register_movement_handler(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal_rt::Handle,
+        luminal_handle: luminal::Handle,
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering GORC channel 0 (movement) handler");
 
@@ -429,7 +429,7 @@ impl PlayerPlugin {
     async fn register_combat_handler(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal_rt::Handle,
+        luminal_handle: luminal::Handle,
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering GORC channel 1 (combat) handler");
 
@@ -471,7 +471,7 @@ impl PlayerPlugin {
     async fn register_communication_handler(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal_rt::Handle,
+        luminal_handle: luminal::Handle,
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering GORC channel 2 (communication) handler");
 
@@ -521,7 +521,7 @@ impl PlayerPlugin {
     async fn register_scanning_handler(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal_rt::Handle,
+        luminal_handle: luminal::Handle,
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering GORC channel 3 (scanning) handler");
 
