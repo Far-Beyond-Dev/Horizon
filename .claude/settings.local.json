@@ -29,7 +29,9 @@
       "Bash(timeout 8 cargo run --bin simulate -- --players 2)",
       "Bash(timeout 15 cargo run --bin simulate -- --players 1)",
       "WebFetch(domain:docs.rs)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(timeout 15 cargo run --bin simulate -- --players 2)",
+      "Bash(timeout 20 cargo run --bin horizon)"
     ],
     "deny": []
   }

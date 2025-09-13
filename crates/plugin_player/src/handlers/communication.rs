@@ -98,7 +98,7 @@ pub async fn handle_communication_request(
     _connection: ClientConnectionRef,
     _object_instance: &mut ObjectInstance,
     events: Arc<EventSystem>,
-    luminal_handle: luminal_rt::Handle,
+    luminal_handle: luminal::Handle,
 ) -> Result<(), EventError> {
     debug!("📡 GORC: Received client communication request from ship {}: {:?}", 
         client_player, gorc_event);
@@ -135,12 +135,91 @@ pub async fn handle_communication_request(
     }
     
     // Broadcast communication to nearby ships
+    let chat_data_owned = chat_data.clone();
     broadcast_communication(
         &gorc_event.object_id,
-        &chat_data,
+        chat_data_owned,
         events,
         luminal_handle,
     ).await;
+    
+    Ok(())
+}
+
+/// Synchronous wrapper for communication request handling that works with GORC client handlers.
+///
+/// This function provides the same functionality as `handle_communication_request` but in
+/// a synchronous context suitable for use with the GORC client event system.
+pub fn handle_communication_request_sync(
+    gorc_event: GorcEvent,
+    client_player: PlayerId,
+    _connection: ClientConnectionRef,
+    _object_instance: &mut ObjectInstance,
+    events: Arc<EventSystem>,
+    luminal_handle: luminal::Handle,
+) -> Result<(), EventError> {
+    debug!("📡 GORC: Received client communication request from ship {}: {:?}", 
+        client_player, gorc_event);
+    
+    // Parse chat data from GORC event payload
+    let event_data = serde_json::from_slice::<serde_json::Value>(&gorc_event.data)
+        .map_err(|e| {
+            error!("📡 GORC: ❌ Failed to parse JSON from GORC event data: {}", e);
+            EventError::HandlerExecution("Invalid JSON in communication request".to_string())
+        })?;
+    
+    let chat_data = serde_json::from_value::<PlayerChatRequest>(event_data)
+        .map_err(|e| {
+            error!("📡 GORC: ❌ Failed to parse PlayerChatRequest: {}", e);
+            EventError::HandlerExecution("Invalid communication request format".to_string())
+        })?;
+    
+    debug!("📡 GORC: Ship {} requests to transmit: '{}'", 
+        chat_data.player_id, chat_data.message);
+    
+    // SECURITY: Validate player ownership - players can only send messages as themselves
+    if chat_data.player_id != client_player {
+        error!("📡 GORC: ❌ Security violation: Player {} tried to send message as {}", 
+            client_player, chat_data.player_id);
+        return Err(EventError::HandlerExecution(
+            "Unauthorized communication".to_string()
+        ));
+    }
+    
+    // Validate and filter the message content
+    if let Err(reason) = validate_message_content(&chat_data.message, &chat_data.channel) {
+        error!("📡 GORC: ❌ Message validation failed: {}", reason);
+        return Err(EventError::HandlerExecution(reason));
+    }
+    
+    // Broadcast communication to nearby ships
+    let object_id_str = gorc_event.object_id.clone();
+    let chat_broadcast = serde_json::json!({
+        "sender_player": chat_data.player_id,
+        "message": chat_data.message,
+        "channel": chat_data.channel,
+        "target_player": chat_data.target_player,
+        "timestamp": chrono::Utc::now()
+    });
+    
+    if let Ok(gorc_id) = GorcObjectId::from_str(&object_id_str) {
+        luminal_handle.spawn(async move {
+            if let Err(e) = events.emit_gorc_instance(
+                gorc_id, 
+                2, // Channel 2: Communication events
+                "space_communication", 
+                &chat_broadcast, 
+                horizon_event_system::Dest::Client
+            ).await {
+                error!("📡 GORC: ❌ Failed to broadcast communication: {}", e);
+            } else {
+                debug!("📡 GORC: ✅ Broadcasting communication from ship {} on channel '{}' to ships within 300m", 
+                    chat_data.player_id, chat_data.channel);
+            }
+        });
+    } else {
+        error!("📡 GORC: ❌ Invalid GORC object ID format: {}", object_id_str);
+    }
     
     Ok(())
 }
@@ -174,9 +253,9 @@ pub async fn handle_communication_request(
 /// - **trade**: Standard range with potential persistence for trading posts
 async fn broadcast_communication(
     object_id_str: &str,
-    chat_data: &PlayerChatRequest,
+    chat_data: PlayerChatRequest,
     events: Arc<EventSystem>,
-    luminal_handle: luminal_rt::Handle,
+    luminal_handle: luminal::Handle,
 ) {
     // Create communication broadcast payload
     let chat_broadcast = serde_json::json!({

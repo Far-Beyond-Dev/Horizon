@@ -59,7 +59,7 @@
 use async_trait::async_trait;
 use horizon_event_system::{
     create_simple_plugin, EventSystem, LogLevel, PlayerId, PluginError, 
-    ServerContext, SimplePlugin, Vec3, GorcObjectId,
+    ServerContext, SimplePlugin, GorcObjectId,
     PlayerConnectedEvent, PlayerDisconnectedEvent,
 };
 use tracing::{debug, error};
@@ -72,7 +72,6 @@ pub mod events;
 pub mod handlers;
 
 // Internal imports
-use player::GorcPlayer;
 use handlers::*;
 
 
@@ -316,8 +315,9 @@ impl PlayerPlugin {
                     let handle = luminal_handle_connect.clone();
                     
                     // Use the dedicated connection handler
+                    let handle_clone = handle.clone();
                     handle.spawn(async move {
-                        if let Err(e) = handle_player_connected(event, players, events, handle.clone()).await {
+                        if let Err(e) = handle_player_connected(event, players, events, handle_clone).await {
                             error!("🎮 Failed to handle player connection: {}", e);
                         }
                     });
@@ -384,23 +384,8 @@ impl PlayerPlugin {
                 0, // Channel 0: Critical movement data
                 "move",
                 move |gorc_event, client_player, connection, object_instance| {
-                    let events_clone = events_for_move.clone();
-                    
-                    // Use async wrapper to call the dedicated movement handler
-                    tokio::spawn(async move {
-                        if let Err(e) = movement::handle_movement_request(
-                            gorc_event,
-                            client_player,
-                            connection,
-                            // Note: object_instance is &mut so we can't easily move it to async
-                            // The original code handled this inline, so we'll need to preserve that
-                        ).await {
-                            error!("🚀 Movement handler error: {}", e);
-                        }
-                    });
-                    
-                    // For now, preserve the original inline logic until we can refactor the trait
-                    movement::handle_movement_request_sync(gorc_event, client_player, connection, object_instance, events_for_move)
+                    // Use the dedicated movement handler
+                    movement::handle_movement_request_sync(gorc_event, client_player, connection, object_instance, events_for_move.clone())
                 },
             )
             .await

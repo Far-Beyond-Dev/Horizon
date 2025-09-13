@@ -136,6 +136,76 @@ pub async fn handle_combat_request(
     Ok(())
 }
 
+/// Synchronous wrapper for combat request handling that works with GORC client handlers.
+///
+/// This function provides the same functionality as `handle_combat_request` but in
+/// a synchronous context suitable for use with the GORC client event system.
+pub fn handle_combat_request_sync(
+    gorc_event: GorcEvent,
+    client_player: PlayerId,
+    _connection: ClientConnectionRef,
+    _object_instance: &mut ObjectInstance,
+    events: Arc<EventSystem>,
+) -> Result<(), EventError> {
+    debug!("⚡ GORC: Received client combat request from ship {}: {:?}", 
+        client_player, gorc_event);
+    
+    // Parse attack data from GORC event payload
+    let event_data = serde_json::from_slice::<serde_json::Value>(&gorc_event.data)
+        .map_err(|e| {
+            error!("⚡ GORC: ❌ Failed to parse JSON from GORC combat event: {}", e);
+            EventError::HandlerExecution("Invalid JSON in combat request".to_string())
+        })?;
+    
+    let attack_data = serde_json::from_value::<PlayerAttackRequest>(event_data)
+        .map_err(|e| {
+            error!("⚡ GORC: ❌ Failed to parse PlayerAttackRequest: {}", e);
+            EventError::HandlerExecution("Invalid attack request format".to_string())
+        })?;
+    
+    debug!("⚡ GORC: Ship {} fires {} at {:?}", 
+        attack_data.player_id, attack_data.attack_type, attack_data.target_position);
+    
+    // SECURITY: Validate player ownership - only ship owners can fire weapons
+    if attack_data.player_id != client_player {
+        error!("⚡ GORC: ❌ Security violation: Player {} tried to fire weapons as {}", 
+            client_player, attack_data.player_id);
+        return Err(EventError::HandlerExecution(
+            "Unauthorized weapon fire".to_string()
+        ));
+    }
+    
+    // Broadcast weapon fire event to nearby ships
+    let object_id_str = gorc_event.object_id.clone();
+    let weapon_fire = serde_json::json!({
+        "attacker_player": attack_data.player_id,
+        "weapon_type": attack_data.attack_type,
+        "target_position": attack_data.target_position,
+        "fire_timestamp": chrono::Utc::now()
+    });
+    
+    tokio::spawn(async move {
+        if let Ok(gorc_id) = GorcObjectId::from_str(&object_id_str) {
+            if let Err(e) = events.emit_gorc_instance(
+                gorc_id, 
+                1, // Channel 1: Combat events
+                "weapon_fire", 
+                &weapon_fire, 
+                horizon_event_system::Dest::Client
+            ).await {
+                error!("⚡ GORC: ❌ Failed to broadcast weapon fire: {}", e);
+            } else {
+                debug!("⚡ GORC: ✅ Broadcasting weapon fire from ship {} to ships within 500m", 
+                    attack_data.player_id);
+            }
+        } else {
+            error!("⚡ GORC: ❌ Invalid GORC object ID format: {}", object_id_str);
+        }
+    });
+    
+    Ok(())
+}
+
 /// Broadcasts weapon fire events to all ships within 500m combat range.
 /// 
 /// This function creates a standardized weapon fire message and emits it

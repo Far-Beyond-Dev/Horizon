@@ -80,7 +80,7 @@ pub async fn handle_player_connected(
     event: PlayerConnectedEvent,
     players: Arc<DashMap<PlayerId, GorcObjectId>>,
     events: Arc<EventSystem>,
-    luminal_handle: luminal_rt::Handle,
+    luminal_handle: luminal::Handle,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     debug!("🎮 GORC: Processing player connection for player {}", event.player_id);
     

@@ -141,6 +141,87 @@ pub async fn handle_movement_request(
     Ok(())
 }
 
+/// Synchronous wrapper for movement request handling that works with GORC client handlers.
+///
+/// This function provides the same functionality as `handle_movement_request` but in
+/// a synchronous context suitable for use with the GORC client event system.
+pub fn handle_movement_request_sync(
+    gorc_event: GorcEvent,
+    client_player: PlayerId,
+    connection: ClientConnectionRef,
+    object_instance: &mut ObjectInstance,
+    events: Arc<EventSystem>,
+) -> Result<(), EventError> {
+    // SECURITY: Validate connection authentication before processing any movement
+    if !connection.is_authenticated() {
+        error!("🚀 GORC: ❌ Unauthenticated movement request from {}", connection.remote_addr);
+        return Err(EventError::HandlerExecution(
+            "Unauthenticated request".to_string()
+        ));
+    }
+    
+    // Parse the movement data from the GORC event payload
+    let event_data = serde_json::from_slice::<serde_json::Value>(&gorc_event.data)
+        .map_err(|e| {
+            error!("🚀 GORC: ❌ Failed to parse JSON from GORC event data: {}", e);
+            EventError::HandlerExecution("Invalid JSON in movement request".to_string())
+        })?;
+    
+    let move_data = serde_json::from_value::<PlayerMoveRequest>(event_data)
+        .map_err(|e| {
+            error!("🚀 GORC: ❌ Failed to parse PlayerMoveRequest: {}", e);
+            EventError::HandlerExecution("Invalid movement request format".to_string())
+        })?;
+    
+    debug!("🚀 GORC: Processing movement for ship {} to position {:?}", 
+        move_data.player_id, move_data.new_position);
+    
+    // SECURITY: Validate player ownership - players can only move their own ships
+    if move_data.player_id != client_player {
+        error!("🚀 GORC: ❌ Security violation: Player {} tried to move ship belonging to {}", 
+            client_player, move_data.player_id);
+        return Err(EventError::HandlerExecution(
+            "Unauthorized ship movement".to_string()
+        ));
+    }
+    
+    // Update the object instance position directly (this is the authoritative update)
+    object_instance.object.update_position(move_data.new_position);
+    debug!("🚀 GORC: ✅ Updated ship position for {} to {:?}", 
+        client_player, move_data.new_position);
+    
+    // Broadcast position update to nearby players (within 25m range)
+    let object_id_str = gorc_event.object_id.clone();
+    let position_update = serde_json::json!({
+        "player_id": client_player,
+        "position": move_data.new_position,
+        "velocity": move_data.velocity,
+        "movement_state": move_data.movement_state,
+        "timestamp": chrono::Utc::now()
+    });
+    
+    tokio::spawn(async move {
+        if let Ok(gorc_id) = GorcObjectId::from_str(&object_id_str) {
+            if let Err(e) = events.emit_gorc_instance(
+                gorc_id, 
+                0, // Channel 0: Critical movement data
+                "position_update", 
+                &position_update, 
+                horizon_event_system::Dest::Client
+            ).await {
+                error!("🚀 GORC: ❌ Failed to broadcast position update: {}", e);
+            } else {
+                debug!("🚀 GORC: ✅ Broadcasted position update for ship {} to clients within 25m", 
+                    client_player);
+            }
+        } else {
+            error!("🚀 GORC: ❌ Invalid GORC object ID format: {}", object_id_str);
+        }
+    });
+    
+    Ok(())
+}
+
 /// Broadcasts position updates to nearby players within the 25m replication range.
 /// 
 /// This function creates a position update message and emits it as a GORC instance

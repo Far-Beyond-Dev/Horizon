@@ -104,7 +104,7 @@ pub async fn handle_scanning_request(
     _connection: ClientConnectionRef,
     _object_instance: &mut ObjectInstance,
     events: Arc<EventSystem>,
-    luminal_handle: luminal_rt::Handle,
+    luminal_handle: luminal::Handle,
 ) -> Result<(), EventError> {
     debug!("🔍 GORC: Received client ship scan request from {}: {:?}", 
         client_player, gorc_event);
@@ -148,6 +148,91 @@ pub async fn handle_scanning_request(
         events,
         luminal_handle,
     ).await;
+    
+    Ok(())
+}
+
+/// Synchronous wrapper for scanning request handling that works with GORC client handlers.
+///
+/// This function provides the same functionality as `handle_scanning_request` but in
+/// a synchronous context suitable for use with the GORC client event system.
+pub fn handle_scanning_request_sync(
+    gorc_event: GorcEvent,
+    client_player: PlayerId,
+    _connection: ClientConnectionRef,
+    _object_instance: &mut ObjectInstance,
+    events: Arc<EventSystem>,
+    luminal_handle: luminal::Handle,
+) -> Result<(), EventError> {
+    debug!("🔍 GORC: Received client ship scan request from {}: {:?}", 
+        client_player, gorc_event);
+    
+    // Parse scan data from GORC event payload
+    let event_data = serde_json::from_slice::<serde_json::Value>(&gorc_event.data)
+        .map_err(|e| {
+            error!("🔍 GORC: ❌ Failed to parse JSON from ship scan event data: {}", e);
+            EventError::HandlerExecution("Invalid JSON in scan request".to_string())
+        })?;
+    
+    // Extract player ID from scan request
+    let Some(player_id) = event_data.get("player_id") else {
+        error!("🔍 GORC: ❌ Ship scan event missing player_id");
+        return Err(EventError::HandlerExecution("Missing player_id in scan request".to_string()));
+    };
+    
+    debug!("🔍 GORC: Ship {} requesting detailed scan", player_id);
+    
+    // SECURITY: Validate player ownership - only ship owners can initiate scans
+    if let Ok(request_player) = serde_json::from_value::<PlayerId>(player_id.clone()) {
+        if request_player != client_player {
+            error!("🔍 GORC: ❌ Security violation: Player {} tried to scan as {}", 
+                client_player, request_player);
+            return Err(EventError::HandlerExecution(
+                "Unauthorized scan request".to_string()
+            ));
+        }
+    } else {
+        return Err(EventError::HandlerExecution("Invalid player_id format".to_string()));
+    }
+    
+    // Extract detailed scan data with defaults for missing values
+    let scan_data = extract_scan_data(&event_data);
+    
+    // Broadcast scan results to nearby ships
+    let object_id_str = gorc_event.object_id.clone();
+    let scan_broadcast = serde_json::json!({
+        "scanner_ship": client_player,
+        "scan_data": {
+            "ship_class": scan_data.ship_class,
+            "hull_integrity": scan_data.hull_integrity,
+            "shield_strength": scan_data.shield_strength,
+            "cargo_manifest": scan_data.cargo_manifest,
+            "pilot_level": scan_data.pilot_level,
+            "energy_signature": scan_data.energy_signature,
+            "weapon_systems": scan_data.weapon_systems
+        },
+        "scan_timestamp": chrono::Utc::now(),
+        "scan_range": 100.0 // Intimate range scanning
+    });
+    
+    if let Ok(gorc_id) = GorcObjectId::from_str(&object_id_str) {
+        luminal_handle.spawn(async move {
+            if let Err(e) = events.emit_gorc_instance(
+                gorc_id, 
+                3, // Channel 3: Detailed scanning events
+                "scan_results", 
+                &scan_broadcast, 
+                horizon_event_system::Dest::Client
+            ).await {
+                error!("🔍 GORC: ❌ Failed to broadcast scan results: {}", e);
+            } else {
+                debug!("🔍 GORC: ✅ Broadcasting scan results from ship {} to ships within 100m", 
+                    client_player);
+            }
+        });
+    } else {
+        error!("🔍 GORC: ❌ Invalid GORC object ID format: {}", object_id_str);
+    }
     
     Ok(())
 }
@@ -256,7 +341,7 @@ async fn broadcast_scan_results(
     scanner_player: PlayerId,
     scan_data: ScanData,
     events: Arc<EventSystem>,
-    luminal_handle: luminal_rt::Handle,
+    luminal_handle: luminal::Handle,
 ) {
     // Create comprehensive scan result broadcast payload
     let scan_broadcast = serde_json::json!({
