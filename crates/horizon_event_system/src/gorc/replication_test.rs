@@ -68,7 +68,7 @@ pub fn create_cross_pattern_test() -> ReplicationTestConfig {
     players.insert(player_west, Vec3::new(-300.0, 0.0, 0.0));    // 300m west
 
     // Each player has a GORC object with standard layers
-    for (player_id, position) in &players {
+    for (_player_id, position) in &players {
         let object_id = GorcObjectId::new();
         objects.insert(object_id, TestObject {
             position: *position,

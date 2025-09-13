@@ -34,21 +34,35 @@ impl EventSystem {
     /// 
     /// # Examples
     /// 
-    /// ```rust
-    /// // All client handlers now get connection context
-    /// events.on_client("chat", "send_message", 
-    ///     |event: ChatMessageEvent, player_id: PlayerId, connection: ClientConnectionRef| {
-    ///         // Validate player permissions
-    ///         if !connection.is_authenticated() {
-    ///             return Err(EventError::HandlerExecution("Not authenticated".to_string()));
+    /// ```rust,no_run
+    /// use horizon_event_system::{EventSystem, PlayerId, ClientConnectionRef, EventError};
+    /// use serde::{Serialize, Deserialize};
+    /// use std::sync::Arc;
+    /// 
+    /// #[derive(Serialize, Deserialize, Debug, Clone)]
+    /// struct ChatMessageEvent {
+    ///     id: String,
+    ///     message: String,
+    /// }
+    /// 
+    /// #[derive(Serialize, Deserialize)]
+    /// struct ChatResponse {
+    ///     message_id: String,
+    /// }
+    /// 
+    /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let events = Arc::new(EventSystem::new());
+    ///     
+    ///     // All client handlers now get connection context
+    ///     events.on_client("chat", "send_message", 
+    ///         |event: ChatMessageEvent, _player_id: PlayerId, _connection: ClientConnectionRef| {
+    ///             // Validate player permissions and process the message
+    ///             println!("Processing message: {}", event.message);
+    ///             Ok(())
     ///         }
-    ///         
-    ///         // Process the message and respond
-    ///         let response = ChatResponse { message_id: event.id };
-    ///         connection.respond_json(&response).await?;
-    ///         Ok(())
-    ///     }
-    /// ).await?;
+    ///     ).await?;
+    ///     Ok(())
+    /// }
     /// ```
     pub async fn on_client<T, F>(
         &self,
@@ -73,20 +87,37 @@ impl EventSystem {
     /// 
     /// # Examples
     /// 
-    /// ```rust
-    /// // Async handler without connection awareness
-    /// events.on_client_async("inventory", "use_item", 
-    ///     |event: UseItemEvent| {
-    ///         // Sync handler that can use block_on for async work
-    ///         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-    ///             handle.block_on(async {
-    ///                 // Async database operations, etc.
-    ///                 tokio::time::sleep(Duration::from_millis(10)).await;
-    ///             });
+    /// ```rust,no_run
+    /// use horizon_event_system::{EventSystem, EventError};
+    /// use serde::{Serialize, Deserialize};
+    /// use std::sync::Arc;
+    /// use std::time::Duration;
+    /// 
+    /// #[derive(Serialize, Deserialize, Debug, Clone)]
+    /// struct UseItemEvent {
+    ///     item_id: String,
+    ///     quantity: u32,
+    /// }
+    /// 
+    /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let events = Arc::new(EventSystem::new());
+    ///     
+    ///     // Async handler without connection awareness  
+    ///     events.on_client_async("inventory", "use_item", 
+    ///         |event: UseItemEvent| {
+    ///             // Sync handler that can use block_on for async work
+    ///             if let Ok(handle) = tokio::runtime::Handle::try_current() {
+    ///                 handle.block_on(async {
+    ///                     // Async database operations, etc.
+    ///                     tokio::time::sleep(Duration::from_millis(10)).await;
+    ///                 });
+    ///             }
+    ///             println!("Used item: {}", event.item_id);
+    ///             Ok(())
     ///         }
-    ///         Ok(())
-    ///     }
-    /// ).await?;
+    ///     ).await?;
+    ///     Ok(())
+    /// }
     /// ```
     pub async fn on_client_async<T, F>(
         &self,

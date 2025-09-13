@@ -110,6 +110,7 @@ crate::impl_gorc_object! {
 mod tests {
     use super::*;
     use crate::Vec3;
+    use tracing::info;
 
     #[test]
     fn test_typed_asteroid_creation() {
@@ -265,7 +266,7 @@ mod tests {
         // 4. Automatic zone configuration
         // Each zone automatically gets appropriate default settings:
         let critical_layer = layers.iter().find(|l| l.channel == 0).unwrap();
-        let detailed_layer = layers.iter().find(|l| l.channel == 1).unwrap();
+        let _detailed_layer = layers.iter().find(|l| l.channel == 1).unwrap();
         let metadata_layer = layers.iter().find(|l| l.channel == 3).unwrap();
         
         // Critical zone should have high frequency and small radius

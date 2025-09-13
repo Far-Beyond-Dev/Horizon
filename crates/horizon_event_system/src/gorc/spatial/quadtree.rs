@@ -443,6 +443,7 @@ mod tests {
     use super::*;
     use crate::types::Vec3;
     use std::time::Instant;
+    use tracing::info;
 
     #[test]
     fn test_quadtree_subdivision() {
