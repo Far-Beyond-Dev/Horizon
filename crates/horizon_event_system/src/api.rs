@@ -17,22 +17,56 @@ use crate::*;
 /// # Examples
 /// 
 /// ```rust,no_run
-/// use horizon_event_system::{create_complete_horizon_system, ServerContext, PlayerId, Vec3};
+/// use horizon_event_system::{create_complete_horizon_system, ServerContext, PlayerId, Vec3, EventSystem, LogLevel, ServerError, RegionId, GorcInstanceManager};
 /// use std::sync::Arc;
+/// use std::pin::Pin;
 /// use async_trait::async_trait;
 /// 
-/// struct MyServerContext;
+/// #[derive(Debug)]
+/// struct MyServerContext {
+///     events: Arc<EventSystem>,
+///     region_id: RegionId,
+/// }
 /// 
 /// #[async_trait]
 /// impl ServerContext for MyServerContext {
-///     async fn get_player_count(&self) -> u32 { 0 }
-///     async fn broadcast_message(&self, _message: &str) {}
-///     async fn get_player_ids(&self) -> Vec<PlayerId> { vec![] }
-///     async fn get_player_position(&self, _player_id: PlayerId) -> Option<Vec3> { None }
+///     fn events(&self) -> Arc<EventSystem> {
+///         self.events.clone()
+///     }
+///     
+///     fn region_id(&self) -> RegionId {
+///         self.region_id
+///     }
+///     
+///     fn log(&self, level: LogLevel, message: &str) {
+///         println!("[{:?}] {}", level, message);
+///     }
+///     
+///     async fn send_to_player(&self, _player_id: PlayerId, _data: &[u8]) -> Result<(), ServerError> {
+///         Ok(())
+///     }
+///     
+///     async fn broadcast(&self, _data: &[u8]) -> Result<(), ServerError> {
+///         Ok(())
+///     }
+///     
+///     fn luminal_handle(&self) -> luminal::Handle {
+///         let rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
+///         rt.handle().clone()
+///     }
+///     
+///     fn gorc_instance_manager(&self) -> Option<Arc<GorcInstanceManager>> {
+///         None
+///     }
 /// }
 /// 
 /// impl MyServerContext {
-///     fn new() -> Self { Self }
+///     fn new() -> Self { 
+///         Self {
+///             events: Arc::new(EventSystem::new()),
+///             region_id: RegionId::new(),
+///         }
+///     }
 /// }
 /// 
 /// async fn example() -> Result<(), Box<dyn std::error::Error>> {

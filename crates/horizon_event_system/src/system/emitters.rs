@@ -97,23 +97,30 @@ impl EventSystem {
     /// # Examples
     /// 
     /// ```rust,no_run
-    /// use horizon_event_system::{EventSystem, GorcEvent, current_timestamp};
+    /// use horizon_event_system::{EventSystem, GorcEvent, current_timestamp, GorcObjectId, Dest};
+    /// use serde::{Serialize, Deserialize};
     /// use std::sync::Arc;
+    /// 
+    /// #[derive(Serialize, Deserialize, Debug, Clone)]
+    /// struct PositionUpdate {
+    ///     x: f32,
+    ///     y: f32,
+    ///     z: f32,
+    /// }
     /// 
     /// async fn emit_example() -> Result<(), Box<dyn std::error::Error>> {
     ///     let events = Arc::new(EventSystem::new());
-    ///     let asteroid_id = 123u64;
-    ///     let position_data = serde_json::json!({"x": 100, "y": 200});
+    ///     let asteroid_id = GorcObjectId::new();
+    ///     let position_update = PositionUpdate { x: 100.0, y: 200.0, z: 300.0 };
     ///     
     ///     // Emit a position update for a specific asteroid instance
-    ///     events.emit_gorc_instance(asteroid_id, 0, "position_update", &GorcEvent {
-    ///         object_id: asteroid_id.to_string(),
-    ///         object_type: "Asteroid".to_string(),
-    ///         channel: 0,
-    ///         data: position_data,
-    ///         priority: "Critical".to_string(),
-    ///         timestamp: current_timestamp(),
-    ///     }).await?;
+    ///     events.emit_gorc_instance(
+    ///         asteroid_id,
+    ///         0,
+    ///         "position_update",
+    ///         &position_update,
+    ///         Dest::Both
+    ///     ).await?;
     ///     Ok(())
     /// }
     /// ```
