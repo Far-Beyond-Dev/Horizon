@@ -32,7 +32,8 @@
       "WebSearch",
       "Bash(timeout 15 cargo run --bin simulate -- --players 2)",
       "Bash(timeout 20 cargo run --bin horizon)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(RUST_BACKTRACE=1 cargo test test_debug_event_emission_and_handling -- --nocapture)"
     ],
     "deny": []
   }

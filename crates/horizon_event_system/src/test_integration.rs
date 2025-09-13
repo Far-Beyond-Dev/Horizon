@@ -49,6 +49,52 @@ impl ServerContext for MockServerContext {
     }
 }
 
+// Helper function to create a test event system with mock client response sender
+#[cfg(test)]
+fn create_test_event_system() -> Arc<EventSystem> {
+    let mut events = EventSystem::new();
+    
+    // Add mock client response sender for tests  
+    #[derive(Debug, Clone)]
+    struct MockResponseSender {
+        sent_messages: Arc<std::sync::Mutex<Vec<(crate::types::PlayerId, Vec<u8>)>>>,
+    }
+    
+    impl MockResponseSender {
+        fn new() -> Self {
+            Self {
+                sent_messages: Arc::new(std::sync::Mutex::new(Vec::new())),
+            }
+        }
+    }
+    
+    impl crate::ClientResponseSender for MockResponseSender {
+        fn send_to_client(&self, player_id: crate::types::PlayerId, data: Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+            let sent_messages = self.sent_messages.clone();
+            Box::pin(async move {
+                sent_messages.lock().unwrap().push((player_id, data));
+                Ok(())
+            })
+        }
+        
+        fn is_connection_active(&self, _player_id: crate::types::PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+            Box::pin(async move { true })
+        }
+        
+        fn get_auth_status(&self, _player_id: crate::types::PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<crate::types::AuthenticationStatus>> + Send + '_>> {
+            Box::pin(async move { Some(crate::types::AuthenticationStatus::Authenticated) })
+        }
+        
+        fn kick(&self, _player_id: crate::types::PlayerId, _reason: Option<String>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+    
+    let mock_sender = Arc::new(MockResponseSender::new());
+    events.set_client_response_sender(mock_sender.clone());
+    Arc::new(events)
+}
+
 #[tokio::test]
 async fn test_complete_system_integration() {
     let server_context = Arc::new(MockServerContext::new());
@@ -79,7 +125,7 @@ async fn test_complete_system_integration() {
 
 #[tokio::test]
 async fn test_monitoring_system() {
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     let mut monitor = HorizonMonitor::new(events.clone());
 
     // Generate initial report
@@ -114,7 +160,7 @@ struct TestMovementEvent {
 async fn test_debug_event_emission_and_handling() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     // Test with JSON handler first to see if event emission works at all
     let json_count = Arc::new(AtomicUsize::new(0));
@@ -154,7 +200,7 @@ async fn test_debug_event_emission_and_handling() {
 async fn test_typed_client_event_handlers() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     // Counter to verify handler was called
     let call_count = Arc::new(AtomicUsize::new(0));
@@ -206,7 +252,7 @@ async fn test_typed_client_event_handlers() {
 async fn test_typed_vs_json_handlers_compatibility() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     let typed_count = Arc::new(AtomicUsize::new(0));
     let json_count = Arc::new(AtomicUsize::new(0));
@@ -269,7 +315,7 @@ async fn test_typed_vs_json_handlers_compatibility() {
 async fn test_typed_core_event_handlers() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     let call_count = Arc::new(AtomicUsize::new(0));
     let call_count_clone = call_count.clone();
@@ -318,7 +364,7 @@ async fn test_typed_core_event_handlers() {
 
 #[tokio::test]
 async fn test_event_handler_error_handling() {
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     // Register handler that intentionally fails
     events
@@ -351,7 +397,7 @@ async fn test_event_handler_error_handling() {
 async fn test_multiple_typed_handlers_same_event() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     let handler1_count = Arc::new(AtomicUsize::new(0));
     let handler2_count = Arc::new(AtomicUsize::new(0));

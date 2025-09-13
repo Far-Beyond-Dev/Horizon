@@ -204,7 +204,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_handler_category_stats() {
-        let events = EventSystem::new();
+        let mut events = EventSystem::new();
+        let mock_sender = Arc::new(MockResponseSender::new());
+        events.set_client_response_sender(mock_sender.clone());
         
         // Register different types of handlers
         events.on_core("test_core", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
@@ -217,7 +219,7 @@ mod tests {
         assert_eq!(category_stats.core_handlers, 1);
         assert_eq!(category_stats.client_handlers, 1);
         assert_eq!(category_stats.plugin_handlers, 1);
-        assert_eq!(category_stats.gorc_handlers, 1);
+        assert_eq!(category_stats.gorc_handlers, 0);  // No GORC handlers registered in this test
         assert_eq!(category_stats.gorc_instance_handlers, 0);
     }
 
