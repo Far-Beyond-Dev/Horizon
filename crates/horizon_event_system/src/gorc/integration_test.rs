@@ -258,7 +258,7 @@ impl IntegrationTestScenario {
         assert_eq!(results[&self.players[3]], 0, "Player at 150m should NOT receive channel 1 events");
         assert_eq!(results[&self.players[4]], 0, "Player at 400m should NOT receive channel 1 events");
         
-        println!("✅ Channel 1 test passed: {}/{} players received events correctly", 
+        info!("✅ Channel 1 test passed: {}/{} players received events correctly", 
                 3, self.players.len());
         
         Ok(())
@@ -286,7 +286,7 @@ impl IntegrationTestScenario {
         // Player at 400m should NOT receive (outside 200m radius)
         assert_eq!(results[&self.players[4]], 0, "Player at 400m should NOT receive channel 2 events");
         
-        println!("✅ Channel 2 test passed: {}/{} players received events correctly", 
+        info!("✅ Channel 2 test passed: {}/{} players received events correctly", 
                 4, self.players.len());
         
         Ok(())
@@ -310,7 +310,7 @@ impl IntegrationTestScenario {
             assert!(results[player_id] > 0, "Player {} should receive channel 3 events", i);
         }
         
-        println!("✅ Channel 3 test passed: {}/{} players received events correctly", 
+        info!("✅ Channel 3 test passed: {}/{} players received events correctly", 
                 self.players.len(), self.players.len());
         
         Ok(())
@@ -320,7 +320,7 @@ impl IntegrationTestScenario {
     pub async fn test_zone_entry(&self) -> Result<(), Box<dyn std::error::Error>> {
         // Skip the complex zone entry test for now to avoid the deadlock
         // The core GORC functionality is already proven by the channel tests
-        println!("✅ Zone entry test skipped (avoiding deadlock - will fix separately)");
+        info!("✅ Zone entry test skipped (avoiding deadlock - will fix separately)");
         Ok(())
     }
     
@@ -341,10 +341,9 @@ impl IntegrationTestScenario {
     
     /// Run all tests
     pub async fn run_all_tests(&self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("🧪 Running GORC Integration Tests...");
-        println!("📍 Player positions: 0m, 25m, 75m, 150m, 400m from object");
-        println!("🎯 Layer ranges: Channel 0 (50m), Channel 1 (100m), Channel 2 (200m), Channel 3 (500m)");
-        println!();
+        info!("🧪 Running GORC Integration Tests...");
+        info!("📍 Player positions: 0m, 25m, 75m, 150m, 400m from object");
+        info!("🎯 Layer ranges: Channel 0 (50m), Channel 1 (100m), Channel 2 (200m), Channel 3 (500m)");
         
         self.test_channel_0_emission().await?;
         self.test_channel_1_emission().await?;
@@ -352,8 +351,7 @@ impl IntegrationTestScenario {
         self.test_channel_3_emission().await?;
         self.test_zone_entry().await?;
         
-        println!();
-        println!("🎉 All GORC integration tests passed!");
+        info!("🎉 All GORC integration tests passed!");
         
         Ok(())
     }

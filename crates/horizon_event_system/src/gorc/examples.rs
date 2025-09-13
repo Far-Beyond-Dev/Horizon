@@ -12,6 +12,7 @@ use crate::types::Vec3;
 use crate::gorc_macros::GorcZoneData;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
+use tracing::info;
 
 // ============================================================================
 // NEW TYPE-BASED EXAMPLES (Recommended)
@@ -276,7 +277,7 @@ mod tests {
         assert!(metadata_layer.frequency <= 2.0);
         assert!(metadata_layer.radius >= 1000.0);
         
-        println!("✅ Type-based system provides compile-time safety with zero runtime overhead");
+        info!("✅ Type-based system provides compile-time safety with zero runtime overhead");
     }
 
     #[test]
@@ -302,7 +303,7 @@ mod tests {
         assert!(duration.as_millis() < 100, 
                "Type-based serialization took too long: {:?}ms", duration.as_millis());
         
-        println!("✅ 1000 serializations across {} zones completed in {:?}", layers.len(), duration);
+        info!("✅ 1000 serializations across {} zones completed in {:?}", layers.len(), duration);
     }
 
     #[test]
@@ -375,7 +376,7 @@ mod tests {
             }
         }
         
-        println!("✅ All typed examples ({} objects) use zero string properties", object_count);
+        info!("✅ All typed examples ({} objects) use zero string properties", object_count);
     }
 }
 
