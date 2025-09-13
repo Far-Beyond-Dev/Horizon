@@ -1,5 +1,7 @@
 #[cfg(test)]
 use super::*;
+#[cfg(test)]
+use tracing::debug;
 
 // Mock server context for testing
 #[cfg(test)]
@@ -36,13 +38,61 @@ impl ServerContext for MockServerContext {
         Ok(())
     }
 
-    fn tokio_handle(&self) -> tokio::runtime::Handle {
-        tokio::runtime::Handle::try_current().expect("No tokio runtime handle available")
+    fn luminal_handle(&self) -> luminal::Handle {
+        // Create a new luminal runtime for testing
+        let rt = luminal::Runtime::new().expect("Failed to create luminal runtime for tests");
+        rt.handle().clone()
     }
 
     fn gorc_instance_manager(&self) -> Option<Arc<crate::gorc::GorcInstanceManager>> {
         None
     }
+}
+
+// Helper function to create a test event system with mock client response sender
+#[cfg(test)]
+fn create_test_event_system() -> Arc<EventSystem> {
+    let mut events = EventSystem::new();
+    
+    // Add mock client response sender for tests  
+    #[derive(Debug, Clone)]
+    struct MockResponseSender {
+        sent_messages: Arc<std::sync::Mutex<Vec<(crate::types::PlayerId, Vec<u8>)>>>,
+    }
+    
+    impl MockResponseSender {
+        fn new() -> Self {
+            Self {
+                sent_messages: Arc::new(std::sync::Mutex::new(Vec::new())),
+            }
+        }
+    }
+    
+    impl crate::ClientResponseSender for MockResponseSender {
+        fn send_to_client(&self, player_id: crate::types::PlayerId, data: Vec<u8>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+            let sent_messages = self.sent_messages.clone();
+            Box::pin(async move {
+                sent_messages.lock().unwrap().push((player_id, data));
+                Ok(())
+            })
+        }
+        
+        fn is_connection_active(&self, _player_id: crate::types::PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + '_>> {
+            Box::pin(async move { true })
+        }
+        
+        fn get_auth_status(&self, _player_id: crate::types::PlayerId) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<crate::types::AuthenticationStatus>> + Send + '_>> {
+            Box::pin(async move { Some(crate::types::AuthenticationStatus::Authenticated) })
+        }
+        
+        fn kick(&self, _player_id: crate::types::PlayerId, _reason: Option<String>) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + '_>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+    
+    let mock_sender = Arc::new(MockResponseSender::new());
+    events.set_client_response_sender(mock_sender.clone());
+    Arc::new(events)
 }
 
 #[tokio::test]
@@ -75,7 +125,7 @@ async fn test_complete_system_integration() {
 
 #[tokio::test]
 async fn test_monitoring_system() {
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     let mut monitor = HorizonMonitor::new(events.clone());
 
     // Generate initial report
@@ -110,16 +160,16 @@ struct TestMovementEvent {
 async fn test_debug_event_emission_and_handling() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     // Test with JSON handler first to see if event emission works at all
     let json_count = Arc::new(AtomicUsize::new(0));
     let json_count_clone = json_count.clone();
     
     events
-        .on_client("debug", "test", move |wrapper: serde_json::Value| {
+        .on_client("debug", "test", move |wrapper: serde_json::Value, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             json_count_clone.fetch_add(1, Ordering::SeqCst);
-            println!("JSON handler called with: {}", wrapper);
+            debug!("JSON handler called with: {}", wrapper);
             Ok(())
         })
         .await
@@ -133,16 +183,16 @@ async fn test_debug_event_emission_and_handling() {
         timestamp: current_timestamp(),
     };
     
-    println!("Emitting event...");
+    debug!("Emitting event...");
     events
         .emit_client_with_context("debug", "test", player_id, &chat_event)
         .await
         .unwrap();
     
-    println!("Waiting for handlers...");
+    debug!("Waiting for handlers...");
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     
-    println!("JSON handler call count: {}", json_count.load(Ordering::SeqCst));
+    debug!("JSON handler call count: {}", json_count.load(Ordering::SeqCst));
     assert_eq!(json_count.load(Ordering::SeqCst), 1, "JSON handler should be called");
 }
 
@@ -150,7 +200,7 @@ async fn test_debug_event_emission_and_handling() {
 async fn test_typed_client_event_handlers() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     // Counter to verify handler was called
     let call_count = Arc::new(AtomicUsize::new(0));
@@ -158,7 +208,7 @@ async fn test_typed_client_event_handlers() {
     
     // Register typed handler for client events
     events
-        .on_client("chat", "message", move |wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("chat", "message", move |wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             call_count_clone.fetch_add(1, Ordering::SeqCst);
             
             // Verify we can access typed data
@@ -192,7 +242,7 @@ async fn test_typed_client_event_handlers() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     
     // Debug: Check how many handlers are registered
-    println!("Handler call count: {}", call_count.load(Ordering::SeqCst));
+    debug!("Handler call count: {}", call_count.load(Ordering::SeqCst));
     
     // Verify handler was called
     assert_eq!(call_count.load(Ordering::SeqCst), 1);
@@ -202,7 +252,7 @@ async fn test_typed_client_event_handlers() {
 async fn test_typed_vs_json_handlers_compatibility() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     let typed_count = Arc::new(AtomicUsize::new(0));
     let json_count = Arc::new(AtomicUsize::new(0));
@@ -210,7 +260,7 @@ async fn test_typed_vs_json_handlers_compatibility() {
     // Register both typed and JSON handlers for the same event
     let typed_count_clone = typed_count.clone();
     events
-        .on_client("movement", "update", move |wrapper: ClientEventWrapper<TestMovementEvent>| {
+        .on_client("movement", "update", move |wrapper: ClientEventWrapper<TestMovementEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             typed_count_clone.fetch_add(1, Ordering::SeqCst);
             
             // Verify typed access works
@@ -226,7 +276,7 @@ async fn test_typed_vs_json_handlers_compatibility() {
     
     let json_count_clone = json_count.clone();
     events
-        .on_client("movement", "update", move |wrapper: serde_json::Value| {
+        .on_client("movement", "update", move |wrapper: serde_json::Value, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             json_count_clone.fetch_add(1, Ordering::SeqCst);
             
             // Verify JSON handler still works
@@ -265,7 +315,7 @@ async fn test_typed_vs_json_handlers_compatibility() {
 async fn test_typed_core_event_handlers() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     let call_count = Arc::new(AtomicUsize::new(0));
     let call_count_clone = call_count.clone();
@@ -314,11 +364,11 @@ async fn test_typed_core_event_handlers() {
 
 #[tokio::test]
 async fn test_event_handler_error_handling() {
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     // Register handler that intentionally fails
     events
-        .on_client("error_test", "fail", move |_wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("error_test", "fail", move |_wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             Err(EventError::HandlerExecution("Intentional test failure".to_string()))
         })
         .await
@@ -347,7 +397,7 @@ async fn test_event_handler_error_handling() {
 async fn test_multiple_typed_handlers_same_event() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     
-    let events = create_simple_horizon_system();
+    let events = create_test_event_system();
     
     let handler1_count = Arc::new(AtomicUsize::new(0));
     let handler2_count = Arc::new(AtomicUsize::new(0));
@@ -356,7 +406,7 @@ async fn test_multiple_typed_handlers_same_event() {
     // Register multiple typed handlers for the same event
     let h1_count = handler1_count.clone();
     events
-        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             h1_count.fetch_add(1, Ordering::SeqCst);
             assert_eq!(wrapper.data.channel, "multi_handler_test");
             Ok(())
@@ -366,7 +416,7 @@ async fn test_multiple_typed_handlers_same_event() {
     
     let h2_count = handler2_count.clone();
     events
-        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             h2_count.fetch_add(1, Ordering::SeqCst);
             assert!(wrapper.data.message.contains("multi"));
             Ok(())
@@ -376,7 +426,7 @@ async fn test_multiple_typed_handlers_same_event() {
     
     let h3_count = handler3_count.clone();
     events
-        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>| {
+        .on_client("multi_test", "event", move |wrapper: ClientEventWrapper<TestChatEvent>, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             h3_count.fetch_add(1, Ordering::SeqCst);
             assert!(wrapper.data.timestamp > 0);
             Ok(())

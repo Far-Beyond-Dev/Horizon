@@ -11,6 +11,7 @@ use horizon_event_system::{
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::time::Duration;
+use tracing::info;
 
 // Example event types that might come from clients
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,12 +59,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let events = create_horizon_event_system();
     
-    println!("🚀 Setting up connection-aware event handlers...");
+    info!("🚀 Setting up connection-aware event handlers...");
 
     // Example 1: Chat handler with direct response capability
     events.on_client_with_connection("chat", "send_message", 
         |event: ChatMessageEvent, client: ClientConnectionRef| async move {
-            println!("📨 Received chat message from {}: {}", client.player_id, event.message);
+            info!("📨 Received chat message from {}: {}", client.player_id, event.message);
             
             // Process the message (validate, store, broadcast, etc.)
             tokio::time::sleep(Duration::from_millis(5)).await; // Simulate processing
@@ -76,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
             
             client.respond_json(&response).await?;
-            println!("✅ Sent acknowledgment to {}", client.player_id);
+            info!("✅ Sent acknowledgment to {}", client.player_id);
             
             Ok(())
         }
@@ -85,7 +86,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 2: Login handler with async database operations
     events.on_client_with_connection("auth", "login",
         |event: LoginRequestEvent, client: ClientConnectionRef| async move {
-            println!("🔐 Login attempt from {} for user: {}", client.player_id, event.username);
+            info!("🔐 Login attempt from {} for user: {}", client.player_id, event.username);
             
             // Simulate async database verification
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -107,9 +108,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client.respond_json(&response).await?;
             
             if response.success {
-                println!("✅ Login successful for {}", event.username);
+                info!("✅ Login successful for {}", event.username);
             } else {
-                println!("❌ Login failed for {}", event.username);
+                info!("❌ Login failed for {}", event.username);
             }
             
             Ok(())
@@ -119,7 +120,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 3: Regular async handler without connection awareness
     events.on_client_async("inventory", "use_item",
         |event: RawClientMessageEvent| async move {
-            println!("🎒 Processing inventory action for {}", event.player_id);
+            info!("🎒 Processing inventory action for {}", event.player_id);
             
             // Simulate async game logic processing
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -144,14 +145,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     ).await?;
 
-    println!("📊 Event System Features Demonstrated:");
-    println!("  ✅ Connection-aware handlers with direct client response");
-    println!("  ✅ Async handlers for database/IO operations");
-    println!("  ✅ High-performance handlers for frequent events");
-    println!("  ✅ Parallel handler execution for maximum throughput");
+    info!("📊 Event System Features Demonstrated:");
+    info!("  ✅ Connection-aware handlers with direct client response");
+    info!("  ✅ Async handlers for database/IO operations");
+    info!("  ✅ High-performance handlers for frequent events");
+    info!("  ✅ Parallel handler execution for maximum throughput");
     
     // Simulate some events being triggered
-    println!("\n🎮 Simulating client events...");
+    info!("\n🎮 Simulating client events...");
     
     // These would normally come from actual client connections
     let chat_event = ChatMessageEvent {
@@ -166,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     
     // Demonstrate actual connection events as they are emitted by the real server
-    println!("💡 These events demonstrate the actual client connection integration:");
+    info!("💡 These events demonstrate the actual client connection integration:");
     
     // Emit realistic connection events like the game server does
     let player_connected = PlayerConnectedEvent {
@@ -177,19 +178,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     
     events.emit_core("player_connected", &player_connected).await?;
-    println!("  ✅ PlayerConnectedEvent emitted (as done by game server)");
+    info!("  ✅ PlayerConnectedEvent emitted (as done by game server)");
     
     // Emit client events through the namespace system
     events.emit_client("chat", "message", &chat_event).await?;
-    println!("  ✅ Client chat event routed through namespace system");
+    info!("  ✅ Client chat event routed through namespace system");
     
     events.emit_client("auth", "login_request", &login_event).await?;  
-    println!("  ✅ Client auth event processed by connection-aware handlers");
+    info!("  ✅ Client auth event processed by connection-aware handlers");
     
     let stats = events.get_stats().await;
-    println!("\n📈 System Statistics:");
-    println!("  - Total handlers: {}", stats.total_handlers);
-    println!("  - Events emitted: {}", stats.events_emitted);
+    info!("\n📈 System Statistics:");
+    info!("  - Total handlers: {}", stats.total_handlers);
+    info!("  - Events emitted: {}", stats.events_emitted);
     
     Ok(())
 }

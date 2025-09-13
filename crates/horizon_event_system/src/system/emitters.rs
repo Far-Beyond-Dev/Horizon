@@ -5,21 +5,9 @@ use crate::{PlayerId, Vec3};
 use super::core::EventSystem;
 use super::stats::{DetailedEventSystemStats, HandlerCategoryStats};
 use futures::{self, stream::{FuturesUnordered, StreamExt}};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 use compact_str::CompactString;
 
-/// Helper function to extract namespace from event key for debugging
-fn namespace_from_key(event_key: &str) -> &str {
-    if let Some(colon_pos) = event_key.find(':') {
-        if let Some(second_colon) = event_key[colon_pos + 1..].find(':') {
-            &event_key[colon_pos + 1..colon_pos + 1 + second_colon]
-        } else {
-            &event_key[colon_pos + 1..]
-        }
-    } else {
-        ""
-    }
-}
 
 impl EventSystem {
     /// Emits a core server event to all registered handlers.
@@ -108,16 +96,33 @@ impl EventSystem {
     /// 
     /// # Examples
     /// 
-    /// ```rust
-    /// // Emit a position update for a specific asteroid instance
-    /// events.emit_gorc_instance(asteroid_id, 0, "position_update", &GorcEvent {
-    ///     object_id: asteroid_id.to_string(),
-    ///     object_type: "Asteroid".to_string(),
-    ///     channel: 0,
-    ///     data: position_data,
-    ///     priority: "Critical".to_string(),
-    ///     timestamp: current_timestamp(),
-    /// }).await?;
+    /// ```rust,no_run
+    /// use horizon_event_system::{EventSystem, GorcEvent, current_timestamp, GorcObjectId, Dest};
+    /// use serde::{Serialize, Deserialize};
+    /// use std::sync::Arc;
+    /// 
+    /// #[derive(Serialize, Deserialize, Debug, Clone)]
+    /// struct PositionUpdate {
+    ///     x: f32,
+    ///     y: f32,
+    ///     z: f32,
+    /// }
+    /// 
+    /// async fn emit_example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let events = Arc::new(EventSystem::new());
+    ///     let asteroid_id = GorcObjectId::new();
+    ///     let position_update = PositionUpdate { x: 100.0, y: 200.0, z: 300.0 };
+    ///     
+    ///     // Emit a position update for a specific asteroid instance
+    ///     events.emit_gorc_instance(
+    ///         asteroid_id,
+    ///         0,
+    ///         "position_update",
+    ///         &position_update,
+    ///         Dest::Both
+    ///     ).await?;
+    ///     Ok(())
+    /// }
     /// ```
     pub async fn emit_gorc_instance<T>(
         &self,
@@ -145,16 +150,10 @@ impl EventSystem {
                 // Handle Server or Both destinations - emit to server-side handlers
                 if dest == Dest::Server || dest == Dest::Both {
                     let instance_key = CompactString::new_inline("gorc_instance:") + object_type + ":" + &channel.to_string() + ":" + event_name;
-                    let general_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
                     
-                    // Emit to instance-specific handlers first
+                    // Emit to instance-specific handlers only
                     if let Err(e) = self.emit_event(&instance_key, event).await {
                         warn!("Failed to emit instance event: {}", e);
-                    }
-                    
-                    // Emit to general handlers for backward compatibility
-                    if let Err(e) = self.emit_event(&general_key, event).await {
-                        warn!("Failed to emit general event: {}", e);
                     }
                 }
                 
@@ -243,29 +242,35 @@ impl EventSystem {
     
     /// Update player position and handle zone membership changes (event-driven GORC)
     pub async fn update_player_position(&self, player_id: PlayerId, new_position: Vec3) -> Result<(), EventError> {
+        
         // Get the GORC instances manager
         let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
             EventError::HandlerExecution("GORC instance manager not available".to_string())
         })?;
         
+        
         // Update position and get zone changes
         let (zone_entries, zone_exits) = gorc_instances.update_player_position(player_id, new_position).await;
         
-        // Handle zone entries - send current layer state
+        debug!("🎮 EVENT DEBUG: Got zone results - {} entries, {} exits", zone_entries.len(), zone_exits.len());
+        
+        // Handle zone entries - send zone entry messages with current layer state
         for (object_id, channel) in zone_entries {
-            self.send_layer_state_to_player(player_id, object_id, channel).await?;
+            debug!("🎮 EVENT DEBUG: Sending zone entry message for object {} channel {}", object_id, channel);
+            self.send_zone_entry_message(player_id, object_id, channel).await?;
         }
         
-        // Zone exits don't need explicit messages - player just stops receiving updates
-        if !zone_exits.is_empty() {
-            debug!("📡 GORC: Player {} exited {} zones", player_id, zone_exits.len());
+        // Handle zone exits - send zone exit messages to inform client
+        for (object_id, channel) in zone_exits {
+            debug!("🎮 EVENT DEBUG: Sending zone exit message for object {} channel {}", object_id, channel);
+            self.send_zone_exit_message(player_id, object_id, channel).await?;
         }
         
         Ok(())
     }
     
-    /// Send current object state for a specific layer to a player (zone entry)
-    async fn send_layer_state_to_player(&self, player_id: PlayerId, object_id: GorcObjectId, channel: u8) -> Result<(), EventError> {
+    /// Send zone entry message with current object state for a specific layer to a player
+    async fn send_zone_entry_message(&self, player_id: PlayerId, object_id: GorcObjectId, channel: u8) -> Result<(), EventError> {
         // Get the client response sender
         let sender = self.client_response_sender.as_ref().ok_or_else(|| {
             EventError::HandlerExecution("Client response sender not configured".to_string())
@@ -283,14 +288,14 @@ impl EventSystem {
         
         // Get current state for this layer
         if let Some(layer_data) = gorc_instances.get_object_state_for_layer(object_id, channel).await {
-            // Create zone entry message
+            // Create zone entry message with proper format
             let zone_entry_event = serde_json::json!({
-                "event_type": "zone_entry",
+                "type": "gorc_zone_enter",
                 "object_id": object_id.to_string(),
                 "object_type": instance.type_name,
                 "channel": channel,
-                "player_id": object_id.to_string(),
-                "data": serde_json::from_slice::<serde_json::Value>(&layer_data)
+                "player_id": player_id.to_string(),
+                "zone_data": serde_json::from_slice::<serde_json::Value>(&layer_data)
                     .unwrap_or(serde_json::Value::Null),
                 "timestamp": crate::utils::current_timestamp()
             });
@@ -300,44 +305,71 @@ impl EventSystem {
                 .map_err(|e| EventError::Serialization(e))?;
             
             if let Err(e) = sender.send_to_client(player_id, data).await {
-                warn!("Failed to send zone entry state to player {}: {}", player_id, e);
+                warn!("❌ Failed to send zone entry message to player {}: {}", player_id, e);
             } else {
-                debug!("📡 GORC: Sent layer {} state to player {} for object {} (zone entry)", 
-                       channel, player_id, object_id);
+                info!("🔔 GORC: Player {} entered zone {} of object {} ({})", 
+                      player_id, channel, object_id, instance.type_name);
             }
+        } else {
+            warn!("❌ GORC: No layer data available for object {} channel {}", object_id, channel);
         }
         
         Ok(())
     }
 
-    /// Emits a GORC event using the legacy API (object type string).
-    /// 
-    /// This method is kept for backward compatibility but it's recommended to use
-    /// `emit_gorc_instance` for better type safety and instance targeting.
-    #[inline]
-    pub async fn emit_gorc<T>(
-        &self,
-        object_type: &str,
-        channel: u8,
-        event_name: &str,
-        event: &T,
-    ) -> Result<(), EventError>
-    where
-        T: Event,
-    {
-        let event_key = CompactString::new_inline("gorc:") + object_type + ":" + &channel.to_string() + ":" + event_name;
-        self.emit_event(&event_key, event).await
+    /// Send zone exit message to inform player they left an object's zone
+    async fn send_zone_exit_message(&self, player_id: PlayerId, object_id: GorcObjectId, channel: u8) -> Result<(), EventError> {
+        // Get the client response sender
+        let sender = self.client_response_sender.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("Client response sender not configured".to_string())
+        })?;
+        
+        // Get the GORC instances manager for object type lookup
+        let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("GORC instance manager not available".to_string())
+        })?;
+        
+        // Get object type for logging (optional - graceful fallback if object no longer exists)
+        let object_type = if let Some(instance) = gorc_instances.get_object(object_id).await {
+            instance.type_name.clone()
+        } else {
+            "Unknown".to_string()
+        };
+        
+        // Create zone exit message
+        let zone_exit_event = serde_json::json!({
+            "type": "gorc_zone_exit",
+            "object_id": object_id.to_string(),
+            "object_type": object_type,
+            "channel": channel,
+            "player_id": player_id.to_string(),
+            "timestamp": crate::utils::current_timestamp()
+        });
+        
+        // Serialize and send
+        let data = serde_json::to_vec(&zone_exit_event)
+            .map_err(|e| EventError::Serialization(e))?;
+        
+        if let Err(e) = sender.send_to_client(player_id, data).await {
+            warn!("❌ Failed to send zone exit message to player {}: {}", player_id, e);
+        } else {
+            info!("🚪 GORC: Player {} exited zone {} of object {} ({})", 
+                  player_id, channel, object_id, object_type);
+        }
+        
+        Ok(())
     }
 
-    /// Routes a client message to GORC instance handlers for a specific player.
+
+    /// Routes a client message to GORC client handlers, providing security and authorization.
     /// 
-    /// This method is designed for the message router to handle client messages
-    /// that should trigger server-side GORC instance handlers. It finds the player's
-    /// GORC object and emits to server handlers only.
-    pub async fn route_client_message_to_gorc<T>(
+    /// This method is specifically for client-initiated events targeting server objects.
+    /// It emits to handlers registered with `on_gorc_client` that can validate permissions
+    /// and apply security checks before modifying server state.
+    pub async fn emit_gorc_client<T>(
         &self,
-        player_id: crate::PlayerId,
-        object_type: &str,
+        client_player_id: crate::PlayerId,
+        target_object_id: GorcObjectId,
         channel: u8,
         event_name: &str,
         event: &T,
@@ -345,18 +377,34 @@ impl EventSystem {
     where
         T: Event + serde::Serialize,
     {
-        // Find the player's GORC object ID
-        if let Some(gorc_instances) = &self.gorc_instances {
-            if let Some(object_id) = gorc_instances.find_player_object(player_id).await {
-                // Route to server-side handlers only (client message was already processed)
-                return self.emit_gorc_instance(object_id, channel, event_name, event, crate::events::Dest::Server).await;
-            }
+        // Get the GORC instances manager
+        let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("GORC instance manager not available".to_string())
+        })?;
+
+        // Get the target object instance to determine its type
+        if let Some(instance) = gorc_instances.get_object(target_object_id).await {
+            let object_type = &instance.type_name;
+            
+            // Create the event key for client-to-server GORC events
+            let event_key = CompactString::new_inline("gorc_client:") + object_type + ":" + &channel.to_string() + ":" + event_name;
+            
+            // Wrap the event with player context for the handler
+            let client_event = serde_json::json!({
+                "player_id": client_player_id,
+                "object_id": target_object_id.to_string(),
+                "object_type": object_type,
+                "channel": channel,
+                "data": event,
+                "timestamp": crate::utils::current_timestamp()
+            });
+
+            self.emit_event(&event_key, &client_event).await
+        } else {
+            Err(EventError::HandlerNotFound(format!("Target object {} not found", target_object_id)))
         }
-        
-        // If no GORC object found for this player, that's expected for some cases
-        tracing::debug!("No GORC object found for player {} (type: {})", player_id, object_type);
-        Ok(())
     }
+
 
     /// Broadcasts an event to all connected clients.
     /// 
@@ -374,16 +422,31 @@ impl EventSystem {
     /// 
     /// # Examples
     /// 
-    /// ```rust
-    /// // Broadcast a server announcement to all players
-    /// let announcement = ServerAnnouncement {
-    ///     message: "Server maintenance in 5 minutes".to_string(),
-    ///     priority: "high".to_string(),
-    /// };
+    /// ```rust,no_run
+    /// use horizon_event_system::EventSystem;
+    /// use serde::{Serialize, Deserialize};
+    /// use std::sync::Arc;
     /// 
-    /// match events.broadcast(&announcement).await {
-    ///     Ok(client_count) => println!("Announcement sent to {} clients", client_count),
-    ///     Err(e) => println!("Broadcast failed: {}", e),
+    /// #[derive(Serialize, Deserialize, Debug, Clone)]
+    /// struct ServerAnnouncement {
+    ///     message: String,
+    ///     priority: String,
+    /// }
+    /// 
+    /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let events = Arc::new(EventSystem::new());
+    ///     
+    ///     // Broadcast a server announcement to all players
+    ///     let announcement = ServerAnnouncement {
+    ///         message: "Server maintenance in 5 minutes".to_string(),
+    ///         priority: "high".to_string(),
+    ///     };
+    ///     
+    ///     match events.broadcast(&announcement).await {
+    ///         Ok(client_count) => println!("Announcement sent to {} clients", client_count),
+    ///         Err(e) => println!("Broadcast failed: {}", e),
+    ///     }
+    ///     Ok(())
     /// }
     /// ```
     pub async fn broadcast<T>(&self, event: &T) -> Result<usize, EventError>
@@ -471,21 +534,14 @@ impl EventSystem {
         } else {
             // Show debugging info for missing handlers (except server_tick spam)
             if event_key != "core:server_tick" && event_key != "core:raw_client_message" {
-                // Show available handlers for debugging using DashMap iteration
-                let available_keys: Vec<String> = self.handlers
-                    .iter()
-                    .filter_map(|entry| {
-                        let key = entry.key();
-                        if key.contains(&namespace_from_key(event_key)) {
-                            Some(key.to_string()) // Convert CompactString to String
-                        } else {
-                            None
-                        }
-                    })
-                    .collect();
+                // Use PathRouter for efficient similarity search instead of expensive linear scan
+                let similar_paths = {
+                    let path_router = self.path_router.read().await;
+                    path_router.find_similar_paths(event_key, 5)
+                };
                 
-                if !available_keys.is_empty() {
-                    warn!("⚠️ No handlers for event: {} (similar keys available: {:?})", event_key, available_keys);
+                if !similar_paths.is_empty() {
+                    warn!("⚠️ No handlers for event: {} (similar keys available: {:?})", event_key, similar_paths);
                 } else {
                     warn!("⚠️ No handlers for event: {} (no similar handlers found)", event_key);
                 }

@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use universal_plugin_system::*;
 use universal_plugin_system::plugin::SimplePluginFactory;
+use tracing::info;
 
 // Simple event for testing
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,26 +51,26 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for TestPlugin {
     ) -> std::result::Result<(), PluginSystemError> {
         // We need to get a mutable reference to register handlers
         // In a real implementation, you'd design this better
-        println!("📝 Registering test event handler");
+        info!("📝 Registering test event handler");
         
         // For this test, we'll just verify the types compile correctly
         Ok(())
     }
 
     async fn on_init(&mut self, _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>) -> std::result::Result<(), PluginSystemError> {
-        println!("🔧 Test plugin initialized");
+        info!("🔧 Test plugin initialized");
         Ok(())
     }
 
     async fn on_shutdown(&mut self, _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>) -> std::result::Result<(), PluginSystemError> {
-        println!("🛑 Test plugin shutting down. Received {} events", self.events_received);
+        info!("🛑 Test plugin shutting down. Received {} events", self.events_received);
         Ok(())
     }
 }
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    println!("🧪 Universal Plugin System - Simple Test");
+    info!("🧪 Universal Plugin System - Simple Test");
 
     // Create the AllEq propagator (most common use case)
     let propagator = AllEqPropagator::new();
@@ -94,14 +95,14 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     
     let plugin_name = manager.load_plugin_from_factory(Box::new(factory)).await?;
-    println!("✅ Loaded plugin: {}", plugin_name);
+    info!("✅ Loaded plugin: {}", plugin_name);
     
     // Test basic event key creation
     let test_key = StructuredEventKey::Core { 
         event_name: "test".into() 
     };
     
-    println!("🔑 Created event key: {}", test_key.to_string());
+    info!("🔑 Created event key: {}", test_key.to_string());
     
     // Test event creation
     let test_event = TestEvent {
@@ -111,17 +112,17 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     
     // Create event data
     let event_data = EventData::new(&test_event)?;
-    println!("📦 Created event data for: {}", event_data.type_name);
+    info!("📦 Created event data for: {}", event_data.type_name);
     
     // Test stats
     let stats = event_bus.stats().await;
-    println!("📊 Initial stats: {} handlers registered", stats.total_handlers);
+    info!("📊 Initial stats: {} handlers registered", stats.total_handlers);
     
     // Shutdown
     manager.shutdown().await?;
     
-    println!("🏁 Simple test completed successfully!");
-    println!("✨ The universal plugin system compiles and basic functionality works!");
+    info!("🏁 Simple test completed successfully!");
+    info!("✨ The universal plugin system compiles and basic functionality works!");
     
     Ok(())
 }

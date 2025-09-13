@@ -22,7 +22,7 @@ use horizon_sockets::SocketBuilder;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, trace, warn, debug};
 use bug::bug_with_handle;
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
@@ -542,7 +542,7 @@ impl GameServer {
 
         // Register a simple ping handler for testing validity of the client connection
         self.horizon_event_system
-            .on_client_with_connection("system", "ping", |data: serde_json::Value, conn| {
+            .on_client("system", "ping", |data: serde_json::Value, player_id: horizon_event_system::PlayerId, conn| {
                 info!("🔧 GameServer: Received 'ping' event with connection: {:?}, data: {:?}", conn, data);
 
                 let response = serde_json::json!({
@@ -550,7 +550,7 @@ impl GameServer {
                     "message": "pong",
                 });
 
-                println!("🔧 GameServer: Responding to 'ping' event with response: {:?}", response);
+                debug!("🔧 GameServer: Responding to 'ping' event with response: {:?}", response);
 
                 // Use block_on to execute async response in sync handler
                 if let Ok(handle) = tokio::runtime::Handle::try_current() {

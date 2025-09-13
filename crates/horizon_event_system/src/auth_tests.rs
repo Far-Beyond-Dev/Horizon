@@ -7,6 +7,7 @@ mod tests {
         AuthenticationStatusGetResponseEvent, AuthenticationStatusChangedEvent, 
         create_horizon_event_system, PlayerId, current_timestamp
     };
+    use tracing::debug;
     
     #[tokio::test]
     async fn test_auth_status_set_event() {
@@ -100,7 +101,7 @@ mod tests {
         
         // Test that we can register handlers for authentication events
         let result = events.on_core("auth_status_set", |event: AuthenticationStatusSetEvent| {
-            println!("Received auth status set event for player: {}", event.player_id);
+            debug!("Received auth status set event for player: {}", event.player_id);
             Ok(())
         }).await;
         

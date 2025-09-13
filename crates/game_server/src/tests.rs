@@ -4,6 +4,7 @@
 mod tests {
     use crate::*;
     use horizon_event_system::PlayerConnectedEvent;
+    use tracing::{debug, info};
 
     #[tokio::test(flavor = "multi_thread")]
     async fn test_core_server_creation() {
@@ -13,7 +14,7 @@ mod tests {
         // Verify we can register core handlers
         events
             .on_core("test_event", |event: serde_json::Value| {
-                println!("Test core event: {:?}", event);
+                debug!("Test core event: {:?}", event);
                 Ok(())
             })
             .await
@@ -38,16 +39,16 @@ mod tests {
 
         // Register handlers that plugins would register
         events
-            .on_client("movement", "move_request", |event: serde_json::Value| {
-                println!("Movement plugin would handle: {:?}", event);
+            .on_client("movement", "move_request", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
+                debug!("Movement plugin would handle: {:?}", event);
                 Ok(())
             })
             .await
             .expect("Failed to register movement handler");
 
         events
-            .on_client("chat", "send_message", |event: serde_json::Value| {
-                println!("Chat plugin would handle: {:?}", event);
+            .on_client("chat", "send_message", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
+                debug!("Chat plugin would handle: {:?}", event);
                 Ok(())
             })
             .await
@@ -87,16 +88,16 @@ mod tests {
 
         // Register handlers for different namespaces/events
         events
-            .on_client("movement", "jump", |event: serde_json::Value| {
-                println!("Movement plugin handles jump: {:?}", event);
+            .on_client("movement", "jump", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
+                debug!("Movement plugin handles jump: {:?}", event);
                 Ok(())
             })
             .await
             .expect("Failed to register movement handler");
 
         events
-            .on_client("inventory", "use_item", |event: serde_json::Value| {
-                println!("Inventory plugin handles use_item: {:?}", event);
+            .on_client("inventory", "use_item", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
+                debug!("Inventory plugin handles use_item: {:?}", event);
                 Ok(())
             })
             .await
@@ -106,8 +107,8 @@ mod tests {
             .on_client(
                 "custom_plugin",
                 "custom_event",
-                |event: serde_json::Value| {
-                    println!("Custom plugin handles custom_event: {:?}", event);
+                |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
+                    debug!("Custom plugin handles custom_event: {:?}", event);
                     Ok(())
                 },
             )
@@ -149,7 +150,7 @@ mod tests {
             .await
             .expect("Failed to emit client event for custom plugin");
 
-        println!("✅ All messages routed generically without hardcoded logic!");
+        info!("✅ All messages routed generically without hardcoded logic!");
     }
 
     /// Example of how clean the new server is - just infrastructure!
@@ -158,21 +159,21 @@ mod tests {
         let server = create_server();
         let events = server.get_horizon_event_system();
 
-        println!("🧹 This server only handles:");
-        println!("  - WebSocket connections");
-        println!("  - Generic message routing");
-        println!("  - Plugin communication");
-        println!("  - Core infrastructure events");
-        println!("");
-        println!("🎮 Game logic is handled by plugins:");
-        println!("  - Movement, combat, chat, inventory");
-        println!("  - All game-specific events");
-        println!("  - Business logic and rules");
+        debug!("🧹 This server only handles:");
+        debug!("  - WebSocket connections");
+        debug!("  - Generic message routing");
+        debug!("  - Plugin communication");
+        debug!("  - Core infrastructure events");
+        debug!("");
+        debug!("🎮 Game logic is handled by plugins:");
+        debug!("  - Movement, combat, chat, inventory");
+        debug!("  - All game-specific events");
+        debug!("  - Business logic and rules");
 
         // Show the clean API in action
         events
             .on_core("player_connected", |event: PlayerConnectedEvent| {
-                println!("✅ Core: Player {} connected", event.player_id);
+                debug!("✅ Core: Player {} connected", event.player_id);
                 Ok(())
             })
             .await
@@ -180,14 +181,14 @@ mod tests {
 
         // This would be handled by movement plugin, not core
         events
-            .on_client("movement", "jump", |event: serde_json::Value| {
-                println!("🦘 Movement Plugin: Jump event {:?}", event);
+            .on_client("movement", "jump", |event: serde_json::Value, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
+                debug!("🦘 Movement Plugin: Jump event {:?}", event);
                 Ok(())
             })
             .await
             .expect("Failed to register movement handler");
 
-        println!("✨ Clean separation achieved with generic routing!");
+        info!("✨ Clean separation achieved with generic routing!");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -231,11 +232,11 @@ mod tests {
         let added = multicast_manager.add_player_to_group(player_id, group_id).await;
         assert!(matches!(added, Ok(true)));
 
-        println!("✅ GORC integration test passed!");
-        println!("  - GORC Manager: Initialized with default channels");
-        println!("  - Subscription Manager: Player subscription system ready");
-        println!("  - Multicast Manager: Group creation and player management working");
-        println!("  - Spatial Partition: Region management and spatial queries available");
+        info!("✅ GORC integration test passed!");
+        debug!("  - GORC Manager: Initialized with default channels");
+        debug!("  - Subscription Manager: Player subscription system ready");
+        debug!("  - Multicast Manager: Group creation and player management working");
+        debug!("  - Spatial Partition: Region management and spatial queries available");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -253,11 +254,11 @@ mod tests {
         
         // Verify the server was created with custom config
         // Note: In a real implementation, you might want to expose config getters
-        println!("Server created with custom configuration:");
-        println!("  - Bind address: {}", config.bind_address);
-        println!("  - Max connections: {}", config.max_connections);
-        println!("  - Connection timeout: {}s", config.connection_timeout);
-        println!("  - Use reuse port: {}", config.use_reuse_port);
+        debug!("Server created with custom configuration:");
+        debug!("  - Bind address: {}", config.bind_address);
+        debug!("  - Max connections: {}", config.max_connections);
+        debug!("  - Connection timeout: {}s", config.connection_timeout);
+        debug!("  - Use reuse port: {}", config.use_reuse_port);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -337,7 +338,7 @@ mod tests {
                 assert!(event.get("tick_count").is_some());
                 assert!(event.get("timestamp").is_some());
                 
-                println!("Received tick #{}: {:?}", *count, event);
+                debug!("Received tick #{}: {:?}", *count, event);
                 Ok(())
             })
             .await
@@ -362,7 +363,7 @@ mod tests {
         let final_count = *counter.lock().unwrap();
         assert_eq!(final_count, 5);
         
-        println!("✅ Server tick events processed: {}", final_count);
+        info!("✅ Server tick events processed: {}", final_count);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -388,7 +389,7 @@ mod tests {
         // For now, just verify the server can be created with tick_interval_ms = 0
         assert_eq!(server.get_horizon_event_system().get_stats().await.total_handlers, 0);
         
-        println!("✅ Server created successfully with tick disabled");
+        info!("✅ Server created successfully with tick disabled");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -410,7 +411,7 @@ mod tests {
             // Verify server is functioning by checking event system exists
             assert!(events.get_stats().await.total_handlers == events.get_stats().await.total_handlers);
             
-            println!("✅ Server created with {}ms tick interval", interval_ms);
+            info!("✅ Server created with {}ms tick interval", interval_ms);
         }
     }
 
@@ -440,7 +441,7 @@ mod tests {
         // Verify event system is functioning
         let _stats = events.get_stats().await;
         
-        println!("✅ Server created with valid region bounds");
+        info!("✅ Server created with valid region bounds");
 
         // Test edge case bounds
         let edge_bounds = RegionBounds {
@@ -462,7 +463,7 @@ mod tests {
         // Verify edge server event system is functioning
         let _stats = edge_server.get_horizon_event_system().get_stats().await;
         
-        println!("✅ Server created with edge case region bounds (single point)");
+        info!("✅ Server created with edge case region bounds (single point)");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -483,7 +484,7 @@ mod tests {
             // Verify event system is functioning
         let _stats = events.get_stats().await;
             
-            println!("✅ Server created with max_connections: {}", max_conn);
+            info!("✅ Server created with max_connections: {}", max_conn);
         }
     }
 
@@ -505,7 +506,7 @@ mod tests {
             // Verify event system is functioning
         let _stats = events.get_stats().await;
             
-            println!("✅ Server created with connection_timeout: {}s", timeout);
+            info!("✅ Server created with connection_timeout: {}s", timeout);
         }
     }
 
@@ -535,7 +536,7 @@ mod tests {
             // Verify event system is functioning
         let _stats = events.get_stats().await;
             
-            println!("✅ Server created with plugin_directory: {:?}", dir);
+            info!("✅ Server created with plugin_directory: {:?}", dir);
         }
     }
 }

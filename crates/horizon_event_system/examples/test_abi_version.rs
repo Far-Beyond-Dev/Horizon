@@ -1,8 +1,9 @@
 use horizon_event_system::ABI_VERSION;
+use tracing::info;
 
 fn main() {
-    println!("Current ABI version: {}", ABI_VERSION);
-    println!("For version 0.10.0, this should be: 0.10.0:rust_version");
+    info!("Current ABI version: {}", ABI_VERSION);
+    info!("For version 0.10.0, this should be: 0.10.0:rust_version");
     
     // Verify it's not the old hardcoded value
     assert_ne!(ABI_VERSION, "1", "ABI version should not be the old hardcoded value");
@@ -14,5 +15,5 @@ fn main() {
     // Verify it contains the colon separator
     assert!(ABI_VERSION.contains(':'), "ABI version should contain ':' separator");
     
-    println!("✅ ABI version is correctly set to: {}", ABI_VERSION);
+    info!("✅ ABI version is correctly set to: {}", ABI_VERSION);
 }

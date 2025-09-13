@@ -44,7 +44,7 @@
 //! # async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! // Example plugin handler registration
 //! let event_system = create_horizon_event_system();
-//! event_system.on_client("movement", "move_request", |event: RawClientMessageEvent| {
+//! event_system.on_client("movement", "move_request", |event: RawClientMessageEvent, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
 //!     // Handle movement logic
 //!     Ok(())
 //! }).await?;

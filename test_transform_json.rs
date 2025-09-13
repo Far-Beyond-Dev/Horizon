@@ -1,5 +1,6 @@
 use serde_json;
 use ue_types::types::{Transform, Vector, Quaternion};
+use tracing::info;
 
 fn main() {
     // Create a sample transform
@@ -11,18 +12,18 @@ fn main() {
     
     // Serialize to JSON
     let json = serde_json::to_string_pretty(&transform).unwrap();
-    println!("Transform JSON:");
-    println!("{}", json);
+    info!("Transform JSON:");
+    info!("{}", json);
     
     // Test individual Vector
     let vec = Vector::new(1.0, 2.0, 3.0);
     let vec_json = serde_json::to_string_pretty(&vec).unwrap();
-    println!("\nVector JSON:");
-    println!("{}", vec_json);
+    info!("\nVector JSON:");
+    info!("{}", vec_json);
     
     // Test individual Quaternion
     let quat = Quaternion::from_rotation_z(0.5);
     let quat_json = serde_json::to_string_pretty(&quat).unwrap();
-    println!("\nQuaternion JSON:");
-    println!("{}", quat_json);
+    info!("\nQuaternion JSON:");
+    info!("{}", quat_json);
 }

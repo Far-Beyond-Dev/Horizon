@@ -30,6 +30,7 @@ use crate::types::{PlayerId, RegionId};
 use async_trait::async_trait;
 use std::fmt::Debug;
 use std::sync::Arc;
+use luminal;
 
 // ============================================================================
 // Server Context Interface (Minimal)
@@ -137,18 +138,17 @@ pub trait ServerContext: Send + Sync + Debug {
     /// if the broadcast failed.
     async fn broadcast(&self, data: &[u8]) -> Result<(), ServerError>;
 
-    /// Returns the tokio runtime handle if available.
+    /// Returns the luminal runtime handle for cross-DLL compatibility.
     /// 
-    /// This provides plugins with access to the tokio runtime for async operations
+    /// This provides plugins with access to a luminal runtime for async operations
     /// that need to be executed within the proper runtime context. This is essential
     /// for plugins loaded as DLLs where the runtime context may not be automatically
-    /// available.
+    /// available and tokio doesn't support cross-DLL runtime bounds.
     /// 
     /// # Returns
     /// 
-    /// Returns `Some(Handle)` if a tokio runtime is available, or `None` if no
-    /// runtime context is accessible.
-    fn tokio_handle(&self) -> tokio::runtime::Handle;
+    /// Returns the luminal runtime handle for cross-DLL async execution.
+    fn luminal_handle(&self) -> luminal::Handle;
 
     /// Returns access to the GORC instance manager for object replication.
     /// 

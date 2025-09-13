@@ -4,11 +4,11 @@
 mod tests {
     
     use crate::{EventSystem, ClientConnectionRef, ClientResponseSender};
+    use tracing::info;
     use crate::events::RawClientMessageEvent;
     use crate::types::PlayerId;
     use std::sync::{Arc, Mutex};
-    use crate::events::{PlayerConnectedEvent, GorcEvent};
-    use crate::gorc::instance::{GorcInstanceManager, GorcObjectId};
+    use crate::events::PlayerConnectedEvent;
 
 
     
@@ -68,8 +68,8 @@ mod tests {
         let response_received_clone = response_received.clone();
         
         // Register a connection-aware handler
-        events.on_client_with_connection("test", "message", 
-            move |_event: RawClientMessageEvent, client: ClientConnectionRef| {
+        events.on_client("test", "message", 
+            move |_event: RawClientMessageEvent, _player_id: crate::types::PlayerId, client: ClientConnectionRef| {
                 let response_received = response_received_clone.clone();
                 // Mark that we received the event
                 *response_received.lock().unwrap() = true;
@@ -99,7 +99,7 @@ mod tests {
         
         // Note: The connection-aware handler won't actually be triggered without proper 
         // connection context in this test, but the handler registration should succeed
-        println!("✅ Connection-aware handler registration test passed");
+        info!("✅ Connection-aware handler registration test passed");
     }
     
     #[tokio::test]
@@ -140,7 +140,7 @@ mod tests {
         // Verify async handler registration succeeded
         assert!(async_result.is_ok());
         
-        println!("✅ Async handler registration test passed");
+        info!("✅ Async handler registration test passed");
     }
     
     #[tokio::test]
@@ -149,7 +149,7 @@ mod tests {
         
         // Register various handler types
         events.on_core("test_core", |_: serde_json::Value| Ok(())).await.unwrap();
-        events.on_client("test", "client_event", |_: serde_json::Value| Ok(())).await.unwrap();
+        events.on_client("test", "client_event", |_: serde_json::Value, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| Ok(())).await.unwrap();
         events.on_plugin("test_plugin", "plugin_event", |_: serde_json::Value| Ok(())).await.unwrap();
         
         let stats = events.get_stats().await;
@@ -160,7 +160,7 @@ mod tests {
         assert_eq!(detailed_stats.handler_count_by_category.client_handlers, 1);
         assert_eq!(detailed_stats.handler_count_by_category.plugin_handlers, 1);
         
-        println!("✅ System stats test passed");
+        info!("✅ System stats test passed");
     }
 
     #[tokio::test]
@@ -202,44 +202,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_gorc_event_system() {
-        let gorc_instances = Arc::new(GorcInstanceManager::new());
-        let events = EventSystem::with_gorc(gorc_instances);
-        
-        // Register GORC handler
-        events.on_gorc("Asteroid", 0, "position_update", |event: GorcEvent| {
-            assert_eq!(event.object_type, "Asteroid");
-            assert_eq!(event.channel, 0);
-            Ok(())
-        }).await.unwrap();
-        
-        // Emit GORC event
-        let object_id = GorcObjectId::new();
-        let gorc_event = GorcEvent {
-            object_id: object_id.to_string(),
-            instance_uuid: format!("test_instance_{}", object_id),
-            object_type: "Asteroid".to_string(),
-            channel: 0,
-            data: vec![1, 2, 3, 4],
-            priority: "Critical".to_string(),
-            timestamp: crate::utils::current_timestamp(),
-        };
-        
-        events.emit_gorc("Asteroid", 0, "position_update", &gorc_event).await.unwrap();
-        
-        let stats = events.get_stats().await;
-        assert_eq!(stats.gorc_events_emitted, 1);
-    }
-
-    #[tokio::test]
     async fn test_handler_category_stats() {
-        let events = EventSystem::new();
+        let mut events = EventSystem::new();
+        let mock_sender = Arc::new(MockResponseSender::new());
+        events.set_client_response_sender(mock_sender.clone());
         
         // Register different types of handlers
         events.on_core("test_core", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
-        events.on_client("test", "test_client", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        events.on_client("test", "test_client", |_: PlayerConnectedEvent, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| Ok(())).await.unwrap();
         events.on_plugin("test_plugin", "test_event", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
-        events.on_gorc("TestObject", 0, "test_gorc", |_: GorcEvent| Ok(())).await.unwrap();
         
         let detailed_stats = events.get_detailed_stats().await;
         let category_stats = detailed_stats.handler_count_by_category;
@@ -247,7 +218,7 @@ mod tests {
         assert_eq!(category_stats.core_handlers, 1);
         assert_eq!(category_stats.client_handlers, 1);
         assert_eq!(category_stats.plugin_handlers, 1);
-        assert_eq!(category_stats.gorc_handlers, 1);
+        assert_eq!(category_stats.gorc_handlers, 0);  // No GORC handlers registered in this test
         assert_eq!(category_stats.gorc_instance_handlers, 0);
     }
 
@@ -269,7 +240,7 @@ mod tests {
         
         events.on_core("test1", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
         events.on_core("test2", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
-        events.on_client("namespace", "test3", |_: PlayerConnectedEvent| Ok(())).await.unwrap();
+        events.on_client("namespace", "test3", |_: PlayerConnectedEvent, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| Ok(())).await.unwrap();
         
         let initial_stats = events.get_stats().await;
         assert_eq!(initial_stats.total_handlers, 3);

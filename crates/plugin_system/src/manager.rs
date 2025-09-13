@@ -30,22 +30,30 @@ pub struct PluginSafetyConfig {
 
 //TODO: provide real region and player communication.
 /// Minimal server context for plugin initialization and testing.
-///
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct BasicServerContext {
     event_system: Arc<EventSystem>,
     region_id: horizon_event_system::types::RegionId,
-    tokio_handle: Option<tokio::runtime::Handle>,
+    luminal_handle: luminal::Handle,
     gorc_instance_manager: Option<Arc<horizon_event_system::gorc::GorcInstanceManager>>,
+}
+
+impl std::fmt::Debug for BasicServerContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BasicServerContext")
+            .field("region_id", &self.region_id)
+            .finish()
+    }
 }
 
 impl BasicServerContext {
     /// Create a new basic context with a specific region.
     fn new(event_system: Arc<EventSystem>) -> Self {
+        let luminal_rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
-            tokio_handle: tokio::runtime::Handle::try_current().ok(),
+            luminal_handle: luminal_rt.handle().clone(),
             gorc_instance_manager: None,
         }
     }
@@ -53,21 +61,22 @@ impl BasicServerContext {
     /// Create a context with a custom region id.
     #[allow(dead_code)]
     fn with_region(event_system: Arc<EventSystem>, region_id: horizon_event_system::types::RegionId) -> Self {
+        let luminal_rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
         Self { 
             event_system, 
             region_id,
-            tokio_handle: tokio::runtime::Handle::try_current().ok(),
+            luminal_handle: luminal_rt.handle().clone(),
             gorc_instance_manager: None,
         }
     }
 
-    /// Create a context with an explicit tokio handle.
+    /// Create a context with an explicit luminal handle.
     #[allow(dead_code)]
-    fn with_tokio_handle(event_system: Arc<EventSystem>, tokio_handle: tokio::runtime::Handle) -> Self {
+    fn with_luminal_handle(event_system: Arc<EventSystem>, luminal_handle: luminal::Handle) -> Self {
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
-            tokio_handle: Some(tokio_handle),
+            luminal_handle: luminal_handle,
             gorc_instance_manager: None,
         }
     }
@@ -75,10 +84,11 @@ impl BasicServerContext {
     /// Create a context with a GORC instance manager.
     #[allow(dead_code)]
     fn with_gorc(event_system: Arc<EventSystem>, gorc_instance_manager: Arc<horizon_event_system::gorc::GorcInstanceManager>) -> Self {
+        let luminal_rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
-            tokio_handle: tokio::runtime::Handle::try_current().ok(),
+            luminal_handle: luminal_rt.handle().clone(),
             gorc_instance_manager: Some(gorc_instance_manager),
         }
     }
@@ -115,8 +125,8 @@ impl ServerContext for BasicServerContext {
         ))
     }
 
-    fn tokio_handle(&self) -> tokio::runtime::Handle {
-        self.tokio_handle.clone().expect("Tokio runtime handle is not available, this should not happen")
+    fn luminal_handle(&self) -> luminal::Handle {
+        self.luminal_handle.clone()
     }
 
     fn gorc_instance_manager(&self) -> Option<Arc<horizon_event_system::gorc::GorcInstanceManager>> {
@@ -752,7 +762,7 @@ mod tests {
         // Verify the version makes sense (not the old hardcoded format)
         assert_ne!(expected_version, "1", "ABI version should not be the old hardcoded value of '1'");
         
-        println!("✅ ABI version format is correct: {}", expected_version);
+        info!("✅ ABI version format is correct: {}", expected_version);
     }
 
     #[test]

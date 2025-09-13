@@ -110,6 +110,7 @@ crate::impl_gorc_object! {
 mod tests {
     use super::*;
     use crate::Vec3;
+    use tracing::info;
 
     #[test]
     fn test_typed_asteroid_creation() {
@@ -265,7 +266,7 @@ mod tests {
         // 4. Automatic zone configuration
         // Each zone automatically gets appropriate default settings:
         let critical_layer = layers.iter().find(|l| l.channel == 0).unwrap();
-        let detailed_layer = layers.iter().find(|l| l.channel == 1).unwrap();
+        let _detailed_layer = layers.iter().find(|l| l.channel == 1).unwrap();
         let metadata_layer = layers.iter().find(|l| l.channel == 3).unwrap();
         
         // Critical zone should have high frequency and small radius
@@ -276,7 +277,7 @@ mod tests {
         assert!(metadata_layer.frequency <= 2.0);
         assert!(metadata_layer.radius >= 1000.0);
         
-        println!("✅ Type-based system provides compile-time safety with zero runtime overhead");
+        info!("✅ Type-based system provides compile-time safety with zero runtime overhead");
     }
 
     #[test]
@@ -302,7 +303,7 @@ mod tests {
         assert!(duration.as_millis() < 100, 
                "Type-based serialization took too long: {:?}ms", duration.as_millis());
         
-        println!("✅ 1000 serializations across {} zones completed in {:?}", layers.len(), duration);
+        info!("✅ 1000 serializations across {} zones completed in {:?}", layers.len(), duration);
     }
 
     #[test]
@@ -375,7 +376,7 @@ mod tests {
             }
         }
         
-        println!("✅ All typed examples ({} objects) use zero string properties", object_count);
+        info!("✅ All typed examples ({} objects) use zero string properties", object_count);
     }
 }
 

@@ -1,173 +1,306 @@
-//! # Player-specific Event Definitions
+//! # Player Event Data Structures
 //!
-//! This module defines all events related to player actions and state changes.
-//! These events flow through the complete GORC chain from client to server and back.
+//! This module defines the event data structures used for communication between
+//! clients and the server in the GORC (Game Object Replication and Communication)
+//! system. These structures represent the various types of player actions and
+//! requests that are transmitted over the network.
+//!
+//! ## Event Categories
+//!
+//! The player plugin handles four main categories of client events:
+//!
+//! ### Movement Events (Channel 0)
+//! High-frequency position and velocity updates for real-time movement:
+//! - [`PlayerMoveRequest`] - Player movement and position updates
+//!
+//! ### Combat Events (Channel 1)  
+//! Weapon firing and attack coordination:
+//! - [`PlayerAttackRequest`] - Weapon fire and combat actions
+//!
+//! ### Communication Events (Channel 2)
+//! Chat and social interaction:
+//! - [`PlayerChatRequest`] - Chat messages and communication
+//!
+//! ### Scanning Events (Channel 3)
+//! Ship information and metadata sharing:
+//! - Ship scanning requests (handled via JSON parsing in handlers)
+//!
+//! ## Serialization
+//!
+//! All event structures use `serde` for JSON serialization and are designed for:
+//! - **Efficient Encoding**: Minimal serialization overhead for network transmission
+//! - **Forward Compatibility**: Fields can be added without breaking existing clients
+//! - **Type Safety**: Strong typing prevents malformed requests at compile time
+//! - **Validation Ready**: Structured for easy validation and sanitization
+//!
+//! ## Network Protocol
+//!
+//! Events are transmitted via GORC's binary protocol with JSON payloads:
+//! 1. Client creates event structure and serializes to JSON
+//! 2. JSON is embedded in GORC event with channel and action identifiers
+//! 3. Server receives event, validates, and processes through handlers
+//! 4. Server broadcasts results to nearby players via spatial replication
+//!
+//! ## Example Usage
+//!
+//! ```rust
+//! use plugin_player::events::*;
+//! use horizon_event_system::{PlayerId, Vec3};
+//! use chrono::Utc;
+//!
+//! // Create a movement request
+//! let move_request = PlayerMoveRequest {
+//!     player_id: PlayerId(42),
+//!     new_position: Vec3::new(100.0, 0.0, 50.0),
+//!     velocity: Vec3::new(5.0, 0.0, 2.0),
+//!     movement_state: 1, // Running
+//!     client_timestamp: Utc::now(),
+//! };
+//!
+//! // Serialize for network transmission
+//! let json = serde_json::to_string(&move_request).unwrap();
+//!
+//! // Create a combat request
+//! let attack_request = PlayerAttackRequest {
+//!     player_id: PlayerId(42),
+//!     target_position: Vec3::new(120.0, 0.0, 60.0),
+//!     attack_type: "laser".to_string(),
+//!     client_timestamp: Utc::now(),
+//! };
+//!
+//! // Create a communication request
+//! let chat_request = PlayerChatRequest {
+//!     player_id: PlayerId(42),
+//!     message: "Hello, fellow pilots!".to_string(),
+//!     channel: "general".to_string(),
+//!     target_player: None,
+//! };
+//! ```
 
-use horizon_event_system::{PlayerId, Vec3};
 use serde::{Deserialize, Serialize};
+use horizon_event_system::{PlayerId, Vec3};
 use chrono::{DateTime, Utc};
 
-/// Event sent by client to request player movement
+/// Player movement request event for GORC channel 0.
+///
+/// This structure represents a client request to update a player's position and
+/// movement state. It contains all the information needed for real-time movement
+/// processing and validation on the server side.
+///
+/// ## Network Characteristics
+/// - **Channel**: 0 (Critical movement data)
+/// - **Frequency**: Up to 60Hz for smooth movement
+/// - **Range**: 25m replication radius
+/// - **Priority**: Highest (critical for gameplay)
+///
+/// ## Movement States
+/// The `movement_state` field uses integer encoding for efficiency:
+/// - `0`: Idle/stationary
+/// - `1`: Walking
+/// - `2`: Running  
+/// - `3`: Sprinting
+/// - `4`: Crouching
+/// - `5`: Jumping/airborne
+///
+/// ## Validation
+/// Servers perform extensive validation on movement requests:
+/// - Position delta checking (prevents teleportation)
+/// - Velocity bounds validation (prevents speed hacking)
+/// - Timestamp verification (prevents replay attacks)
+/// - Player ownership validation (prevents unauthorized control)
+///
+/// ## Example Usage
+///
+/// ```rust
+/// use plugin_player::events::PlayerMoveRequest;
+/// use horizon_event_system::{PlayerId, Vec3};
+/// use chrono::Utc;
+///
+/// let move_request = PlayerMoveRequest {
+///     player_id: PlayerId(42),
+///     new_position: Vec3::new(100.5, 0.0, 50.3),
+///     velocity: Vec3::new(8.0, 0.0, 4.0),
+///     movement_state: 2, // Running
+///     client_timestamp: Utc::now(),
+/// };
+///
+/// // This request would move player 42 to the new position
+/// // with a running animation state and specified velocity
+/// ```
+///
+/// ## Network Optimization
+/// - Uses `i32` for movement state (compact encoding)
+/// - Timestamp allows for client-side prediction validation
+/// - All fields are optimized for minimal serialization overhead
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerMoveRequest {
-    /// Player requesting the move
+    /// ID of the player requesting the movement
     pub player_id: PlayerId,
-    /// New position requested
+    /// Requested new position in world coordinates  
     pub new_position: Vec3,
-    /// New velocity vector
+    /// Current velocity vector for prediction
     pub velocity: Vec3,
-    /// Movement state flags (running, jumping, etc.)
-    pub movement_state: u32,
-    /// Client timestamp
+    /// Current movement state (0=idle, 1=walking, 2=running, etc.)
+    pub movement_state: i32,
+    /// Client-side timestamp for validation and prediction
     pub client_timestamp: DateTime<Utc>,
 }
 
-/// Event sent by client to request attack action
+/// Player attack request event for GORC channel 1.
+///
+/// This structure represents a client request to perform a combat action, such as
+/// firing weapons or initiating an attack. It contains targeting information and
+/// weapon specifications for server-side validation and replication.
+///
+/// ## Network Characteristics
+/// - **Channel**: 1 (Combat events)
+/// - **Frequency**: Event-driven (not continuous)
+/// - **Range**: 500m replication radius
+/// - **Priority**: High (important for tactical awareness)
+///
+/// ## Attack Types
+/// The `attack_type` field specifies the weapon or attack being used:
+/// - `"laser"`: High-precision energy beam weapons
+/// - `"missile"`: Guided projectile weapons with area damage
+/// - `"plasma"`: Energy projectiles with travel time
+/// - `"kinetic"`: Physical projectile weapons
+/// - `"melee"`: Close-quarters combat attacks
+///
+/// ## Security and Validation
+/// Servers perform strict validation on attack requests:
+/// - Player ownership verification (only own ships can attack)
+/// - Weapon availability checking (player must have the weapon)
+/// - Range validation (target must be within weapon range)
+/// - Rate limiting (prevents rapid-fire exploits)
+/// - Ammunition tracking (future enhancement)
+///
+/// ## Replication Behavior
+/// Successful attacks are automatically replicated to nearby players:
+/// - Visual effects are synchronized across clients
+/// - Damage calculations are server-authoritative  
+/// - Sound effects are triggered on receiving clients
+/// - Combat logs are maintained for analysis
+///
+/// ## Example Usage
+///
+/// ```rust
+/// use plugin_player::events::PlayerAttackRequest;
+/// use horizon_event_system::{PlayerId, Vec3};
+/// use chrono::Utc;
+///
+/// let attack_request = PlayerAttackRequest {
+///     player_id: PlayerId(42),
+///     target_position: Vec3::new(150.0, 0.0, 75.0),
+///     attack_type: "laser".to_string(),
+///     client_timestamp: Utc::now(),
+/// };
+///
+/// // This request would fire a laser weapon at the specified coordinates
+/// // The server validates the attack and replicates to nearby players
+/// ```
+///
+/// ## Combat Mechanics Integration
+/// - Damage calculations use server-side weapon statistics
+/// - Critical hits and modifiers are applied server-side
+/// - Line-of-sight checking prevents shooting through walls
+/// - Energy/ammunition costs are deducted from player resources
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerAttackRequest {
-    /// Player performing the attack
+    /// ID of the player performing the attack
     pub player_id: PlayerId,
-    /// Target position or direction
+    /// World coordinates of the attack target
     pub target_position: Vec3,
-    /// Attack type identifier
+    /// Type of weapon or attack being used
     pub attack_type: String,
-    /// Client timestamp
+    /// Client-side timestamp for attack timing validation
     pub client_timestamp: DateTime<Utc>,
 }
 
-/// Event sent by client for interaction with objects/NPCs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerInteractRequest {
-    /// Player performing the interaction
-    pub player_id: PlayerId,
-    /// Target object or entity ID
-    pub target_id: String,
-    /// Type of interaction
-    pub interaction_type: String,
-    /// Additional interaction data
-    pub interaction_data: serde_json::Value,
-}
-
-/// Event sent by client for chat messages
+/// Player communication request event for GORC channel 2.
+///
+/// This structure represents a client request to send a chat message or other
+/// communication. It supports multiple communication channels and both broadcast
+/// and direct messaging capabilities.
+///
+/// ## Network Characteristics  
+/// - **Channel**: 2 (Communication events)
+/// - **Frequency**: Event-driven (as needed)
+/// - **Range**: 300m replication radius
+/// - **Priority**: Medium (social interaction)
+///
+/// ## Communication Channels
+/// The `channel` field specifies the communication channel:
+/// - `"general"`: General purpose chat (default)
+/// - `"emergency"`: Emergency distress signals (extended range)
+/// - `"trade"`: Commercial and trading communication
+/// - `"fleet"`: Fleet coordination and tactical communication
+/// - `"private"`: Direct player-to-player messaging
+///
+/// ## Message Types
+/// The system supports various message types:
+/// - **Broadcast**: Messages sent to all nearby players
+/// - **Direct**: Messages sent to a specific target player
+/// - **Channel**: Messages sent on specific communication channels
+/// - **Emergency**: Priority messages with extended range
+///
+/// ## Content Moderation
+/// The server performs content validation and moderation:
+/// - Message length limits (500 characters maximum)
+/// - Rate limiting to prevent spam (1 message per second)
+/// - Profanity filtering (configurable)
+/// - Abuse reporting and player muting
+///
+/// ## Spatial Communication
+/// Communication follows realistic space communication patterns:
+/// - Local range communication (300m standard range)
+/// - Emergency channels have extended range (1000m)
+/// - Direct messages bypass range restrictions
+/// - Signal quality may degrade with distance (future feature)
+///
+/// ## Example Usage
+///
+/// ```rust
+/// use plugin_player::events::PlayerChatRequest;
+/// use horizon_event_system::PlayerId;
+///
+/// // General broadcast message
+/// let broadcast_msg = PlayerChatRequest {
+///     player_id: PlayerId(42),
+///     message: "Looking for trading partners near Station Alpha".to_string(),
+///     channel: "trade".to_string(),
+///     target_player: None,
+/// };
+///
+/// // Direct private message
+/// let private_msg = PlayerChatRequest {
+///     player_id: PlayerId(42),
+///     message: "Meet me at the asteroid belt".to_string(),
+///     channel: "private".to_string(),
+///     target_player: Some(PlayerId(17)),
+/// };
+///
+/// // Emergency distress signal
+/// let emergency_msg = PlayerChatRequest {
+///     player_id: PlayerId(42),
+///     message: "MAYDAY! Under attack at coordinates 120,50,30!".to_string(),
+///     channel: "emergency".to_string(),
+///     target_player: None,
+/// };
+/// ```
+///
+/// ## Privacy and Security
+/// - Private messages are only delivered to intended recipients
+/// - Players can mute or block other players
+/// - Message history is logged for moderation purposes
+/// - Encryption may be used for sensitive communications (future)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlayerChatRequest {
-    /// Player sending the message
+    /// ID of the player sending the message
     pub player_id: PlayerId,
-    /// Chat message content
+    /// The chat message content (max 500 characters)
     pub message: String,
-    /// Chat channel (global, local, guild, etc.)
+    /// Communication channel ("general", "emergency", "trade", "fleet", "private")
     pub channel: String,
-    /// Target player ID for private messages (optional)
+    /// Target player for direct messages (None for broadcast)
     pub target_player: Option<PlayerId>,
-}
-
-/// Server event for confirmed position update (replicated to clients)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerPositionUpdate {
-    /// Player whose position was updated
-    pub player_id: PlayerId,
-    /// Confirmed position
-    pub position: Vec3,
-    /// Current velocity
-    pub velocity: Vec3,
-    /// Movement state flags
-    pub movement_state: u32,
-    /// Server timestamp
-    pub server_timestamp: DateTime<Utc>,
-    /// Sequence number for ordering
-    pub sequence: u64,
-}
-
-/// Server event for combat action result (replicated to clients)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerCombatEvent {
-    /// Player who performed the action
-    pub attacker_id: PlayerId,
-    /// Target of the action (if applicable)
-    pub target_id: Option<PlayerId>,
-    /// Damage dealt (if applicable)
-    pub damage: Option<f32>,
-    /// Attack position
-    pub attack_position: Vec3,
-    /// Combat event type
-    pub event_type: String,
-    /// Server timestamp
-    pub server_timestamp: DateTime<Utc>,
-}
-
-/// Server event for player health changes (replicated to clients)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerHealthUpdate {
-    /// Player whose health changed
-    pub player_id: PlayerId,
-    /// Current health
-    pub current_health: f32,
-    /// Maximum health
-    pub max_health: f32,
-    /// Health change amount (positive for healing, negative for damage)
-    pub health_change: f32,
-    /// Source of the health change
-    pub source: String,
-    /// Server timestamp
-    pub server_timestamp: DateTime<Utc>,
-}
-
-/// Server event for equipment changes (replicated to nearby clients)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerEquipmentUpdate {
-    /// Player whose equipment changed
-    pub player_id: PlayerId,
-    /// Equipment slot that changed
-    pub slot: String,
-    /// New item ID (None if unequipped)
-    pub item_id: Option<String>,
-    /// Visual appearance data
-    pub appearance_data: serde_json::Value,
-    /// Server timestamp
-    pub server_timestamp: DateTime<Utc>,
-}
-
-/// Server event for chat message broadcast (replicated to relevant clients)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerChatBroadcast {
-    /// Player who sent the message
-    pub player_id: PlayerId,
-    /// Player's display name
-    pub player_name: String,
-    /// Chat message content
-    pub message: String,
-    /// Chat channel
-    pub channel: String,
-    /// Server timestamp
-    pub server_timestamp: DateTime<Utc>,
-}
-
-/// Server event for player status changes (level up, achievements, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerStatusUpdate {
-    /// Player whose status changed
-    pub player_id: PlayerId,
-    /// Status type (level, achievement, etc.)
-    pub status_type: String,
-    /// Old value
-    pub old_value: serde_json::Value,
-    /// New value
-    pub new_value: serde_json::Value,
-    /// Server timestamp
-    pub server_timestamp: DateTime<Utc>,
-}
-
-/// Event for player disconnection cleanup
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlayerDisconnectionEvent {
-    /// Player who disconnected
-    pub player_id: PlayerId,
-    /// Disconnect reason
-    pub reason: String,
-    /// Final position before disconnect
-    pub last_position: Vec3,
-    /// Session duration in seconds
-    pub session_duration: u64,
-    /// Server timestamp
-    pub server_timestamp: DateTime<Utc>,
 }

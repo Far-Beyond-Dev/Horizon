@@ -16,18 +16,70 @@ use crate::*;
 /// 
 /// # Examples
 /// 
-/// ```rust
-/// let server_context = Arc::new(MyServerContext::new());
-/// let (events, gorc_system) = create_complete_horizon_system(server_context)?;
+/// ```rust,no_run
+/// use horizon_event_system::{create_complete_horizon_system, ServerContext, PlayerId, Vec3, EventSystem, LogLevel, ServerError, RegionId, GorcInstanceManager};
+/// use std::sync::Arc;
+/// use std::pin::Pin;
+/// use async_trait::async_trait;
 /// 
-/// // Use the event system for traditional events
-/// events.on_core("server_started", |event: ServerStartedEvent| {
-///     println!("Server online!");
+/// #[derive(Debug)]
+/// struct MyServerContext {
+///     events: Arc<EventSystem>,
+///     region_id: RegionId,
+/// }
+/// 
+/// #[async_trait]
+/// impl ServerContext for MyServerContext {
+///     fn events(&self) -> Arc<EventSystem> {
+///         self.events.clone()
+///     }
+///     
+///     fn region_id(&self) -> RegionId {
+///         self.region_id
+///     }
+///     
+///     fn log(&self, level: LogLevel, message: &str) {
+///         println!("[{:?}] {}", level, message);
+///     }
+///     
+///     async fn send_to_player(&self, _player_id: PlayerId, _data: &[u8]) -> Result<(), ServerError> {
+///         Ok(())
+///     }
+///     
+///     async fn broadcast(&self, _data: &[u8]) -> Result<(), ServerError> {
+///         Ok(())
+///     }
+///     
+///     fn luminal_handle(&self) -> luminal::Handle {
+///         let rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
+///         rt.handle().clone()
+///     }
+///     
+///     fn gorc_instance_manager(&self) -> Option<Arc<GorcInstanceManager>> {
+///         None
+///     }
+/// }
+/// 
+/// impl MyServerContext {
+///     fn new() -> Self { 
+///         Self {
+///             events: Arc::new(EventSystem::new()),
+///             region_id: RegionId::new(),
+///         }
+///     }
+/// }
+/// 
+/// async fn example() -> Result<(), Box<dyn std::error::Error>> {
+///     let server_context = Arc::new(MyServerContext::new());
+///     let (events, _gorc_system) = create_complete_horizon_system(server_context)?;
+///     
+///     // Use the event system for traditional events
+///     // events.on_core("server_started", |event: ServerStartedEvent| {
+///     //     println!("Server online!");
+///     //     Ok(())
+///     // }).await?;
 ///     Ok(())
-/// }).await?;
-/// 
-/// // Use the GORC system for object replication
-/// let asteroid_id = gorc_system.register_object(my_asteroid, position).await;
+/// }
 /// ```
 pub fn create_complete_horizon_system(
     server_context: Arc<dyn ServerContext>
@@ -49,13 +101,18 @@ pub fn create_complete_horizon_system(
 /// 
 /// # Examples
 /// 
-/// ```rust
-/// let events = create_simple_horizon_system();
+/// ```rust,no_run
+/// use horizon_event_system::{create_simple_horizon_system, PlayerConnectedEvent};
 /// 
-/// events.on_core("player_connected", |event: PlayerConnectedEvent| {
-///     println!("Player {} connected", event.player_id);
+/// async fn example() -> Result<(), Box<dyn std::error::Error>> {
+///     let events = create_simple_horizon_system();
+///     
+///     events.on_core("player_connected", |event: PlayerConnectedEvent| {
+///         println!("Player {} connected", event.player_id);
+///         Ok(())
+///     }).await?;
 ///     Ok(())
-/// }).await?;
+/// }
 /// ```
 pub fn create_simple_horizon_system() -> Arc<EventSystem> {
     create_horizon_event_system()

@@ -15,6 +15,7 @@ use std::any::Any;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
 use uuid::Uuid;
+use tracing::{debug, info};
 
 /// Universal identifier for replicated object instances
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -392,8 +393,10 @@ impl GorcInstanceManager {
             old_pos
         };
 
+
         // Check all objects for zone membership changes
         let objects = self.objects.read().await;
+        
         for (object_id, instance) in objects.iter() {
             let layers = instance.object.get_layers();
             
@@ -403,15 +406,36 @@ impl GorcInstanceManager {
                 let was_in_zone = old_position.map_or(false, |pos| pos.distance(object_position) <= layer.radius);
                 let is_in_zone = distance_to_object <= layer.radius;
                 
+                
                 match (was_in_zone, is_in_zone) {
-                    (false, true) => zone_entries.push((*object_id, layer.channel)),
-                    (true, false) => zone_exits.push((*object_id, layer.channel)),
-                    _ => {} // No change
+                    (false, true) => {
+                        debug!("🎮 GORC: Zone entry - player {} enters object {} channel {}", player_id, object_id, layer.channel);
+                        zone_entries.push((*object_id, layer.channel));
+                    },
+                    (true, false) => {
+                        debug!("🎮 GORC: Zone exit - player {} leaves object {} channel {}", player_id, object_id, layer.channel);
+                        zone_exits.push((*object_id, layer.channel));
+                    },
+                    _ => {
+                        // Special case: if this is a first spawn (old_position is None) and player is in range,
+                        // force zone entry even if the logic above didn't catch it
+                        if old_position.is_none() && is_in_zone {
+                            debug!("🎮 GORC: First spawn entry - player {} enters object {} channel {}", player_id, object_id, layer.channel);
+                            zone_entries.push((*object_id, layer.channel));
+                        }
+                    }
                 }
             }
         }
 
+        debug!("🎮 GORC: Zone changes for player {} - {} entries, {} exits", player_id, zone_entries.len(), zone_exits.len());
+
+
         // If this is a new player or they moved significantly, recalculate subscriptions
+        //
+        // N.B. `recalculate_player_subscriptions` tries to acquire a write lock to `objects`,
+        // which will deadlock. release the read lock now
+        drop(objects);
         if old_position.is_none() || 
            old_position.map(|old| old.distance(new_position) > 5.0).unwrap_or(true) {
             self.recalculate_player_subscriptions(player_id, new_position).await;
@@ -447,12 +471,16 @@ impl GorcInstanceManager {
 
     /// Add a player to the position tracking system
     pub async fn add_player(&self, player_id: PlayerId, position: Vec3) {
+        debug!("🎮 GORC: Adding player {} at position {:?}", player_id, position);
+
         let mut player_positions = self.player_positions.write().await;
         player_positions.insert(player_id, position);
         
         // Update statistics
         let mut stats = self.stats.write().await;
         stats.total_subscriptions += 1;
+
+        info!("🎮 GORC: Player {} added. Total tracked players: {}", player_id, player_positions.len());
     }
     
     /// Remove a player from all subscriptions

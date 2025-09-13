@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 tokio = { workspace = true }
+luminal_rt = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
 serde = { workspace = true }
@@ -26,3 +27,4 @@ const_format = { workspace = true }
 syn = { version = "2.0", features = ["full"] }
 quote = "1.0"
 proc-macro2 = "1.0"
+backtrace = "0.3.75"

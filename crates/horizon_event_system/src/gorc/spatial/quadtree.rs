@@ -443,6 +443,7 @@ mod tests {
     use super::*;
     use crate::types::Vec3;
     use std::time::Instant;
+    use tracing::info;
 
     #[test]
     fn test_quadtree_subdivision() {
@@ -485,8 +486,8 @@ mod tests {
         let results = tree.query_radius(Position::new(500.0, 50.0, 0.0), 50.0);
         let duration = start.elapsed();
 
-        println!("Query of 1000 objects took: {:?}", duration);
-        println!("Found {} objects in radius", results.len());
+        info!("Query of 1000 objects took: {:?}", duration);
+        info!("Found {} objects in radius", results.len());
         
         // Should find objects and be fast
         assert!(!results.is_empty());
@@ -543,14 +544,14 @@ mod tests {
             let duration = start.elapsed();
             
             times.push(duration.as_nanos());
-            println!("Size: {}, Time: {:?}", size, duration);
+            info!("Size: {}, Time: {:?}", size, duration);
         }
 
         // Verify that time doesn't scale linearly (would indicate O(log n) behavior)
         let ratio_1_to_2 = times[1] as f64 / times[0] as f64;
         let ratio_3_to_4 = times[3] as f64 / times[2] as f64;
         
-        println!("Scaling ratios: {:.2}, {:.2}", ratio_1_to_2, ratio_3_to_4);
+        info!("Scaling ratios: {:.2}, {:.2}", ratio_1_to_2, ratio_3_to_4);
         
         // If it were O(n), doubling size would roughly double time
         // With O(log n), the ratio should be much smaller
