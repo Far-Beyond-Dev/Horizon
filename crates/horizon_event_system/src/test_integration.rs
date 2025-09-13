@@ -1,5 +1,7 @@
 #[cfg(test)]
 use super::*;
+#[cfg(test)]
+use tracing::debug;
 
 // Mock server context for testing
 #[cfg(test)]
@@ -121,7 +123,7 @@ async fn test_debug_event_emission_and_handling() {
     events
         .on_client("debug", "test", move |wrapper: serde_json::Value, _player_id: crate::types::PlayerId, _connection: crate::ClientConnectionRef| {
             json_count_clone.fetch_add(1, Ordering::SeqCst);
-            println!("JSON handler called with: {}", wrapper);
+            debug!("JSON handler called with: {}", wrapper);
             Ok(())
         })
         .await
@@ -135,16 +137,16 @@ async fn test_debug_event_emission_and_handling() {
         timestamp: current_timestamp(),
     };
     
-    println!("Emitting event...");
+    debug!("Emitting event...");
     events
         .emit_client_with_context("debug", "test", player_id, &chat_event)
         .await
         .unwrap();
     
-    println!("Waiting for handlers...");
+    debug!("Waiting for handlers...");
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     
-    println!("JSON handler call count: {}", json_count.load(Ordering::SeqCst));
+    debug!("JSON handler call count: {}", json_count.load(Ordering::SeqCst));
     assert_eq!(json_count.load(Ordering::SeqCst), 1, "JSON handler should be called");
 }
 
@@ -194,7 +196,7 @@ async fn test_typed_client_event_handlers() {
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     
     // Debug: Check how many handlers are registered
-    println!("Handler call count: {}", call_count.load(Ordering::SeqCst));
+    debug!("Handler call count: {}", call_count.load(Ordering::SeqCst));
     
     // Verify handler was called
     assert_eq!(call_count.load(Ordering::SeqCst), 1);
