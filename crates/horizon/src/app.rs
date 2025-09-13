@@ -292,10 +292,6 @@ impl Application {
         info!("✅ Horizon Game Server shutdown complete");
         info!("👋 Thank you for using Horizon Game Server!");
 
-        // Final safety cleanup to prevent access violations
-        // Force garbage collection and give the system time to clean up
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-
         Ok(())
     }
 
