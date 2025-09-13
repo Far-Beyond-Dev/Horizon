@@ -4,7 +4,7 @@
 //! server startup, monitoring, and shutdown with enhanced error handling
 //! and performance monitoring.
 
-use crate::{cli::CliArgs, config::AppConfig, logging::display_banner, signals::setup_signal_handlers};
+use crate::{cli::CliArgs, config::AppConfig, logging::display_banner, signals::{setup_signal_handlers, setup_signal_handlers_silent}};
 use horizon_event_system::ShutdownState;
 use game_server::GameServer;
 use tracing::{error, info, warn};
@@ -205,6 +205,17 @@ impl Application {
 
         // Wait for shutdown signal - this will update the shared shutdown state
         let signal_shutdown_state = setup_signal_handlers().await?;
+
+        // merciless shutdown
+        tokio::spawn(async move {
+            if let Err(e) = setup_signal_handlers_silent().await {
+                error!("Failed to set up merciless shutdown signal handler: {e}");
+                return;
+            }
+
+            warn!("Shutdown handler received again! I'll make this quick.");
+            std::process::exit(1);
+        });
         
         // Transfer shutdown state to our server's shutdown state
         if signal_shutdown_state.is_shutdown_initiated() {
@@ -251,6 +262,7 @@ impl Application {
         info!("🧹 Phase 3: Final cleanup - stopping server accept loops...");
         
         // Wait for server accept loops to stop gracefully
+        server_handle.abort();
         info!("⏳ Waiting for server task to complete gracefully...");
         if let Err(e) = tokio::time::timeout(
             tokio::time::Duration::from_secs(8), 
@@ -279,10 +291,6 @@ impl Application {
 
         info!("✅ Horizon Game Server shutdown complete");
         info!("👋 Thank you for using Horizon Game Server!");
-
-        // Final safety cleanup to prevent access violations
-        // Force garbage collection and give the system time to clean up
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         Ok(())
     }

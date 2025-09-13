@@ -43,6 +43,12 @@ use tracing::info;
 /// }
 /// ```
 pub async fn setup_signal_handlers() -> Result<ShutdownState, Box<dyn std::error::Error>> {
+    let shutdown_state = setup_signal_handlers_silent().await?;
+    info!("📡 Received shutdown signal - initiating graceful shutdown");
+    Ok(shutdown_state)
+}
+
+pub async fn setup_signal_handlers_silent() -> Result<ShutdownState, Box<dyn std::error::Error>> {
     let shutdown_state = ShutdownState::new();
 
     #[cfg(unix)]
@@ -53,20 +59,13 @@ pub async fn setup_signal_handlers() -> Result<ShutdownState, Box<dyn std::error
         let mut sigterm = signal(SignalKind::terminate())?;
 
         tokio::select! {
-            _ = sigint.recv() => {
-                info!("📡 Received SIGINT - initiating graceful shutdown");
-            }
-            _ = sigterm.recv() => {
-                info!("📡 Received SIGTERM - initiating graceful shutdown");
-            }
+            _ = sigint.recv() => (),
+            _ = sigterm.recv() => ()
         }
     }
 
     #[cfg(windows)]
-    {
-        signal::ctrl_c().await?;
-        info!("📡 Received Ctrl+C - initiating graceful shutdown");
-    }
+    signal::ctrl_c().await?;
 
     shutdown_state.initiate_shutdown();
     Ok(shutdown_state)
