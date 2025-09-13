@@ -235,17 +235,17 @@ impl EventSystem {
         // Update position and get zone changes
         let (zone_entries, zone_exits) = gorc_instances.update_player_position(player_id, new_position).await;
         
-        println!("🎮 EVENT DEBUG: Got zone results - {} entries, {} exits", zone_entries.len(), zone_exits.len());
+        debug!("🎮 EVENT DEBUG: Got zone results - {} entries, {} exits", zone_entries.len(), zone_exits.len());
         
         // Handle zone entries - send zone entry messages with current layer state
         for (object_id, channel) in zone_entries {
-            println!("🎮 EVENT DEBUG: Sending zone entry message for object {} channel {}", object_id, channel);
+            debug!("🎮 EVENT DEBUG: Sending zone entry message for object {} channel {}", object_id, channel);
             self.send_zone_entry_message(player_id, object_id, channel).await?;
         }
         
         // Handle zone exits - send zone exit messages to inform client
         for (object_id, channel) in zone_exits {
-            println!("🎮 EVENT DEBUG: Sending zone exit message for object {} channel {}", object_id, channel);
+            debug!("🎮 EVENT DEBUG: Sending zone exit message for object {} channel {}", object_id, channel);
             self.send_zone_exit_message(player_id, object_id, channel).await?;
         }
         

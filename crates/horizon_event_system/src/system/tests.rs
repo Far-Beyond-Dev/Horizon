@@ -4,6 +4,7 @@
 mod tests {
     
     use crate::{EventSystem, ClientConnectionRef, ClientResponseSender};
+    use tracing::info;
     use crate::events::RawClientMessageEvent;
     use crate::types::PlayerId;
     use std::sync::{Arc, Mutex};
@@ -99,7 +100,7 @@ mod tests {
         
         // Note: The connection-aware handler won't actually be triggered without proper 
         // connection context in this test, but the handler registration should succeed
-        println!("✅ Connection-aware handler registration test passed");
+        info!("✅ Connection-aware handler registration test passed");
     }
     
     #[tokio::test]
@@ -140,7 +141,7 @@ mod tests {
         // Verify async handler registration succeeded
         assert!(async_result.is_ok());
         
-        println!("✅ Async handler registration test passed");
+        info!("✅ Async handler registration test passed");
     }
     
     #[tokio::test]
@@ -160,7 +161,7 @@ mod tests {
         assert_eq!(detailed_stats.handler_count_by_category.client_handlers, 1);
         assert_eq!(detailed_stats.handler_count_by_category.plugin_handlers, 1);
         
-        println!("✅ System stats test passed");
+        info!("✅ System stats test passed");
     }
 
     #[tokio::test]

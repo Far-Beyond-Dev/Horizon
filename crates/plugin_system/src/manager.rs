@@ -762,7 +762,7 @@ mod tests {
         // Verify the version makes sense (not the old hardcoded format)
         assert_ne!(expected_version, "1", "ABI version should not be the old hardcoded value of '1'");
         
-        println!("✅ ABI version format is correct: {}", expected_version);
+        info!("✅ ABI version format is correct: {}", expected_version);
     }
 
     #[test]

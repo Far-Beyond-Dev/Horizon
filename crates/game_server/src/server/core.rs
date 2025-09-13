@@ -550,7 +550,7 @@ impl GameServer {
                     "message": "pong",
                 });
 
-                println!("🔧 GameServer: Responding to 'ping' event with response: {:?}", response);
+                debug!("🔧 GameServer: Responding to 'ping' event with response: {:?}", response);
 
                 // Use block_on to execute async response in sync handler
                 if let Ok(handle) = tokio::runtime::Handle::try_current() {

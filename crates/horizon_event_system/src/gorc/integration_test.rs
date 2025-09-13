@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use std::any::Any;
+use tracing::info;
 
 /// Mock client response sender that captures all sent messages
 #[derive(Debug, Default)]
@@ -228,7 +229,7 @@ impl IntegrationTestScenario {
         assert_eq!(results[&self.players[3]], 0, "Player at 150m should NOT receive channel 0 events");
         assert_eq!(results[&self.players[4]], 0, "Player at 400m should NOT receive channel 0 events");
         
-        println!("✅ Channel 0 test passed: {}/{} players received events correctly", 
+        info!("✅ Channel 0 test passed: {}/{} players received events correctly", 
                 2, self.players.len());
         
         Ok(())
