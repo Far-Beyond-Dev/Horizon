@@ -22,7 +22,7 @@ use horizon_sockets::SocketBuilder;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::time::{interval, Duration};
-use tracing::{error, info, trace, warn};
+use tracing::{error, info, trace, warn, debug};
 use bug::bug_with_handle;
 
 #[cfg(any(target_os = "linux", target_os = "android", target_os = "freebsd", target_os = "openbsd", target_os = "netbsd", target_os = "dragonfly", target_os = "macos"))]
