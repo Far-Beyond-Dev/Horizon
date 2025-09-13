@@ -5,6 +5,7 @@ use std::sync::Arc;
 use universal_plugin_system::*;
 use universal_plugin_system::plugin::SimplePluginFactory;
 use universal_plugin_system::utils::current_timestamp;
+use tracing::info;
 
 // Define our events
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,9 +63,9 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for ChatPlugin {
         _event_bus: Arc<EventBus<StructuredEventKey, AllEqPropagator>>,
         _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>,
     ) -> std::result::Result<(), PluginSystemError> {
-        println!("📝 Chat plugin registered handlers for:");
-        println!("   - client:chat:message");
-        println!("   - core:server_started");
+        info!("📝 Chat plugin registered handlers for:");
+        info!("   - client:chat:message");
+        info!("   - core:server_started");
         
         // In a real implementation, we would register actual handlers here
         // For this demo, we're just showing that the plugin system works
@@ -72,13 +73,13 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for ChatPlugin {
     }
 
     async fn on_init(&mut self, _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>) -> std::result::Result<(), PluginSystemError> {
-        println!("🔧 Chat plugin initialized successfully");
+        info!("🔧 Chat plugin initialized successfully");
         Ok(())
     }
 
     async fn on_shutdown(&mut self, _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>) -> std::result::Result<(), PluginSystemError> {
         let count = self.message_count.load(std::sync::atomic::Ordering::Relaxed);
-        println!("🛑 Chat plugin shutting down. Processed {} messages", count);
+        info!("🛑 Chat plugin shutting down. Processed {} messages", count);
         Ok(())
     }
 }
@@ -113,26 +114,26 @@ impl SimplePlugin<StructuredEventKey, AllEqPropagator> for MonitoringPlugin {
         _event_bus: Arc<EventBus<StructuredEventKey, AllEqPropagator>>,
         _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>,
     ) -> std::result::Result<(), PluginSystemError> {
-        println!("📊 Monitoring plugin ready to track all events");
+        info!("📊 Monitoring plugin ready to track all events");
         Ok(())
     }
 
     async fn on_init(&mut self, _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>) -> std::result::Result<(), PluginSystemError> {
-        println!("🔧 Monitoring plugin initialized");
+        info!("🔧 Monitoring plugin initialized");
         Ok(())
     }
 
     async fn on_shutdown(&mut self, _context: Arc<PluginContext<StructuredEventKey, AllEqPropagator>>) -> std::result::Result<(), PluginSystemError> {
         let count = self.events_seen.load(std::sync::atomic::Ordering::Relaxed);
-        println!("🛑 Monitoring plugin shutting down. Observed {} events", count);
+        info!("🛑 Monitoring plugin shutting down. Observed {} events", count);
         Ok(())
     }
 }
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-    println!("🎯 Universal Plugin System - Complete Working Test");
-    println!("====================================================");
+    info!("🎯 Universal Plugin System - Complete Working Test");
+    info!("====================================================");
 
     // Create the AllEq propagator (most common use case)
     let propagator = AllEqPropagator::new();
@@ -163,8 +164,8 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     
     let manager = PluginManager::new(event_bus.clone(), context.clone(), config);
     
-    println!("\n🔌 Loading Plugins...");
-    println!("---------------------");
+    info!("\n🔌 Loading Plugins...");
+    info!("---------------------");
     
     // Load chat plugin
     let chat_factory = SimplePluginFactory::<ChatPlugin, StructuredEventKey, AllEqPropagator>::new(
@@ -174,7 +175,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     
     let chat_plugin_name = manager.load_plugin_from_factory(Box::new(chat_factory)).await?;
-    println!("✅ Loaded plugin: {}", chat_plugin_name);
+    info!("✅ Loaded plugin: {}", chat_plugin_name);
     
     // Load monitoring plugin
     let monitoring_factory = SimplePluginFactory::<MonitoringPlugin, StructuredEventKey, AllEqPropagator>::new(
@@ -184,10 +185,10 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     );
     
     let monitoring_plugin_name = manager.load_plugin_from_factory(Box::new(monitoring_factory)).await?;
-    println!("✅ Loaded plugin: {}", monitoring_plugin_name);
+    info!("✅ Loaded plugin: {}", monitoring_plugin_name);
     
-    println!("\n🔑 Testing Event Key System...");
-    println!("-------------------------------");
+    info!("\n🔑 Testing Event Key System...");
+    info!("-------------------------------");
     
     // Test different event key types
     let core_key = StructuredEventKey::Core { 
@@ -210,13 +211,13 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         event_name: "position_update".into() 
     };
     
-    println!("🔑 Core event key: {}", core_key.to_string());
-    println!("🔑 Client event key: {}", client_key.to_string());
-    println!("🔑 Plugin event key: {}", plugin_key.to_string());
-    println!("🔑 GORC event key: {}", gorc_key.to_string());
+    info!("🔑 Core event key: {}", core_key.to_string());
+    info!("🔑 Client event key: {}", client_key.to_string());
+    info!("🔑 Plugin event key: {}", plugin_key.to_string());
+    info!("🔑 GORC event key: {}", gorc_key.to_string());
     
-    println!("\n📊 Event System Statistics...");
-    println!("-----------------------------");
+    info!("\n📊 Event System Statistics...");
+    info!("-----------------------------");
     
     // Test event creation and serialization
     let chat_event = ChatMessageEvent {
@@ -234,16 +235,16 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let chat_event_data = EventData::new(&chat_event)?;
     let server_event_data = EventData::new(&server_event)?;
     
-    println!("📦 Created chat event data: {} bytes", chat_event_data.data.len());
-    println!("📦 Created server event data: {} bytes", server_event_data.data.len());
+    info!("📦 Created chat event data: {} bytes", chat_event_data.data.len());
+    info!("📦 Created server event data: {} bytes", server_event_data.data.len());
     
     // Test event deserialization
     let deserialized_chat: ChatMessageEvent = chat_event_data.deserialize()?;
-    println!("✅ Successfully deserialized chat event: {}", deserialized_chat.message);
+    info!("✅ Successfully deserialized chat event: {}", deserialized_chat.message);
     
     // Test AllEq propagator
-    println!("\n🎯 Testing AllEq Propagator...");
-    println!("------------------------------");
+    info!("\n🎯 Testing AllEq Propagator...");
+    info!("------------------------------");
     
     let propagator = AllEqPropagator::new();
     
@@ -257,39 +258,39 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let should_propagate_match = propagator.should_propagate(&test_key2, &context1).await;
     let should_propagate_no_match = propagator.should_propagate(&test_key2, &context2).await;
     
-    println!("✅ AllEq propagator works correctly:");
-    println!("   - Matching keys: {} (should be true)", should_propagate_match);
-    println!("   - Non-matching keys: {} (should be false)", should_propagate_no_match);
+    info!("✅ AllEq propagator works correctly:");
+    info!("   - Matching keys: {} (should be true)", should_propagate_match);
+    info!("   - Non-matching keys: {} (should be false)", should_propagate_no_match);
     
     // Get statistics
     let stats = event_bus.stats().await;
-    println!("\n📈 Final Statistics:");
-    println!("-------------------");
-    println!("   Events emitted: {}", stats.events_emitted);
-    println!("   Events handled: {}", stats.events_handled);
-    println!("   Handler failures: {}", stats.handler_failures);
-    println!("   Total handlers: {}", stats.total_handlers);
-    println!("   Registered event keys: {}", event_bus.handler_count());
+    info!("\n📈 Final Statistics:");
+    info!("-------------------");
+    info!("   Events emitted: {}", stats.events_emitted);
+    info!("   Events handled: {}", stats.events_handled);
+    info!("   Handler failures: {}", stats.handler_failures);
+    info!("   Total handlers: {}", stats.total_handlers);
+    info!("   Registered event keys: {}", event_bus.handler_count());
     
     // Show plugin manager stats
-    println!("   Loaded plugins: {}", manager.plugin_count());
-    println!("   Plugin names: {:?}", manager.plugin_names());
+    info!("   Loaded plugins: {}", manager.plugin_count());
+    info!("   Plugin names: {:?}", manager.plugin_names());
     
-    println!("\n🔄 Shutting Down...");
-    println!("-------------------");
+    info!("\n🔄 Shutting Down...");
+    info!("-------------------");
     
     // Shutdown plugins
     manager.shutdown().await?;
     
-    println!("\n🎉 SUCCESS! Universal Plugin System Test Complete");
-    println!("=================================================");
-    println!("✅ Plugin loading and lifecycle management works");
-    println!("✅ Structured event keys work correctly");
-    println!("✅ AllEq propagator filters events properly");
-    println!("✅ Event serialization/deserialization works");
-    println!("✅ Multiple plugins can coexist");
-    println!("✅ Context providers are available to plugins");
-    println!("✅ Statistics and monitoring work");
+    info!("\n🎉 SUCCESS! Universal Plugin System Test Complete");
+    info!("=================================================");
+    info!("✅ Plugin loading and lifecycle management works");
+    info!("✅ Structured event keys work correctly");
+    info!("✅ AllEq propagator filters events properly");
+    info!("✅ Event serialization/deserialization works");
+    info!("✅ Multiple plugins can coexist");
+    info!("✅ Context providers are available to plugins");
+    info!("✅ Statistics and monitoring work");
     
     Ok(())
 }
