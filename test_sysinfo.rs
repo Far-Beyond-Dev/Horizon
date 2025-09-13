@@ -1,4 +1,5 @@
 use sysinfo::{System, Pid, ProcessExt, SystemExt};
+use tracing::info;
 
 fn main() {
     let mut sys = System::new_all();
