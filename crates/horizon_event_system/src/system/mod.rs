@@ -12,6 +12,8 @@ mod path_router;
 // Re-export all public items from submodules
 pub use client::{ClientConnectionRef, ClientResponseSender, ClientConnectionInfo};
 pub use core::EventSystem;
+pub use emitters::*;
+pub use handlers::*;
 pub use stats::{EventSystemStats, DetailedEventSystemStats, HandlerCategoryStats};
 pub use path_router::PathRouter;
 
