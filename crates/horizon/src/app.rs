@@ -4,7 +4,7 @@
 //! server startup, monitoring, and shutdown with enhanced error handling
 //! and performance monitoring.
 
-use crate::{cli::CliArgs, config::AppConfig, logging::display_banner, signals::setup_signal_handlers};
+use crate::{cli::CliArgs, config::AppConfig, logging::display_banner, signals::{setup_signal_handlers, setup_signal_handlers_silent}};
 use horizon_event_system::ShutdownState;
 use game_server::GameServer;
 use tracing::{error, info, warn};
@@ -208,7 +208,7 @@ impl Application {
 
         // merciless shutdown
         tokio::spawn(async move {
-            if let Err(e) = setup_signal_handlers().await {
+            if let Err(e) = setup_signal_handlers_silent().await {
                 error!("Failed to set up merciless shutdown signal handler: {e}");
                 return;
             }
