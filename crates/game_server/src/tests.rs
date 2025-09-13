@@ -150,7 +150,7 @@ mod tests {
             .await
             .expect("Failed to emit client event for custom plugin");
 
-        debug!("✅ All messages routed generically without hardcoded logic!");
+        info!("✅ All messages routed generically without hardcoded logic!");
     }
 
     /// Example of how clean the new server is - just infrastructure!
@@ -188,7 +188,7 @@ mod tests {
             .await
             .expect("Failed to register movement handler");
 
-        debug!("✨ Clean separation achieved with generic routing!");
+        info!("✨ Clean separation achieved with generic routing!");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -232,7 +232,7 @@ mod tests {
         let added = multicast_manager.add_player_to_group(player_id, group_id).await;
         assert!(matches!(added, Ok(true)));
 
-        debug!("✅ GORC integration test passed!");
+        info!("✅ GORC integration test passed!");
         debug!("  - GORC Manager: Initialized with default channels");
         debug!("  - Subscription Manager: Player subscription system ready");
         debug!("  - Multicast Manager: Group creation and player management working");
@@ -363,7 +363,7 @@ mod tests {
         let final_count = *counter.lock().unwrap();
         assert_eq!(final_count, 5);
         
-        debug!("✅ Server tick events processed: {}", final_count);
+        info!("✅ Server tick events processed: {}", final_count);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -389,7 +389,7 @@ mod tests {
         // For now, just verify the server can be created with tick_interval_ms = 0
         assert_eq!(server.get_horizon_event_system().get_stats().await.total_handlers, 0);
         
-        debug!("✅ Server created successfully with tick disabled");
+        info!("✅ Server created successfully with tick disabled");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -411,7 +411,7 @@ mod tests {
             // Verify server is functioning by checking event system exists
             assert!(events.get_stats().await.total_handlers == events.get_stats().await.total_handlers);
             
-            debug!("✅ Server created with {}ms tick interval", interval_ms);
+            info!("✅ Server created with {}ms tick interval", interval_ms);
         }
     }
 
@@ -441,7 +441,7 @@ mod tests {
         // Verify event system is functioning
         let _stats = events.get_stats().await;
         
-        debug!("✅ Server created with valid region bounds");
+        info!("✅ Server created with valid region bounds");
 
         // Test edge case bounds
         let edge_bounds = RegionBounds {
@@ -463,7 +463,7 @@ mod tests {
         // Verify edge server event system is functioning
         let _stats = edge_server.get_horizon_event_system().get_stats().await;
         
-        debug!("✅ Server created with edge case region bounds (single point)");
+        info!("✅ Server created with edge case region bounds (single point)");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -484,7 +484,7 @@ mod tests {
             // Verify event system is functioning
         let _stats = events.get_stats().await;
             
-            debug!("✅ Server created with max_connections: {}", max_conn);
+            info!("✅ Server created with max_connections: {}", max_conn);
         }
     }
 
@@ -506,7 +506,7 @@ mod tests {
             // Verify event system is functioning
         let _stats = events.get_stats().await;
             
-            debug!("✅ Server created with connection_timeout: {}s", timeout);
+            info!("✅ Server created with connection_timeout: {}s", timeout);
         }
     }
 
@@ -536,7 +536,7 @@ mod tests {
             // Verify event system is functioning
         let _stats = events.get_stats().await;
             
-            debug!("✅ Server created with plugin_directory: {:?}", dir);
+            info!("✅ Server created with plugin_directory: {:?}", dir);
         }
     }
 }
