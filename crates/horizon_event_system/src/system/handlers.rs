@@ -6,7 +6,6 @@ use super::client::ClientConnectionRef;
 use std::sync::Arc;
 use tracing::{error, info};
 use compact_str::CompactString;
-#[cfg(debug_assertions)]
 
 impl EventSystem {
     /// Registers a handler for core server events.
