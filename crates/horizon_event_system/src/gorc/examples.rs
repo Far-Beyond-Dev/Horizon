@@ -12,7 +12,6 @@ use crate::types::Vec3;
 use crate::gorc_macros::GorcZoneData;
 use serde::{Deserialize, Serialize};
 use std::any::Any;
-use tracing::info;
 
 // ============================================================================
 // NEW TYPE-BASED EXAMPLES (Recommended)

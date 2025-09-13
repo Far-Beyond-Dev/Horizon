@@ -96,16 +96,26 @@ impl EventSystem {
     /// 
     /// # Examples
     /// 
-    /// ```rust
-    /// // Emit a position update for a specific asteroid instance
-    /// events.emit_gorc_instance(asteroid_id, 0, "position_update", &GorcEvent {
-    ///     object_id: asteroid_id.to_string(),
-    ///     object_type: "Asteroid".to_string(),
-    ///     channel: 0,
-    ///     data: position_data,
-    ///     priority: "Critical".to_string(),
-    ///     timestamp: current_timestamp(),
-    /// }).await?;
+    /// ```rust,no_run
+    /// use horizon_event_system::{EventSystem, GorcEvent, current_timestamp};
+    /// use std::sync::Arc;
+    /// 
+    /// async fn emit_example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let events = Arc::new(EventSystem::new());
+    ///     let asteroid_id = 123u64;
+    ///     let position_data = serde_json::json!({"x": 100, "y": 200});
+    ///     
+    ///     // Emit a position update for a specific asteroid instance
+    ///     events.emit_gorc_instance(asteroid_id, 0, "position_update", &GorcEvent {
+    ///         object_id: asteroid_id.to_string(),
+    ///         object_type: "Asteroid".to_string(),
+    ///         channel: 0,
+    ///         data: position_data,
+    ///         priority: "Critical".to_string(),
+    ///         timestamp: current_timestamp(),
+    ///     }).await?;
+    ///     Ok(())
+    /// }
     /// ```
     pub async fn emit_gorc_instance<T>(
         &self,
@@ -405,16 +415,31 @@ impl EventSystem {
     /// 
     /// # Examples
     /// 
-    /// ```rust
-    /// // Broadcast a server announcement to all players
-    /// let announcement = ServerAnnouncement {
-    ///     message: "Server maintenance in 5 minutes".to_string(),
-    ///     priority: "high".to_string(),
-    /// };
+    /// ```rust,no_run
+    /// use horizon_event_system::EventSystem;
+    /// use serde::{Serialize, Deserialize};
+    /// use std::sync::Arc;
     /// 
-    /// match events.broadcast(&announcement).await {
-    ///     Ok(client_count) => println!("Announcement sent to {} clients", client_count),
-    ///     Err(e) => println!("Broadcast failed: {}", e),
+    /// #[derive(Serialize, Deserialize, Debug, Clone)]
+    /// struct ServerAnnouncement {
+    ///     message: String,
+    ///     priority: String,
+    /// }
+    /// 
+    /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    ///     let events = Arc::new(EventSystem::new());
+    ///     
+    ///     // Broadcast a server announcement to all players
+    ///     let announcement = ServerAnnouncement {
+    ///         message: "Server maintenance in 5 minutes".to_string(),
+    ///         priority: "high".to_string(),
+    ///     };
+    ///     
+    ///     match events.broadcast(&announcement).await {
+    ///         Ok(client_count) => println!("Announcement sent to {} clients", client_count),
+    ///         Err(e) => println!("Broadcast failed: {}", e),
+    ///     }
+    ///     Ok(())
     /// }
     /// ```
     pub async fn broadcast<T>(&self, event: &T) -> Result<usize, EventError>

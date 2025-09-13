@@ -16,18 +16,36 @@ use crate::*;
 /// 
 /// # Examples
 /// 
-/// ```rust
-/// let server_context = Arc::new(MyServerContext::new());
-/// let (events, gorc_system) = create_complete_horizon_system(server_context)?;
+/// ```rust,no_run
+/// use horizon_event_system::{create_complete_horizon_system, ServerContext, PlayerId, Vec3};
+/// use std::sync::Arc;
+/// use async_trait::async_trait;
 /// 
-/// // Use the event system for traditional events
-/// events.on_core("server_started", |event: ServerStartedEvent| {
-///     println!("Server online!");
+/// struct MyServerContext;
+/// 
+/// #[async_trait]
+/// impl ServerContext for MyServerContext {
+///     async fn get_player_count(&self) -> u32 { 0 }
+///     async fn broadcast_message(&self, _message: &str) {}
+///     async fn get_player_ids(&self) -> Vec<PlayerId> { vec![] }
+///     async fn get_player_position(&self, _player_id: PlayerId) -> Option<Vec3> { None }
+/// }
+/// 
+/// impl MyServerContext {
+///     fn new() -> Self { Self }
+/// }
+/// 
+/// async fn example() -> Result<(), Box<dyn std::error::Error>> {
+///     let server_context = Arc::new(MyServerContext::new());
+///     let (events, _gorc_system) = create_complete_horizon_system(server_context)?;
+///     
+///     // Use the event system for traditional events
+///     // events.on_core("server_started", |event: ServerStartedEvent| {
+///     //     println!("Server online!");
+///     //     Ok(())
+///     // }).await?;
 ///     Ok(())
-/// }).await?;
-/// 
-/// // Use the GORC system for object replication
-/// let asteroid_id = gorc_system.register_object(my_asteroid, position).await;
+/// }
 /// ```
 pub fn create_complete_horizon_system(
     server_context: Arc<dyn ServerContext>
@@ -49,13 +67,18 @@ pub fn create_complete_horizon_system(
 /// 
 /// # Examples
 /// 
-/// ```rust
-/// let events = create_simple_horizon_system();
+/// ```rust,no_run
+/// use horizon_event_system::{create_simple_horizon_system, PlayerConnectedEvent};
 /// 
-/// events.on_core("player_connected", |event: PlayerConnectedEvent| {
-///     println!("Player {} connected", event.player_id);
+/// async fn example() -> Result<(), Box<dyn std::error::Error>> {
+///     let events = create_simple_horizon_system();
+///     
+///     events.on_core("player_connected", |event: PlayerConnectedEvent| {
+///         println!("Player {} connected", event.player_id);
+///         Ok(())
+///     }).await?;
 ///     Ok(())
-/// }).await?;
+/// }
 /// ```
 pub fn create_simple_horizon_system() -> Arc<EventSystem> {
     create_horizon_event_system()

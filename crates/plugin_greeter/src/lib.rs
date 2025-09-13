@@ -6,7 +6,7 @@ use horizon_event_system::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tracing::{info, debug, warn};
+use tracing::{info, debug};
 
 // ============================================================================
 // Sample Plugin 1: Greeter Plugin
@@ -85,7 +85,7 @@ impl SimplePlugin for GreeterPlugin {
 
         // Register client events
         register_handlers!(events; client {
-            "chat", "message" => |event: PlayerChatEvent, player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
+            "chat", "message" => |event: PlayerChatEvent, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
                 debug!("👋 GreeterPlugin: Player {} said: '{}' in {}",
                          event.player_id, event.message, event.channel);
 
@@ -97,7 +97,7 @@ impl SimplePlugin for GreeterPlugin {
                 Ok(())
             },
 
-            "movement", "jump" => |event: PlayerJumpEvent, player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
+            "movement", "jump" => |event: PlayerJumpEvent, _player_id: horizon_event_system::PlayerId, _connection: horizon_event_system::ClientConnectionRef| {
                 debug!("👋 GreeterPlugin: Player {} jumped {:.1}m high! 🦘",
                          event.player_id, event.height);
 

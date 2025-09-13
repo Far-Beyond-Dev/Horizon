@@ -3,7 +3,6 @@
 use crate::types::{PlayerId, Position, Vec3};
 use super::query::{SpatialQuery, QueryResult};
 use std::collections::HashMap;
-use tracing::info;
 
 /// Maximum depth for quadtree subdivision
 const MAX_QUADTREE_DEPTH: u8 = 10;

@@ -7,7 +7,6 @@ use std::sync::Arc;
 use tracing::{error, info};
 use compact_str::CompactString;
 #[cfg(debug_assertions)]
-use backtrace;
 
 impl EventSystem {
     /// Registers a handler for core server events.

@@ -8,8 +8,7 @@ mod tests {
     use crate::events::RawClientMessageEvent;
     use crate::types::PlayerId;
     use std::sync::{Arc, Mutex};
-    use crate::events::{PlayerConnectedEvent, GorcEvent};
-    use crate::gorc::instance::{GorcInstanceManager, GorcObjectId};
+    use crate::events::PlayerConnectedEvent;
 
 
     

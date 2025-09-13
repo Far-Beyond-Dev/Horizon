@@ -2,7 +2,6 @@
 use crate::events::EventHandler;
 use std::collections::HashMap;
 use std::sync::Arc;
-use smallvec::SmallVec;
 use compact_str::CompactString;
 
 /// A node in the event path tree
