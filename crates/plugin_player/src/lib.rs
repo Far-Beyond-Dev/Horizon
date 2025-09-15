@@ -17,12 +17,12 @@
 //!
 //! The plugin utilizes GORC's multi-channel communication system:
 //!
-//! | Channel | Purpose | Range | Frequency | Examples |
-//! |---------|---------|-------|-----------|----------|
-//! | 0 | Critical movement | 25m | 60Hz | Position, velocity, health |
-//! | 1 | Combat events | 500m | Event-driven | Weapon fire, explosions |
-//! | 2 | Communication | 300m | Event-driven | Chat, voice, emotes |
-//! | 3 | Detailed scanning | 100m | Event-driven | Ship specs, cargo |
+//! | Channel | Purpose            | Range | Frequency    | Examples                   |
+//! |---------|--------------------|-------|--------------|----------------------------|
+//! | 0       | Critical movement  | 25m   | 60Hz         | Position, velocity, health |
+//! | 1       | Combat events      | 500m  | Event-driven | Weapon fire, explosions    |
+//! | 2       | Communication      | 300m  | Event-driven | Chat, voice, emotes        |
+//! | 3       | Detailed scanning  | 100m  | Event-driven | Ship specs, cargo          |
 //!
 //! ## Security Model
 //!
