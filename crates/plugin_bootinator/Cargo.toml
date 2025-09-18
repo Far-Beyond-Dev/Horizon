@@ -1,0 +1,7 @@
+[package]
+name = "plugin_bootinator"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+horizon_event_system = { workspace = true }
