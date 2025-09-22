@@ -4,6 +4,7 @@
 //! from TOML files and command-line arguments.
 
 use horizon_event_system::RegionBounds;
+use horizon_event_system::gorc::{VirtualizationConfig, GorcServerConfig};
 use game_server::ServerConfig;
 use plugin_system::PluginSafetyConfig;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,7 @@ fn default_tick_interval() -> u64 {
 }
 
 /// Application configuration loaded from TOML file.
-/// 
+///
 /// This is the main configuration structure that encompasses all server settings
 /// including networking, plugins, logging, and region management.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +28,9 @@ pub struct AppConfig {
     pub plugins: PluginSettings,
     /// Logging configuration settings
     pub logging: LoggingSettings,
+    /// GORC (Game Object Replication Channels) configuration settings
+    #[serde(default)]
+    pub gorc: GorcSettings,
 }
 
 /// Server-specific configuration settings.
@@ -62,6 +66,45 @@ fn default_max_connections() -> usize {
     1000
 }
 
+// GORC configuration defaults
+fn default_max_objects() -> usize { 10000 }
+fn default_max_players() -> usize { 1000 }
+fn default_max_channels_per_object() -> u8 { 8 }
+fn default_auto_optimize_zones() -> bool { true }
+fn default_optimization_interval_ms() -> u64 { 5000 }
+
+fn default_virtualization_enabled() -> bool { true }
+fn default_density_threshold() -> f64 { 0.3 }
+fn default_overlap_threshold() -> f64 { 0.3 }
+fn default_max_virtual_zone_radius() -> f64 { 1000.0 }
+fn default_min_zone_radius() -> f64 { 50.0 }
+fn default_check_interval_ms() -> u64 { 1000 }
+fn default_max_objects_per_virtual_zone() -> usize { 20 }
+
+fn default_world_bounds() -> (f64, f64, f64, f64, f64, f64) {
+    (-10000.0, -10000.0, -1000.0, 10000.0, 10000.0, 1000.0)
+}
+fn default_max_quadtree_depth() -> u8 { 10 }
+fn default_max_objects_per_node() -> usize { 8 }
+fn default_min_node_size() -> f64 { 1.0 }
+fn default_enable_caching() -> bool { true }
+fn default_cache_expiry_ms() -> u64 { 30000 }
+
+fn default_max_batch_size() -> usize { 1000 }
+fn default_channel_frequencies() -> [f64; 4] { [60.0, 30.0, 15.0, 5.0] }
+fn default_enable_compression() -> bool { true }
+fn default_compression_threshold() -> usize { 1024 }
+fn default_max_queue_size_per_player() -> usize { 10000 }
+fn default_network_timeout_ms() -> u64 { 5000 }
+fn default_enable_priority_sending() -> bool { true }
+
+fn default_enable_stats() -> bool { true }
+fn default_stats_interval_ms() -> u64 { 10000 }
+fn default_max_performance_samples() -> usize { 1000 }
+fn default_track_memory_usage() -> bool { true }
+fn default_slow_operation_threshold_us() -> u64 { 1000 }
+fn default_enable_performance_alerts() -> bool { true }
+
 /// Spatial region boundary configuration.
 /// 
 /// Defines the 3D coordinate space that this server instance manages.
@@ -96,7 +139,7 @@ pub struct PluginSettings {
 }
 
 /// Logging system configuration.
-/// 
+///
 /// Controls log output format, levels, and destination settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingSettings {
@@ -106,6 +149,233 @@ pub struct LoggingSettings {
     pub json_format: bool,
     /// Optional file path for log output (None means stdout only)
     pub file_path: Option<String>,
+}
+
+/// GORC (Game Object Replication Channels) system configuration.
+///
+/// Controls replication behavior, virtualization settings, performance tuning,
+/// and monitoring for the game object replication system.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GorcSettings {
+    /// General GORC configuration
+    #[serde(default)]
+    pub general: GorcGeneralSettings,
+    /// Zone virtualization configuration
+    #[serde(default)]
+    pub virtualization: VirtualizationSettings,
+    /// Spatial indexing configuration
+    #[serde(default)]
+    pub spatial: SpatialSettings,
+    /// Network replication configuration
+    #[serde(default)]
+    pub network: NetworkSettings,
+    /// Performance monitoring configuration
+    #[serde(default)]
+    pub monitoring: MonitoringSettings,
+}
+
+/// General GORC system configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GorcGeneralSettings {
+    /// Maximum number of objects that can be registered
+    #[serde(default = "default_max_objects")]
+    pub max_objects: usize,
+    /// Maximum number of concurrent players
+    #[serde(default = "default_max_players")]
+    pub max_players: usize,
+    /// Maximum number of channels per object
+    #[serde(default = "default_max_channels_per_object")]
+    pub max_channels_per_object: u8,
+    /// Enable automatic zone optimization
+    #[serde(default = "default_auto_optimize_zones")]
+    pub auto_optimize_zones: bool,
+    /// Frequency of zone optimization checks (in milliseconds)
+    #[serde(default = "default_optimization_interval_ms")]
+    pub optimization_interval_ms: u64,
+    /// Enable debug logging for GORC operations
+    #[serde(default)]
+    pub debug_logging: bool,
+}
+
+/// Zone virtualization configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VirtualizationSettings {
+    /// Whether zone virtualization is enabled
+    #[serde(default = "default_virtualization_enabled")]
+    pub enabled: bool,
+    /// Density threshold for merging zones (0.0-1.0)
+    #[serde(default = "default_density_threshold")]
+    pub density_threshold: f64,
+    /// Overlap threshold for detecting overlapping zones (0.0-1.0)
+    #[serde(default = "default_overlap_threshold")]
+    pub overlap_threshold: f64,
+    /// Maximum radius for virtual zones
+    #[serde(default = "default_max_virtual_zone_radius")]
+    pub max_virtual_zone_radius: f64,
+    /// Minimum zone radius for virtualization consideration
+    #[serde(default = "default_min_zone_radius")]
+    pub min_zone_radius: f64,
+    /// Interval between virtualization checks (in milliseconds)
+    #[serde(default = "default_check_interval_ms")]
+    pub check_interval_ms: u64,
+    /// Maximum objects per virtual zone
+    #[serde(default = "default_max_objects_per_virtual_zone")]
+    pub max_objects_per_virtual_zone: usize,
+}
+
+/// Spatial indexing configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpatialSettings {
+    /// World bounds for spatial partitioning (min_x, min_y, min_z, max_x, max_y, max_z)
+    #[serde(default = "default_world_bounds")]
+    pub world_bounds: (f64, f64, f64, f64, f64, f64),
+    /// Quadtree maximum depth
+    #[serde(default = "default_max_quadtree_depth")]
+    pub max_quadtree_depth: u8,
+    /// Maximum objects per quadtree node before subdivision
+    #[serde(default = "default_max_objects_per_node")]
+    pub max_objects_per_node: usize,
+    /// Minimum node size to prevent infinite subdivision
+    #[serde(default = "default_min_node_size")]
+    pub min_node_size: f64,
+    /// Enable spatial index caching
+    #[serde(default = "default_enable_caching")]
+    pub enable_caching: bool,
+    /// Cache expiry time in milliseconds
+    #[serde(default = "default_cache_expiry_ms")]
+    pub cache_expiry_ms: u64,
+}
+
+/// Network replication configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkSettings {
+    /// Maximum batch size for replication updates
+    #[serde(default = "default_max_batch_size")]
+    pub max_batch_size: usize,
+    /// Update frequency for each channel (Hz)
+    #[serde(default = "default_channel_frequencies")]
+    pub channel_frequencies: [f64; 4],
+    /// Enable compression for replication data
+    #[serde(default = "default_enable_compression")]
+    pub enable_compression: bool,
+    /// Compression threshold in bytes
+    #[serde(default = "default_compression_threshold")]
+    pub compression_threshold: usize,
+    /// Maximum queue size per player
+    #[serde(default = "default_max_queue_size_per_player")]
+    pub max_queue_size_per_player: usize,
+    /// Network timeout in milliseconds
+    #[serde(default = "default_network_timeout_ms")]
+    pub network_timeout_ms: u64,
+    /// Enable priority-based sending
+    #[serde(default = "default_enable_priority_sending")]
+    pub enable_priority_sending: bool,
+}
+
+/// Performance monitoring configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitoringSettings {
+    /// Enable performance statistics collection
+    #[serde(default = "default_enable_stats")]
+    pub enable_stats: bool,
+    /// Statistics reporting interval in milliseconds
+    #[serde(default = "default_stats_interval_ms")]
+    pub stats_interval_ms: u64,
+    /// Enable performance profiling
+    #[serde(default)]
+    pub enable_profiling: bool,
+    /// Maximum number of performance samples to keep
+    #[serde(default = "default_max_performance_samples")]
+    pub max_performance_samples: usize,
+    /// Enable memory usage tracking
+    #[serde(default = "default_track_memory_usage")]
+    pub track_memory_usage: bool,
+    /// Log slow operations (threshold in microseconds)
+    #[serde(default = "default_slow_operation_threshold_us")]
+    pub slow_operation_threshold_us: u64,
+    /// Enable real-time performance alerts
+    #[serde(default = "default_enable_performance_alerts")]
+    pub enable_performance_alerts: bool,
+}
+
+impl Default for GorcSettings {
+    fn default() -> Self {
+        Self {
+            general: GorcGeneralSettings::default(),
+            virtualization: VirtualizationSettings::default(),
+            spatial: SpatialSettings::default(),
+            network: NetworkSettings::default(),
+            monitoring: MonitoringSettings::default(),
+        }
+    }
+}
+
+impl Default for GorcGeneralSettings {
+    fn default() -> Self {
+        Self {
+            max_objects: default_max_objects(),
+            max_players: default_max_players(),
+            max_channels_per_object: default_max_channels_per_object(),
+            auto_optimize_zones: default_auto_optimize_zones(),
+            optimization_interval_ms: default_optimization_interval_ms(),
+            debug_logging: false,
+        }
+    }
+}
+
+impl Default for VirtualizationSettings {
+    fn default() -> Self {
+        Self {
+            enabled: default_virtualization_enabled(),
+            density_threshold: default_density_threshold(),
+            overlap_threshold: default_overlap_threshold(),
+            max_virtual_zone_radius: default_max_virtual_zone_radius(),
+            min_zone_radius: default_min_zone_radius(),
+            check_interval_ms: default_check_interval_ms(),
+            max_objects_per_virtual_zone: default_max_objects_per_virtual_zone(),
+        }
+    }
+}
+
+impl Default for SpatialSettings {
+    fn default() -> Self {
+        Self {
+            world_bounds: default_world_bounds(),
+            max_quadtree_depth: default_max_quadtree_depth(),
+            max_objects_per_node: default_max_objects_per_node(),
+            min_node_size: default_min_node_size(),
+            enable_caching: default_enable_caching(),
+            cache_expiry_ms: default_cache_expiry_ms(),
+        }
+    }
+}
+
+impl Default for NetworkSettings {
+    fn default() -> Self {
+        Self {
+            max_batch_size: default_max_batch_size(),
+            channel_frequencies: default_channel_frequencies(),
+            enable_compression: default_enable_compression(),
+            compression_threshold: default_compression_threshold(),
+            max_queue_size_per_player: default_max_queue_size_per_player(),
+            network_timeout_ms: default_network_timeout_ms(),
+            enable_priority_sending: default_enable_priority_sending(),
+        }
+    }
+}
+
+impl Default for MonitoringSettings {
+    fn default() -> Self {
+        Self {
+            enable_stats: default_enable_stats(),
+            stats_interval_ms: default_stats_interval_ms(),
+            enable_profiling: false,
+            max_performance_samples: default_max_performance_samples(),
+            track_memory_usage: default_track_memory_usage(),
+            slow_operation_threshold_us: default_slow_operation_threshold_us(),
+            enable_performance_alerts: default_enable_performance_alerts(),
+        }
+    }
 }
 
 impl Default for AppConfig {
@@ -136,6 +406,7 @@ impl Default for AppConfig {
                 json_format: false,
                 file_path: None,
             },
+            gorc: GorcSettings::default(),
         }
     }
 }
@@ -169,16 +440,16 @@ impl AppConfig {
     }
 
     /// Converts the application configuration to a game server configuration.
-    /// 
+    ///
     /// This method translates the TOML-based configuration into the types
     /// expected by the game server core.
-    /// 
+    ///
     /// # Arguments
-    /// 
+    ///
     /// * `plugin_safety` - Plugin safety configuration from CLI arguments
-    /// 
+    ///
     /// # Returns
-    /// 
+    ///
     /// A `ServerConfig` instance ready for use with the game server.
     pub fn to_server_config(&self, plugin_safety: PluginSafetyConfig) -> Result<ServerConfig, Box<dyn std::error::Error>> {
         Ok(ServerConfig {
@@ -199,6 +470,67 @@ impl AppConfig {
             security: Default::default(),
             plugin_safety,
         })
+    }
+
+    /// Converts the GORC configuration to the internal GORC config structure.
+    ///
+    /// This method translates the TOML-based GORC configuration into the types
+    /// expected by the GORC system.
+    ///
+    /// # Returns
+    ///
+    /// A `GorcServerConfig` instance ready for use with the GORC system.
+    pub fn to_gorc_config(&self) -> GorcServerConfig {
+        use horizon_event_system::gorc::{
+            GorcGeneralConfig, SpatialConfig, MonitoringConfig
+        };
+        use horizon_event_system::gorc::config::NetworkConfig as GorcNetworkConfig;
+
+        GorcServerConfig {
+            general: GorcGeneralConfig {
+                max_objects: self.gorc.general.max_objects,
+                max_players: self.gorc.general.max_players,
+                max_channels_per_object: self.gorc.general.max_channels_per_object,
+                auto_optimize_zones: self.gorc.general.auto_optimize_zones,
+                optimization_interval_ms: self.gorc.general.optimization_interval_ms,
+                debug_logging: self.gorc.general.debug_logging,
+            },
+            virtualization: VirtualizationConfig {
+                enabled: self.gorc.virtualization.enabled,
+                density_threshold: self.gorc.virtualization.density_threshold,
+                overlap_threshold: self.gorc.virtualization.overlap_threshold,
+                max_virtual_zone_radius: self.gorc.virtualization.max_virtual_zone_radius,
+                min_zone_radius: self.gorc.virtualization.min_zone_radius,
+                check_interval_ms: self.gorc.virtualization.check_interval_ms,
+                max_objects_per_virtual_zone: self.gorc.virtualization.max_objects_per_virtual_zone,
+            },
+            spatial: SpatialConfig {
+                world_bounds: self.gorc.spatial.world_bounds,
+                max_quadtree_depth: self.gorc.spatial.max_quadtree_depth,
+                max_objects_per_node: self.gorc.spatial.max_objects_per_node,
+                min_node_size: self.gorc.spatial.min_node_size,
+                enable_caching: self.gorc.spatial.enable_caching,
+                cache_expiry_ms: self.gorc.spatial.cache_expiry_ms,
+            },
+            network: GorcNetworkConfig {
+                max_batch_size: self.gorc.network.max_batch_size,
+                channel_frequencies: self.gorc.network.channel_frequencies,
+                enable_compression: self.gorc.network.enable_compression,
+                compression_threshold: self.gorc.network.compression_threshold,
+                max_queue_size_per_player: self.gorc.network.max_queue_size_per_player,
+                network_timeout_ms: self.gorc.network.network_timeout_ms,
+                enable_priority_sending: self.gorc.network.enable_priority_sending,
+            },
+            monitoring: MonitoringConfig {
+                enable_stats: self.gorc.monitoring.enable_stats,
+                stats_interval_ms: self.gorc.monitoring.stats_interval_ms,
+                enable_profiling: self.gorc.monitoring.enable_profiling,
+                max_performance_samples: self.gorc.monitoring.max_performance_samples,
+                track_memory_usage: self.gorc.monitoring.track_memory_usage,
+                slow_operation_threshold_us: self.gorc.monitoring.slow_operation_threshold_us,
+                enable_performance_alerts: self.gorc.monitoring.enable_performance_alerts,
+            },
+        }
     }
 
     /// Validates the configuration for consistency and correctness.
@@ -455,6 +787,7 @@ file_path = "/tmp/test.log"
                 json_format: false,
                 file_path: None,
             },
+            gorc: GorcSettings::default(),
         };
 
         let server_config = app_config.to_server_config(PluginSafetyConfig::default()).unwrap();

@@ -9,6 +9,7 @@ use crate::types::{PlayerId, Vec3};
 use crate::gorc::channels::{ReplicationPriority, ReplicationLayer};
 use crate::gorc::zones::ZoneManager;
 use crate::gorc::spatial::SpatialPartition;
+use crate::gorc::virtualization::{VirtualizationManager, VirtualizationConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -267,6 +268,8 @@ pub struct GorcInstanceManager {
     player_positions: Arc<RwLock<HashMap<PlayerId, Vec3>>>,
     /// Zone size warnings tracking (object_id -> largest_zone_radius)
     zone_size_warnings: Arc<RwLock<HashMap<GorcObjectId, f64>>>,
+    /// Zone virtualization manager for high-density optimization
+    virtualization_manager: Arc<VirtualizationManager>,
     /// Global statistics
     stats: Arc<RwLock<InstanceManagerStats>>,
 }
@@ -274,7 +277,13 @@ pub struct GorcInstanceManager {
 impl GorcInstanceManager {
     /// Creates a new instance manager
     pub fn new() -> Self {
+        Self::new_with_config(VirtualizationConfig::default())
+    }
+
+    /// Creates a new instance manager with custom virtualization configuration
+    pub fn new_with_config(virtualization_config: VirtualizationConfig) -> Self {
         let spatial_index = SpatialPartition::new();
+        let virtualization_manager = Arc::new(VirtualizationManager::new(virtualization_config));
 
         let manager = Self {
             objects: Arc::new(RwLock::new(HashMap::new())),
@@ -283,6 +292,7 @@ impl GorcInstanceManager {
             object_positions: Arc::new(RwLock::new(HashMap::new())),
             player_positions: Arc::new(RwLock::new(HashMap::new())),
             zone_size_warnings: Arc::new(RwLock::new(HashMap::new())),
+            virtualization_manager,
             stats: Arc::new(RwLock::new(InstanceManagerStats::default())),
         };
 
@@ -414,6 +424,18 @@ impl GorcInstanceManager {
         {
             let mut object_positions = self.object_positions.write().await;
             object_positions.insert(object_id, new_position);
+        }
+
+        // Check for virtual zone splits due to object movement
+        let virtual_zones_to_split = self.virtualization_manager
+            .update_object_position(object_id, old_position, new_position)
+            .await;
+
+        // Handle virtual zone splits
+        for virtual_id in virtual_zones_to_split {
+            if let Err(e) = self.virtualization_manager.split_virtual_zone(virtual_id).await {
+                warn!("Failed to split virtual zone due to object movement: {}", e);
+            }
         }
 
         // Calculate zone membership changes for all players
@@ -831,6 +853,70 @@ impl GorcInstanceManager {
         }
 
         zone_entries
+    }
+
+    /// Analyzes virtualization opportunities and applies recommendations
+    pub async fn process_virtualization(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Collect current objects and their zones
+        let objects_info = {
+            let objects = self.objects.read().await;
+            let object_positions = self.object_positions.read().await;
+
+            let mut info = HashMap::new();
+            for (object_id, instance) in objects.iter() {
+                if let Some(&position) = object_positions.get(object_id) {
+                    let layers = instance.object.get_layers();
+                    info.insert(*object_id, (position, layers));
+                }
+            }
+            info
+        };
+
+        // Get virtualization recommendations
+        let recommendations = self.virtualization_manager
+            .analyze_virtualization_opportunities(&objects_info)
+            .await;
+
+        // Apply merge recommendations
+        for merge_request in recommendations.merge_recommendations {
+            match self.virtualization_manager.merge_zones(merge_request).await {
+                Ok(virtual_id) => {
+                    debug!("✅ Successfully created virtual zone {}", virtual_id.0);
+                }
+                Err(e) => {
+                    warn!("❌ Failed to merge zones: {}", e);
+                }
+            }
+        }
+
+        // Apply split recommendations
+        for split_request in recommendations.split_recommendations {
+            match self.virtualization_manager.split_virtual_zone(split_request.virtual_id).await {
+                Ok(liberated_objects) => {
+                    debug!("✅ Successfully split virtual zone - liberated {} objects", liberated_objects.len());
+                }
+                Err(e) => {
+                    warn!("❌ Failed to split virtual zone: {}", e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks if a position is within a virtual zone
+    pub async fn is_in_virtual_zone(&self, position: Vec3, channel: u8) -> Option<crate::gorc::virtualization::VirtualZoneId> {
+        self.virtualization_manager.is_in_virtual_zone(position, channel).await
+    }
+
+    /// Gets all objects in a virtual zone
+    pub async fn get_virtual_zone_objects(&self, virtual_id: crate::gorc::virtualization::VirtualZoneId) -> Vec<GorcObjectId> {
+        self.virtualization_manager.get_virtual_zone_objects(virtual_id).await
+    }
+
+    /// Gets virtualization statistics
+    pub async fn get_virtualization_stats(&self) -> crate::gorc::virtualization::VirtualizationStats {
+        self.virtualization_manager.get_stats().await
     }
 
     /// Get statistics for the instance manager

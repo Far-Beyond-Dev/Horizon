@@ -51,6 +51,8 @@ pub mod network;
 pub mod subscription;
 pub mod multicast;
 pub mod spatial;
+pub mod virtualization;
+pub mod config;
 pub mod system;
 
 // Utility modules
@@ -100,6 +102,16 @@ pub use multicast::{
 pub use spatial::{
     SpatialPartition, SpatialQuery, RegionQuadTree, QueryResult, QueryFilters,
     SpatialStats, GlobalSpatialStats
+};
+
+pub use virtualization::{
+    VirtualizationManager, VirtualizationConfig, VirtualZone, VirtualZoneId,
+    VirtualizationStats, VirtualizationRecommendations, ZoneMergeRequest, ZoneSplitRequest
+};
+
+pub use config::{
+    GorcServerConfig, GorcConfigBuilder, GorcGeneralConfig, SpatialConfig,
+    NetworkConfig as GorcNetworkConfig, MonitoringConfig, ConfigValidationError
 };
 
 pub use system::{

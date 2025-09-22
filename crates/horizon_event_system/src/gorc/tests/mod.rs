@@ -17,3 +17,6 @@ pub mod integration_test;
 
 #[cfg(test)]
 pub mod performance_test;
+
+#[cfg(test)]
+pub mod virtualization_test;
