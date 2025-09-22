@@ -40,9 +40,10 @@ use horizon_event_system::{
     EventSystem, PlayerId, GorcEvent, GorcObjectId, ClientConnectionRef, ObjectInstance,
     EventError,
 };
+use luminal::Handle;
 use tracing::{debug, error};
 use serde_json;
-use crate::events::PlayerAttackRequest;
+use crate::events::{PlayerAttackRequest, PlayerBlockChangeRequest};
 
 /// Handles combat requests from players on GORC channel 1.
 /// 
@@ -136,45 +137,44 @@ pub async fn handle_combat_request(
     Ok(())
 }
 
-/// Synchronous wrapper for combat request handling that works with GORC client handlers.
+/// Synchronous wrapper for attack request handling that works with GORC client handlers.
 ///
-/// This function provides the same functionality as `handle_combat_request` but in
-/// a synchronous context suitable for use with the GORC client event system.
-pub fn handle_combat_request_sync(
+/// This function handles weapon firing and combat events on GORC channel 1.
+pub fn handle_attack_request_sync(
     gorc_event: GorcEvent,
     client_player: PlayerId,
     _connection: ClientConnectionRef,
     _object_instance: &mut ObjectInstance,
     events: Arc<EventSystem>,
 ) -> Result<(), EventError> {
-    debug!("⚡ GORC: Received client combat request from ship {}: {:?}", 
+    debug!("⚡ GORC: Received attack request from player {}: {:?}",
         client_player, gorc_event);
-    
+
     // Parse attack data from GORC event payload
     let event_data = serde_json::from_slice::<serde_json::Value>(&gorc_event.data)
         .map_err(|e| {
             error!("⚡ GORC: ❌ Failed to parse JSON from GORC combat event: {}", e);
             EventError::HandlerExecution("Invalid JSON in combat request".to_string())
         })?;
-    
+
     let attack_data = serde_json::from_value::<PlayerAttackRequest>(event_data)
         .map_err(|e| {
             error!("⚡ GORC: ❌ Failed to parse PlayerAttackRequest: {}", e);
             EventError::HandlerExecution("Invalid attack request format".to_string())
         })?;
-    
-    debug!("⚡ GORC: Ship {} fires {} at {:?}", 
+
+    debug!("⚡ GORC: Ship {} fires {} at {:?}",
         attack_data.player_id, attack_data.attack_type, attack_data.target_position);
-    
+
     // SECURITY: Validate player ownership - only ship owners can fire weapons
     if attack_data.player_id != client_player {
-        error!("⚡ GORC: ❌ Security violation: Player {} tried to fire weapons as {}", 
+        error!("⚡ GORC: ❌ Security violation: Player {} tried to fire weapons as {}",
             client_player, attack_data.player_id);
         return Err(EventError::HandlerExecution(
             "Unauthorized weapon fire".to_string()
         ));
     }
-    
+
     // Broadcast weapon fire event to nearby ships
     let object_id_str = gorc_event.object_id.clone();
     let weapon_fire = serde_json::json!({
@@ -183,26 +183,137 @@ pub fn handle_combat_request_sync(
         "target_position": attack_data.target_position,
         "fire_timestamp": chrono::Utc::now()
     });
-    
+
     tokio::spawn(async move {
         if let Ok(gorc_id) = GorcObjectId::from_str(&object_id_str) {
             if let Err(e) = events.emit_gorc_instance(
-                gorc_id, 
+                gorc_id,
                 1, // Channel 1: Combat events
-                "weapon_fire", 
-                &weapon_fire, 
+                "weapon_fire",
+                &weapon_fire,
                 horizon_event_system::Dest::Client
             ).await {
                 error!("⚡ GORC: ❌ Failed to broadcast weapon fire: {}", e);
             } else {
-                debug!("⚡ GORC: ✅ Broadcasting weapon fire from ship {} to ships within 500m", 
+                debug!("⚡ GORC: ✅ Broadcasting weapon fire from ship {} to ships within 500m",
                     attack_data.player_id);
             }
         } else {
             error!("⚡ GORC: ❌ Invalid GORC object ID format: {}", object_id_str);
         }
     });
-    
+
+    Ok(())
+}
+
+/// Synchronous handler for block change requests on GORC channel 1.
+///
+/// This function handles block breaking and placing events for Terraria-like gameplay.
+pub fn handle_block_change_request_sync(
+    gorc_event: GorcEvent,
+    client_player: PlayerId,
+    _connection: ClientConnectionRef,
+    _object_instance: &mut ObjectInstance,
+    events: Arc<EventSystem>,
+    luminal_handle: Handle,
+) -> Result<(), EventError> {
+    debug!("🧱 STEP 1: GORC block change handler called for player {}", client_player);
+    debug!("🧱 STEP 1: Full GORC event: {:?}", gorc_event);
+    debug!("🧱 STEP 1: Event data length: {} bytes", gorc_event.data.len());
+
+    // Parse block change data from GORC event payload
+    debug!("🧱 STEP 2: Attempting to parse JSON data");
+    let event_data = serde_json::from_slice::<serde_json::Value>(&gorc_event.data)
+        .map_err(|e| {
+            error!("🧱 STEP 2: ❌ Failed to parse JSON from GORC block change event: {}", e);
+            error!("🧱 STEP 2: ❌ Raw data: {:?}", String::from_utf8_lossy(&gorc_event.data));
+            EventError::HandlerExecution("Invalid JSON in block change request".to_string())
+        })?;
+
+    debug!("🧱 STEP 2: ✅ Parsed JSON: {:?}", event_data);
+
+    debug!("🧱 STEP 3: Attempting to parse PlayerBlockChangeRequest");
+    let block_data = serde_json::from_value::<PlayerBlockChangeRequest>(event_data.clone())
+        .map_err(|e| {
+            error!("🧱 STEP 3: ❌ Failed to parse PlayerBlockChangeRequest: {}", e);
+            error!("🧱 STEP 3: ❌ Event data was: {:?}", event_data);
+            EventError::HandlerExecution("Invalid block change request format".to_string())
+        })?;
+
+    debug!("🧱 STEP 3: ✅ Parsed block data: player={}, pos=({},{}), tiles={}->{}",
+        block_data.player_id, block_data.x, block_data.y, block_data.old_tile, block_data.new_tile);
+
+    // SECURITY: Validate player ownership
+    debug!("🧱 STEP 4: Validating player ownership");
+    if block_data.player_id != client_player {
+        error!("🧱 STEP 4: ❌ Security violation: Player {} tried to change blocks as {}",
+            client_player, block_data.player_id);
+        return Err(EventError::HandlerExecution(
+            "Unauthorized block change".to_string()
+        ));
+    }
+    debug!("🧱 STEP 4: ✅ Player ownership validated");
+
+    // Validate block change request
+    debug!("🧱 STEP 5: Validating block change request");
+    if let Err(e) = validate_block_change_request(&block_data) {
+        error!("🧱 STEP 5: ❌ Invalid block change: {}", e);
+        return Err(EventError::HandlerExecution(e));
+    }
+    debug!("🧱 STEP 5: ✅ Block change request validated");
+
+    // Broadcast block change event to nearby players
+    debug!("🧱 STEP 6: Preparing broadcast message");
+    let object_id_str = gorc_event.object_id.clone();
+    let block_change = serde_json::json!({
+        "player_id": block_data.player_id,
+        "x": block_data.x,
+        "y": block_data.y,
+        "oldTile": block_data.old_tile,
+        "newTile": block_data.new_tile,
+        "timestamp": chrono::Utc::now()
+    });
+    debug!("🧱 STEP 6: ✅ Broadcast payload created: {:?}", block_change);
+    debug!("🧱 STEP 6: Object ID string: {}", object_id_str);
+
+    debug!("🧱 STEP 7: Spawning async broadcast task");
+    luminal_handle.spawn(async move {
+        debug!("🧱 STEP 8: Inside async broadcast task");
+
+        debug!("🧱 STEP 9: Parsing GORC object ID");
+        let gorc_id = match GorcObjectId::from_str(&object_id_str) {
+            Ok(id) => {
+                debug!("🧱 STEP 9: ✅ Parsed GORC ID: {:?}", id);
+                id
+            },
+            Err(e) => {
+                error!("🧱 STEP 9: ❌ Invalid GORC object ID format '{}': {}", object_id_str, e);
+                return;
+            }
+        };
+
+        debug!("🧱 STEP 10: Calling emit_gorc_instance");
+        debug!("🧱 STEP 10: Channel=1, Event='block_change', Dest=Client");
+
+        match events.emit_gorc_instance(
+            gorc_id,
+            1, // Channel 1: World events
+            "block_change",
+            &block_change,
+            horizon_event_system::Dest::Client
+        ).await {
+            Ok(()) => {
+                debug!("🧱 STEP 10: ✅ Successfully broadcasted block change from player {} to players within 500m", block_data.player_id);
+                debug!("🧱 STEP 10: ✅ Broadcast complete!");
+            },
+            Err(e) => {
+                error!("🧱 STEP 10: ❌ Failed to broadcast block change: {}", e);
+                error!("🧱 STEP 10: ❌ Error details: {:?}", e);
+            }
+        }
+    });
+
+    debug!("🧱 STEP 7: ✅ Async task spawned, handler returning success");
     Ok(())
 }
 
@@ -360,4 +471,56 @@ pub fn calculate_damage(
     // let shield_modifier = calculate_shield_absorption(target_shields);
     
     base_damage * distance_modifier
+}
+
+/// Validates block change requests to prevent exploits and ensure fair play.
+///
+/// This function performs security and gameplay validation for block modifications:
+/// - Coordinate bounds checking
+/// - Valid tile type verification
+/// - Rate limiting (future enhancement)
+/// - Physics validation (future enhancement)
+///
+/// # Parameters
+///
+/// - `block_data`: The block change request to validate
+///
+/// # Returns
+///
+/// `Result<(), String>` - Ok if valid, Err with reason if invalid
+///
+/// # Validation Rules
+///
+/// - **Valid Coordinates**: Must be within reasonable world bounds
+/// - **Valid Tile Types**: Must be one of the supported tile types (0-7)
+/// - **Rate Limiting**: Enforces cooldown between block changes (future)
+/// - **Physics**: Validates structural integrity (future)
+pub fn validate_block_change_request(
+    block_data: &PlayerBlockChangeRequest,
+) -> Result<(), String> {
+    // Validate coordinates are within reasonable bounds
+    if block_data.x < -10000 || block_data.x > 10000 {
+        return Err(format!("Invalid X coordinate: {}", block_data.x));
+    }
+
+    if block_data.y < -10000 || block_data.y > 10000 {
+        return Err(format!("Invalid Y coordinate: {}", block_data.y));
+    }
+
+    // Validate tile types are within valid range
+    if block_data.old_tile > 7 {
+        return Err(format!("Invalid old tile type: {}", block_data.old_tile));
+    }
+
+    if block_data.new_tile > 7 {
+        return Err(format!("Invalid new tile type: {}", block_data.new_tile));
+    }
+
+    // Future enhancements:
+    // - Rate limiting per player (prevent block spam)
+    // - Range validation (player must be near the block)
+    // - Physics validation (can't place blocks in invalid locations)
+    // - Protected area checking (some areas may be read-only)
+
+    Ok(())
 }

@@ -263,14 +263,19 @@ impl SimulatedPlayer {
             client_timestamp: chrono::Utc::now(),
         };
 
-        Some(GorcClientMessage {
+        let msg = GorcClientMessage {
             msg_type: "gorc_event".to_string(),
             object_id: format!("{:?}", instance_id),
             channel: 0, // Critical channel: position updates (1000m range, 10Hz per guide)
             event: "move".to_string(),
             data: serde_json::to_value(&move_request).unwrap(),
             player_id: format!("{}", self.player_id),
-        })
+        };
+        // Print the JSON representation for debugging
+        if let Ok(json) = serde_json::to_string(&msg) {
+            println!("Move message JSON: {}", json);
+        }
+        Some(msg)
     }
 
     /// Create a GORC combat message - demonstrates space combat interaction

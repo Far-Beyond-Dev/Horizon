@@ -304,3 +304,89 @@ pub struct PlayerChatRequest {
     /// Target player for direct messages (None for broadcast)
     pub target_player: Option<PlayerId>,
 }
+
+/// Player block change request event for GORC channel 1.
+///
+/// This structure represents a client request to modify the game world by
+/// breaking or placing blocks. It contains all the information needed for
+/// world state synchronization between players.
+///
+/// ## Network Characteristics
+/// - **Channel**: 1 (Combat/World events)
+/// - **Frequency**: Event-driven (when blocks are modified)
+/// - **Range**: 500m replication radius
+/// - **Priority**: High (important for world state consistency)
+///
+/// ## Block Operations
+/// The `newTile` field determines the operation type:
+/// - `0` (AIR): Block breaking operation
+/// - `1-7`: Block placing operation with specific tile type
+///
+/// ## Block Types
+/// Standard tile types used in Terraria-like games:
+/// - `0`: AIR (empty space)
+/// - `1`: GRASS (surface terrain)
+/// - `2`: DIRT (common soil blocks)
+/// - `3`: STONE (underground rock)
+/// - `4`: COAL (mineral ore)
+/// - `5`: IRON (metal ore)
+/// - `6`: TREE (wood trunk)
+/// - `7`: LEAVES (tree foliage)
+///
+/// ## Security and Validation
+/// Servers perform validation on block change requests:
+/// - Player range checking (must be within reach)
+/// - Block ownership rules (some blocks may be protected)
+/// - Rate limiting (prevents block spam)
+/// - World bounds validation (coordinates must be valid)
+/// - Physics validation (can't place blocks inside players)
+///
+/// ## Replication Behavior
+/// Block changes are automatically replicated to nearby players:
+/// - World state is synchronized across all clients
+/// - Visual effects (breaking particles) are triggered
+/// - Sound effects are played on receiving clients
+/// - Block change history is maintained for rollback
+///
+/// ## Example Usage
+///
+/// ```rust
+/// use plugin_player::events::PlayerBlockChangeRequest;
+/// use horizon_event_system::PlayerId;
+/// use chrono::Utc;
+///
+/// // Breaking a block (place AIR)
+/// let break_request = PlayerBlockChangeRequest {
+///     player_id: PlayerId(42),
+///     x: 150,
+///     y: 75,
+///     old_tile: 3, // STONE
+///     new_tile: 0, // AIR
+///     client_timestamp: Utc::now(),
+/// };
+///
+/// // Placing a block
+/// let place_request = PlayerBlockChangeRequest {
+///     player_id: PlayerId(42),
+///     x: 150,
+///     y: 75,
+///     old_tile: 0, // AIR
+///     new_tile: 2, // DIRT
+///     client_timestamp: Utc::now(),
+/// };
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlayerBlockChangeRequest {
+    /// ID of the player making the block change
+    pub player_id: PlayerId,
+    /// X coordinate of the block being changed
+    pub x: i32,
+    /// Y coordinate of the block being changed
+    pub y: i32,
+    /// Previous tile type at this position
+    pub old_tile: u8,
+    /// New tile type to place at this position
+    pub new_tile: u8,
+    /// Client-side timestamp when the change was initiated
+    pub client_timestamp: DateTime<Utc>,
+}

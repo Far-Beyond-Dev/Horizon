@@ -61,9 +61,7 @@ pub mod migration_guide;
 
 // Test modules
 #[cfg(test)]
-pub mod replication_test;
-#[cfg(test)]
-pub mod integration_test;
+pub mod tests;
 
 // Re-export core types for use elsewhere in the core and for use in plugins
 pub use channels::{
