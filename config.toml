@@ -1,12 +1,59 @@
+# ============================================================================
+# Horizon Game Server Configuration
+# ============================================================================
+#
+# This configuration file controls all aspects of the Horizon game server,
+# including networking, plugins, logging, and the advanced GORC (Game Object
+# Replication Channels) system with zone virtualization.
+#
+# For production deployments, carefully review all settings and adjust them
+# based on your expected player count, server resources, and network capacity.
+
+# ============================================================================
+# Server Configuration
+# ============================================================================
 [server]
+# Network address where the server will bind and listen for client connections
+# Format: "IP:PORT" where IP can be:
+#   - "127.0.0.1" for localhost only (development)
+#   - "0.0.0.0" for all interfaces (production)
+#   - Specific IP address for a particular interface
+# PORT should be available and not blocked by firewall
 bind_address = "0.0.0.0:8081"
+
+# Maximum number of concurrent client connections
+# PERFORMANCE IMPACT: Each connection consumes memory (~1-5MB per player)
+# SIDE EFFECTS: Higher values may require increasing OS file descriptor limits
+# RECOMMENDED: Start with 1000, scale based on server resources
 max_connections = 1000
-ping_interval = 30
+
+# Connection timeout in seconds
+# How long to wait for client responses before dropping the connection
+# SIDE EFFECTS: Too low = frequent disconnections on slow networks
+#               Too high = slow detection of truly disconnected clients
 connection_timeout = 60
-use_reuse_port = true 
+
+# Enable SO_REUSEPORT for multi-threaded accept loops (Linux only)
+# PERFORMANCE IMPACT: Can improve connection handling performance on Linux
+# SIDE EFFECTS: Only works on Linux, ignored on other platforms
+use_reuse_port = true
+
+# Server tick interval in milliseconds (0 to disable)
+# Controls how often the server processes game logic updates
+# PERFORMANCE IMPACT: Lower values = smoother gameplay but higher CPU usage
+# SIDE EFFECTS: Should match client expectations
+# RECOMMENDED: 16ms (60 FPS), 33ms (30 FPS), or 50ms (20 FPS)
 tick_interval_ms = 50
 
+# ============================================================================
+# Server Spatial Region Configuration
+# ============================================================================
+# Defines the 3D coordinate space that this server instance manages
+# For distributed servers, each instance should handle a different region
 [server.region]
+# World boundaries (in game units)
+# PERFORMANCE IMPACT: Larger regions require more spatial indexing resources
+# SIDE EFFECTS: Objects outside these bounds may not be properly handled
 min_x = -1000.0
 max_x = 1000.0
 min_y = -1000.0
@@ -14,23 +61,305 @@ max_y = 1000.0
 min_z = -100.0
 max_z = 100.0
 
-[server.security]
-enable_rate_limiting = true
-max_requests_per_minute = 60
-max_message_size = 65536  # 64KB
-max_json_depth = 10
-max_string_length = 1024
-max_collection_size = 100
-enable_ddos_protection = true
-banned_ips = []
-max_connections_per_ip = 10
-
+# ============================================================================
+# Plugin System Configuration
+# ============================================================================
 [plugins]
+# Directory where plugin DLL/SO files are located
+# SECURITY IMPACT: Only load plugins from trusted sources
+# SIDE EFFECTS: Path must exist and be readable by the server process
 directory = "plugins"
+
+# Whether to automatically load all plugins on startup
+# SECURITY IMPACT: false = manual control, true = automatic loading
+# SIDE EFFECTS: true loads ALL plugins in directory, including potentially harmful ones
 auto_load = true
+
+# Plugin whitelist - if non-empty, only these plugins will be loaded
+# SECURITY IMPACT: Provides fine-grained control over which plugins can run
+# SIDE EFFECTS: Empty array means no restrictions (all plugins loaded if auto_load = true)
 whitelist = []
 
+# ============================================================================
+# Logging Configuration
+# ============================================================================
 [logging]
+# Log level filter (trace, debug, info, warn, error)
+# PERFORMANCE IMPACT: trace/debug levels can significantly impact performance
+# SIDE EFFECTS: Higher levels may miss important debugging information
+# RECOMMENDED: "info" for production, "debug" for development
 level = "info"
+
+# Whether to output logs in JSON format
+# INTEGRATION IMPACT: true = machine-readable, false = human-readable
+# SIDE EFFECTS: JSON format is better for log aggregation systems
 json_format = false
-file_path = "server.log"
+
+# Optional file path for log output (omit for stdout only)
+# STORAGE IMPACT: Log files can grow large over time
+# SIDE EFFECTS: File must be writable by server process
+# RECOMMENDED: Uncomment and set for production
+# file_path = "/var/log/horizon/server.log"
+
+# ============================================================================
+# GORC (Game Object Replication Channels) System Configuration
+# ============================================================================
+# GORC is the advanced replication system that manages how game object data
+# is distributed to players. It uses multiple channels with different update
+# frequencies and includes zone virtualization for high-density areas.
+
+# ============================================================================
+# GORC General Configuration
+# ============================================================================
+[gorc.general]
+# Maximum number of objects that can be registered with GORC
+# MEMORY IMPACT: Each object consumes ~1-2KB of memory for tracking
+# PERFORMANCE IMPACT: More objects = more spatial queries and updates
+# SIDE EFFECTS: Exceeding this limit will cause object registration to fail
+max_objects = 10000
+
+# Maximum number of concurrent players that can be tracked
+# MEMORY IMPACT: Each player consumes ~5-10KB for subscription tracking
+# NETWORK IMPACT: More players = more replication traffic
+# SIDE EFFECTS: Exceeding this limit prevents new players from joining
+max_players = 1000
+
+# Maximum number of replication channels per object (1-8)
+# COMPLEXITY IMPACT: More channels = finer control but more overhead
+# SIDE EFFECTS: Objects with more channels consume more bandwidth per player
+# RECOMMENDED: 4 channels (Critical, Detailed, Cosmetic, Metadata)
+max_channels_per_object = 8
+
+# Enable automatic zone optimization
+# PERFORMANCE IMPACT: true = better performance for clustered objects
+# CPU IMPACT: Requires periodic optimization calculations
+# SIDE EFFECTS: May temporarily affect replication during optimization
+auto_optimize_zones = true
+
+# Frequency of zone optimization checks (in milliseconds)
+# PERFORMANCE IMPACT: Lower values = more responsive but higher CPU usage
+# RECOMMENDED: 5000ms (5 seconds) for balanced performance
+optimization_interval_ms = 5000
+
+# Enable debug logging for GORC operations
+# PERFORMANCE IMPACT: Significantly increases log volume and processing
+# SIDE EFFECTS: Only use for troubleshooting, never in production
+debug_logging = false
+
+# ============================================================================
+# Zone Virtualization Configuration
+# ============================================================================
+# Zone virtualization automatically merges overlapping zones in high-density
+# areas to reduce spatial indexing load while maintaining accurate replication.
+[gorc.virtualization]
+# Whether zone virtualization is enabled
+# PERFORMANCE IMPACT: true = better performance in crowded areas
+# COMPLEXITY IMPACT: Adds merge/split logic overhead
+# RECOMMENDED: true for servers with >100 concurrent players
+enabled = true
+
+# Density threshold for merging zones (0.0-1.0)
+# How much zones must overlap before they're considered for merging
+# PERFORMANCE IMPACT: Lower values = more aggressive merging
+# SIDE EFFECTS: Too low = unnecessary merging, too high = missed opportunities
+# RECOMMENDED: 0.3 (30% overlap) for balanced merging
+density_threshold = 0.3
+
+# Overlap threshold for detecting overlapping zones (0.0-1.0)
+# Minimum overlap required to consider zones as candidates for merging
+# ACCURACY IMPACT: Lower values = more sensitive overlap detection
+# SIDE EFFECTS: Too low = false positives, too high = missed overlaps
+# RECOMMENDED: 0.3 (30% overlap minimum)
+overlap_threshold = 0.3
+
+# Maximum radius for virtual zones (in game units)
+# PERFORMANCE IMPACT: Larger zones = fewer spatial index entries
+# ACCURACY IMPACT: Very large zones may include too many irrelevant objects
+# RECOMMENDED: 1000 units (adjust based on your game's scale)
+max_virtual_zone_radius = 1000.0
+
+# Minimum zone radius for virtualization consideration (in game units)
+# EFFICIENCY IMPACT: Prevents tiny zones from being virtualized
+# SIDE EFFECTS: Zones smaller than this won't benefit from virtualization
+# RECOMMENDED: 50 units (adjust based on smallest meaningful object)
+min_zone_radius = 50.0
+
+# Interval between virtualization checks (in milliseconds)
+# RESPONSIVENESS IMPACT: Lower values = faster adaptation to density changes
+# CPU IMPACT: More frequent checks = higher processing overhead
+# RECOMMENDED: 1000ms (1 second) for responsive virtualization
+check_interval_ms = 1000
+
+# Maximum objects per virtual zone
+# PERFORMANCE IMPACT: Higher values = fewer virtual zones but more complex zones
+# MEMORY IMPACT: Each virtual zone tracks all contained objects
+# RECOMMENDED: 20 objects for balanced performance
+max_objects_per_virtual_zone = 20
+
+# ============================================================================
+# Spatial Indexing Configuration
+# ============================================================================
+# Controls the spatial partitioning system used for efficient proximity queries
+[gorc.spatial]
+# World bounds for spatial partitioning (min_x, min_y, min_z, max_x, max_y, max_z)
+# PERFORMANCE IMPACT: Larger bounds = deeper quadtree = slower queries
+# ACCURACY IMPACT: Must encompass all game objects
+# RECOMMENDED: Set to actual game world size plus 10% margin
+world_bounds = [-10000.0, -10000.0, -1000.0, 10000.0, 10000.0, 1000.0]
+
+# Quadtree maximum depth (1-20)
+# PERFORMANCE IMPACT: Higher depth = more precise but slower spatial queries
+# MEMORY IMPACT: Each level increases memory usage exponentially
+# RECOMMENDED: 10 for most games, 12 for very large worlds
+max_quadtree_depth = 10
+
+# Maximum objects per quadtree node before subdivision
+# PERFORMANCE IMPACT: Lower values = more subdivisions = faster queries
+# MEMORY IMPACT: More subdivisions = more memory usage
+# RECOMMENDED: 8 objects per node for balanced performance
+max_objects_per_node = 8
+
+# Minimum node size to prevent infinite subdivision (in game units)
+# STABILITY IMPACT: Prevents infinite subdivision with overlapping objects
+# SIDE EFFECTS: Very small values may cause excessive subdivision
+# RECOMMENDED: 1.0 unit minimum size
+min_node_size = 1.0
+
+# Enable spatial index caching
+# PERFORMANCE IMPACT: true = faster repeated queries but more memory usage
+# MEMORY IMPACT: Cache consumes additional memory proportional to query frequency
+# RECOMMENDED: true for servers with repeated spatial queries
+enable_caching = true
+
+# Cache expiry time in milliseconds
+# MEMORY IMPACT: Longer expiry = more memory usage but better cache hit rate
+# ACCURACY IMPACT: Shorter expiry = more up-to-date results
+# RECOMMENDED: 30000ms (30 seconds) for balanced performance
+cache_expiry_ms = 30000
+
+# ============================================================================
+# Network Replication Configuration
+# ============================================================================
+# Controls how replication data is batched, compressed, and transmitted
+[gorc.network]
+# Maximum batch size for replication updates
+# NETWORK IMPACT: Larger batches = fewer packets but higher latency
+# MEMORY IMPACT: Larger batches require more memory for buffering
+# RECOMMENDED: 1000 updates per batch for balanced performance
+max_batch_size = 1000
+
+# Update frequency for each channel (Hz - updates per second)
+# BANDWIDTH IMPACT: Higher frequencies = more network traffic
+# GAMEPLAY IMPACT: Lower frequencies = less responsive gameplay
+# RECOMMENDED: [60, 30, 15, 5] for Critical, Detailed, Cosmetic, Metadata
+channel_frequencies = [60.0, 30.0, 15.0, 5.0]
+
+# Enable compression for replication data
+# BANDWIDTH IMPACT: true = reduced bandwidth but increased CPU usage
+# CPU IMPACT: Compression/decompression adds processing overhead
+# RECOMMENDED: true for most deployments (bandwidth is usually more precious than CPU)
+enable_compression = true
+
+# Compression threshold in bytes
+# EFFICIENCY IMPACT: Only compress packets larger than this threshold
+# CPU IMPACT: Very small packets aren't worth compressing
+# RECOMMENDED: 1024 bytes (1KB) minimum for compression
+compression_threshold = 1024
+
+# Maximum queue size per player
+# MEMORY IMPACT: Higher values = more memory per player but less data loss
+# SIDE EFFECTS: Queues that fill up will drop updates
+# RECOMMENDED: 10000 updates per player queue
+max_queue_size_per_player = 10000
+
+# Network timeout in milliseconds
+# RESPONSIVENESS IMPACT: How long to wait for network operations
+# SIDE EFFECTS: Too low = frequent timeouts, too high = slow failure detection
+# RECOMMENDED: 5000ms (5 seconds) for most networks
+network_timeout_ms = 5000
+
+# Enable priority-based sending
+# RESPONSIVENESS IMPACT: true = critical updates sent first
+# COMPLEXITY IMPACT: Adds priority queue management overhead
+# RECOMMENDED: true for responsive gameplay
+enable_priority_sending = true
+
+# ============================================================================
+# Performance Monitoring Configuration
+# ============================================================================
+# Controls collection of performance metrics and statistics
+[gorc.monitoring]
+# Enable performance statistics collection
+# PERFORMANCE IMPACT: Minimal overhead for basic stats collection
+# DEBUGGING IMPACT: Essential for performance tuning and troubleshooting
+# RECOMMENDED: true for all deployments
+enable_stats = true
+
+# Statistics reporting interval in milliseconds
+# LOG VOLUME IMPACT: Lower intervals = more frequent stats in logs
+# MONITORING IMPACT: Higher intervals = less granular performance data
+# RECOMMENDED: 10000ms (10 seconds) for production monitoring
+stats_interval_ms = 10000
+
+# Enable performance profiling
+# PERFORMANCE IMPACT: Significant overhead, only use for debugging
+# DEBUGGING IMPACT: Provides detailed timing information for optimization
+# RECOMMENDED: false for production, true only when debugging performance
+enable_profiling = false
+
+# Maximum number of performance samples to keep
+# MEMORY IMPACT: Higher values = more memory for performance history
+# ANALYSIS IMPACT: More samples = better statistical analysis
+# RECOMMENDED: 1000 samples for trend analysis
+max_performance_samples = 1000
+
+# Enable memory usage tracking
+# PERFORMANCE IMPACT: Minimal overhead for memory statistics
+# MONITORING IMPACT: Essential for detecting memory leaks
+# RECOMMENDED: true for all deployments
+track_memory_usage = true
+
+# Log slow operations (threshold in microseconds)
+# DEBUGGING IMPACT: Helps identify performance bottlenecks
+# LOG VOLUME IMPACT: Lower thresholds = more log entries
+# RECOMMENDED: 1000μs (1ms) threshold for catching slow operations
+slow_operation_threshold_us = 1000
+
+# Enable real-time performance alerts
+# MONITORING IMPACT: Provides immediate feedback on performance issues
+# LOG VOLUME IMPACT: May increase log volume during performance problems
+# RECOMMENDED: true for proactive performance monitoring
+enable_performance_alerts = true
+
+# ============================================================================
+# Configuration Tips and Best Practices
+# ============================================================================
+#
+# 1. DEVELOPMENT SETTINGS:
+#    - Set logging.level = "debug"
+#    - Enable gorc.general.debug_logging = true
+#    - Reduce max_connections and max_objects for testing
+#
+# 2. PRODUCTION SETTINGS:
+#    - Set logging.level = "info" or "warn"
+#    - Disable gorc.general.debug_logging
+#    - Increase max_connections based on server capacity
+#    - Monitor performance and adjust GORC settings accordingly
+#
+# 3. HIGH-DENSITY SCENARIOS:
+#    - Lower gorc.virtualization.density_threshold to 0.2
+#    - Increase gorc.virtualization.max_objects_per_virtual_zone to 30
+#    - Consider reducing channel_frequencies for non-critical channels
+#
+# 4. LOW-RESOURCE SERVERS:
+#    - Reduce max_objects and max_players
+#    - Disable gorc.spatial.enable_caching
+#    - Increase gorc.monitoring.stats_interval_ms to 30000
+#    - Reduce max_performance_samples to 500
+#
+# 5. NETWORK OPTIMIZATION:
+#    - Enable compression for bandwidth-limited deployments
+#    - Adjust channel_frequencies based on gameplay requirements
+#    - Monitor network_timeout_ms and adjust for your network conditions
+#
+# Remember to restart the server after making configuration changes!

@@ -254,6 +254,7 @@ impl SpatialObject {
 
 /// High-performance regional quadtree for efficient spatial queries
 /// Now achieves true O(log n) performance through proper tree subdivision
+#[derive(Debug)]
 pub struct RegionQuadTree {
     /// Root node of the quadtree
     root: QuadTreeNode,

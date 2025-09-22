@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Main spatial partitioning system
+#[derive(Debug)]
 pub struct SpatialPartition {
     /// Regional quadtrees for different areas
     regions: Arc<RwLock<HashMap<String, RegionQuadTree>>>,

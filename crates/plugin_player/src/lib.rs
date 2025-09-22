@@ -57,23 +57,27 @@
 //! - [`handlers`] - Specialized event handlers for different game systems
 
 use async_trait::async_trait;
-use horizon_event_system::{
-    create_simple_plugin, EventSystem, LogLevel, PlayerId, PluginError, 
-    ServerContext, SimplePlugin, GorcObjectId,
-    PlayerConnectedEvent, PlayerDisconnectedEvent,
-};
-use tracing::{debug, error};
-use std::sync::Arc;
 use dashmap::DashMap;
+use horizon_event_system::{
+    create_simple_plugin,
+    EventSystem,
+    GorcObjectId,
+    LogLevel,
+    PlayerId,
+    PluginError,
+    ServerContext,
+    SimplePlugin,
+};
+use std::sync::Arc;
+use tracing::{ debug, error };
 
 // Public modules for external access
-pub mod player;
 pub mod events;
 pub mod handlers;
+pub mod player;
 
 // Internal imports
 use handlers::*;
-
 
 /// The core Player Plugin implementation for the Horizon GORC system.
 ///
@@ -117,7 +121,7 @@ impl PlayerPlugin {
     /// - Thread-safe data structures for concurrent operation
     ///
     /// # Returns
-    /// 
+    ///
     /// A new `PlayerPlugin` instance ready for registration with the event system.
     ///
     /// # Example
@@ -148,7 +152,6 @@ impl Default for PlayerPlugin {
     }
 }
 
-
 #[async_trait]
 impl SimplePlugin for PlayerPlugin {
     /// Returns the human-readable name of the plugin.
@@ -175,7 +178,7 @@ impl SimplePlugin for PlayerPlugin {
     ///
     /// - **Connection Handlers**: Core player lifecycle (connect/disconnect)
     /// - **Movement Handler**: GORC channel 0 for real-time position updates
-    /// - **Combat Handler**: GORC channel 1 for weapon firing and combat events  
+    /// - **Combat Handler**: GORC channel 1 for weapon firing and combat events
     /// - **Communication Handler**: GORC channel 2 for chat and messaging
     /// - **Scanning Handler**: GORC channel 3 for detailed ship information
     ///
@@ -203,18 +206,22 @@ impl SimplePlugin for PlayerPlugin {
     async fn register_handlers(
         &mut self,
         events: Arc<EventSystem>,
-        context: Arc<dyn ServerContext>,
+        context: Arc<dyn ServerContext>
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering comprehensive GORC event handlers...");
         context.log(
             LogLevel::Info,
-            "🎮 PlayerPlugin: Initializing multi-channel player management system...",
+            "🎮 PlayerPlugin: Initializing multi-channel player management system..."
         );
 
         let luminal_handle = context.luminal_handle();
 
         // Register core server event handlers for player lifecycle management
-        self.register_connection_handlers(Arc::clone(&events), luminal_handle.clone()).await?;
+        self.register_connection_handlers(
+            Arc::clone(&events),
+            context.clone(),
+            luminal_handle.clone()
+        ).await?;
 
         // Register GORC client event handlers for real-time gameplay
         self.register_movement_handler(Arc::clone(&events), luminal_handle.clone()).await?;
@@ -224,7 +231,7 @@ impl SimplePlugin for PlayerPlugin {
 
         context.log(
             LogLevel::Info,
-            "🎮 PlayerPlugin: ✅ All GORC player handlers registered successfully!",
+            "🎮 PlayerPlugin: ✅ All GORC player handlers registered successfully!"
         );
         Ok(())
     }
@@ -244,7 +251,7 @@ impl SimplePlugin for PlayerPlugin {
     async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
         context.log(
             LogLevel::Info,
-            "🎮 PlayerPlugin: GORC player management system activated and ready!",
+            "🎮 PlayerPlugin: GORC player management system activated and ready!"
         );
         Ok(())
     }
@@ -268,9 +275,9 @@ impl SimplePlugin for PlayerPlugin {
             &format!(
                 "🎮 PlayerPlugin: Shutting down gracefully. Managed {} players during session",
                 self.players.len()
-            ),
+            )
         );
-        
+
         // Clear the player registry to release all GORC object references
         self.players.clear();
         Ok(())
@@ -297,7 +304,8 @@ impl PlayerPlugin {
     async fn register_connection_handlers(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal::Handle,
+        context: Arc<dyn ServerContext>,
+        luminal_handle: luminal::Handle
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering connection lifecycle handlers");
 
@@ -305,48 +313,49 @@ impl PlayerPlugin {
         let players_conn = Arc::clone(&self.players);
         let events_for_conn = Arc::clone(&events);
         let luminal_handle_connect = luminal_handle.clone();
-        
+
         events
-            .on_core(
-                "player_connected",
-                move |event: PlayerConnectedEvent| {
-                    let players = players_conn.clone();
-                    let events = events_for_conn.clone();
-                    let handle = luminal_handle_connect.clone();
-                    
-                    // Use the dedicated connection handler
-                    let handle_clone = handle.clone();
-                    handle.spawn(async move {
-                        if let Err(e) = handle_player_connected(event, players, events, handle_clone).await {
-                            error!("🎮 Failed to handle player connection: {}", e);
+            .on_core("player_connected", move |event: serde_json::Value| {
+                let players = players_conn.clone();
+                let events = events_for_conn.clone();
+                let handle = luminal_handle_connect.clone();
+
+                // Use the dedicated connection handler
+                let handle_clone = handle.clone();
+                handle.spawn(async move {
+                    match
+                        serde_json::from_value::<horizon_event_system::PlayerConnectedEvent>(event)
+                    {
+                        Ok(player_event) => {
+                            if
+                                let Err(e) = handle_player_connected(
+                                    player_event,
+                                    players,
+                                    events,
+                                    handle_clone
+                                ).await
+                            {
+                                error!("🎮 Failed to handle player connection: {}", e);
+                            }
                         }
-                    });
-                    
-                    Ok(())
-                },
-            )
-            .await
+                        Err(e) => {
+                            error!("🎮 Failed to deserialize PlayerConnectedEvent: {}", e);
+                        }
+                    }
+                });
+
+                Ok(())
+            }).await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        // Register player disconnection handler  
+        // Register player disconnection handler
         let players_disc = Arc::clone(&self.players);
         events
-            .on_core(
-                "player_disconnected",
-                move |event: PlayerDisconnectedEvent| {
-                    let players = players_disc.clone();
-                    
-                    // Use the dedicated disconnection handler
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_player_disconnected(event, players).await {
-                            error!("🎮 Failed to handle player disconnection: {}", e);
-                        }
-                    });
-                    
-                    Ok(())
-                },
-            )
-            .await
+            .on_core("player_disconnected", move |event: serde_json::Value| {
+                let players = players_disc.clone();
+
+                Ok(())
+            }).await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         debug!("🎮 PlayerPlugin: ✅ Connection handlers registered");
@@ -372,11 +381,12 @@ impl PlayerPlugin {
     async fn register_movement_handler(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal::Handle,
+        luminal_handle: luminal::Handle
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering GORC channel 0 (movement) handler");
 
         let events_for_move = Arc::clone(&events);
+        let luminal_handle_move = luminal_handle.clone();
         events
             .on_gorc_client(
                 luminal_handle,
@@ -385,10 +395,16 @@ impl PlayerPlugin {
                 "move",
                 move |gorc_event, client_player, connection, object_instance| {
                     // Use the dedicated movement handler
-                    movement::handle_movement_request_sync(gorc_event, client_player, connection, object_instance, events_for_move.clone())
-                },
-            )
-            .await
+                    movement::handle_movement_request_sync(
+                        gorc_event,
+                        client_player,
+                        connection,
+                        object_instance,
+                        events_for_move.clone(),
+                        luminal_handle_move.clone()
+                    )
+                }
+            ).await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         debug!("🎮 PlayerPlugin: ✅ Movement handler registered on channel 0");
@@ -399,7 +415,7 @@ impl PlayerPlugin {
     ///
     /// Channel 1 handles weapon firing and combat interactions:
     /// - Event-driven weapon fire processing
-    /// - 500m replication range for tactical awareness  
+    /// - 500m replication range for tactical awareness
     /// - Security validation for weapon authorization
     /// - Combat event broadcasting to nearby ships
     ///
@@ -414,26 +430,58 @@ impl PlayerPlugin {
     async fn register_combat_handler(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal::Handle,
+        luminal_handle: luminal::Handle
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering GORC channel 1 (combat) handler");
 
         let events_for_combat = Arc::clone(&events);
+        let events_for_blocks = Arc::clone(&events);
+        let luminal_handle_attack = luminal_handle.clone();
+
+        // Register attack handler
         events
             .on_gorc_client(
-                luminal_handle,
+                luminal_handle_attack,
                 "GorcPlayer",
                 1, // Channel 1: Combat events
                 "attack",
                 move |gorc_event, client_player, connection, object_instance| {
-                    // Use the dedicated combat handler  
-                    combat::handle_combat_request_sync(gorc_event, client_player, connection, object_instance, events_for_combat.clone())
-                },
-            )
-            .await
+                    // Use the dedicated combat handler
+                    combat::handle_attack_request_sync(
+                        gorc_event,
+                        client_player,
+                        connection,
+                        object_instance,
+                        events_for_combat.clone()
+                    )
+                }
+            ).await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
-        debug!("🎮 PlayerPlugin: ✅ Combat handler registered on channel 1");
+        // Register block_change handler
+        let luminal_handle_block_for_closure = luminal_handle.clone();
+        events
+            .on_gorc_client(
+                luminal_handle_block_for_closure.clone(),
+                "GorcPlayer",
+                1, // Channel 1: World events
+                "block_change",
+                move |gorc_event, client_player, connection, object_instance| {
+                    // Use the dedicated block change handler
+                    let luminal_handle_block = luminal_handle_block_for_closure.clone();
+                    combat::handle_block_change_request_sync(
+                        gorc_event,
+                        client_player,
+                        connection,
+                        object_instance,
+                        events_for_blocks.clone(),
+                        luminal_handle_block
+                    )
+                }
+            ).await
+            .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
+
+        debug!("🎮 PlayerPlugin: ✅ Combat and block change handlers registered on channel 1");
         Ok(())
     }
 
@@ -456,7 +504,7 @@ impl PlayerPlugin {
     async fn register_communication_handler(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal::Handle,
+        luminal_handle: luminal::Handle
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering GORC channel 2 (communication) handler");
 
@@ -471,16 +519,15 @@ impl PlayerPlugin {
                 move |gorc_event, client_player, connection, object_instance| {
                     // Use the dedicated communication handler
                     communication::handle_communication_request_sync(
-                        gorc_event, 
-                        client_player, 
-                        connection, 
-                        object_instance, 
-                        events_for_chat.clone(), 
+                        gorc_event,
+                        client_player,
+                        connection,
+                        object_instance,
+                        events_for_chat.clone(),
                         luminal_handle_chat.clone()
                     )
-                },
-            )
-            .await
+                }
+            ).await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         debug!("🎮 PlayerPlugin: ✅ Communication handler registered on channel 2");
@@ -497,7 +544,7 @@ impl PlayerPlugin {
     ///
     /// # Parameters
     ///
-    /// - `events`: Event system reference for handler registration  
+    /// - `events`: Event system reference for handler registration
     /// - `luminal_handle`: Async runtime handle for background operations
     ///
     /// # Returns
@@ -506,7 +553,7 @@ impl PlayerPlugin {
     async fn register_scanning_handler(
         &self,
         events: Arc<EventSystem>,
-        luminal_handle: luminal::Handle,
+        luminal_handle: luminal::Handle
     ) -> Result<(), PluginError> {
         debug!("🎮 PlayerPlugin: Registering GORC channel 3 (scanning) handler");
 
@@ -522,15 +569,14 @@ impl PlayerPlugin {
                     // Use the dedicated scanning handler
                     scanning::handle_scanning_request_sync(
                         gorc_event,
-                        client_player, 
+                        client_player,
                         connection,
                         object_instance,
                         events_for_scan.clone(),
                         luminal_handle_scan.clone()
                     )
-                },
-            )
-            .await
+                }
+            ).await
             .map_err(|e| PluginError::ExecutionError(e.to_string()))?;
 
         debug!("🎮 PlayerPlugin: ✅ Scanning handler registered on channel 3");
