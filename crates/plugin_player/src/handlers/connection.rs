@@ -82,6 +82,7 @@ pub async fn handle_player_connected(
     events: Arc<EventSystem>,
     luminal_handle: luminal::Handle,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    debug!("🎮 CONNECTION STEP 1: handle_player_connected called for player {}", event.player_id);
     debug!("🎮 GORC: Processing player connection for player {}", event.player_id);
     
     let spawn_position = Vec3::new(0.0, 0.0, 0.0);
@@ -115,8 +116,28 @@ pub async fn handle_player_connected(
         // Store the GORC ID for future operations (movement, cleanup, etc.)
         players_clone.insert(event.player_id, gorc_id);
         
-        debug!("🎮 GORC: ✅ Player {} registered with GORC instance ID {:?} at position {:?}", 
+        debug!("🎮 GORC: ✅ Player {} registered with GORC instance ID {:?} at position {:?}",
             event.player_id, gorc_id, spawn_position);
+
+        // Send GORC object info to client on channel 0
+        let gorc_info = serde_json::json!({
+            "player_id": event.player_id,
+            "object_id": gorc_id.to_string(),
+            "position": spawn_position,
+            "timestamp": chrono::Utc::now()
+        });
+
+        if let Err(e) = events_clone.emit_gorc_instance(
+            gorc_id,
+            0, // Channel 0 for critical info
+            "gorc_info",
+            &gorc_info,
+            horizon_event_system::Dest::Client
+        ).await {
+            error!("🎮 GORC: ❌ Failed to send GORC info to client: {}", e);
+        } else {
+            debug!("🎮 GORC: ✅ Sent GORC object info to client: {}", gorc_info);
+        }
 
         // CRITICAL: Trigger zone message distribution by updating player position
         // This ensures nearby players receive zone data for the new player

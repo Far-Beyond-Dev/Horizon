@@ -4,13 +4,13 @@
 //! object positions and proximity queries in the GORC system.
 
 mod partition;
-mod quadtree;
 mod query;
+mod rtree;
 
 // Re-export public types and functions
 pub use partition::SpatialPartition;
-pub use quadtree::{RegionQuadTree, QuadTreeNode, SpatialObject};
-pub use query::{SpatialQuery, QueryFilters, QueryResult};
+pub use query::{QueryFilters, QueryResult, SpatialQuery};
+pub use rtree::{NodeStats, RegionRTree, SpatialIndexStats, SpatialObject};
 
 /// Statistics for spatial queries
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]

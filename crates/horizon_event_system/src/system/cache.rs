@@ -25,7 +25,7 @@ impl SerializationBufferPool {
             Ok(data) => {
                 // Log successful serialization in debug mode
                 if cfg!(debug_assertions) {
-                    tracing::debug!(
+                    tracing::trace!(
                         "✅ Successfully serialized event of type '{}' ({} bytes)",
                         T::type_name(),
                         data.len()

@@ -1,15 +1,16 @@
 /// Spatial partitioning system
-use super::quadtree::RegionQuadTree;
-use super::query::QueryResult;
+use super::query::{QueryResult, SpatialQuery};
+use super::RegionRTree;
 use crate::types::{PlayerId, Position, Vec3};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Main spatial partitioning system
+#[derive(Debug)]
 pub struct SpatialPartition {
-    /// Regional quadtrees for different areas
-    regions: Arc<RwLock<HashMap<String, RegionQuadTree>>>,
+    /// Regional spatial indexes for different areas
+    regions: Arc<RwLock<HashMap<String, RegionRTree>>>,
     /// Player to region mapping
     player_regions: Arc<RwLock<HashMap<PlayerId, String>>>,
 }
@@ -25,9 +26,10 @@ impl SpatialPartition {
 
     /// Adds a region with specified bounds
     pub async fn add_region(&self, region_id: String, min: Vec3, max: Vec3) {
-        let quadtree = RegionQuadTree::new(min, max);
         let mut regions = self.regions.write().await;
-        regions.insert(region_id, quadtree);
+        regions
+            .entry(region_id)
+            .or_insert_with(|| RegionRTree::new(min, max));
     }
 
     /// Updates a player's position
@@ -35,12 +37,17 @@ impl SpatialPartition {
         // Simplified: assume all players are in "default" region
         let region_id = "default".to_string();
         
-        {
-            let mut regions = self.regions.write().await;
-            if let Some(region) = regions.get_mut(&region_id) {
-                region.insert_player(player_id, position);
-            }
-        }
+        let mut regions = self.regions.write().await;
+        let region = regions.entry(region_id.clone()).or_insert_with(|| {
+            // Default region bounds (large enough for most worlds)
+            RegionRTree::new(
+                Vec3::new(-10_000.0, -10_000.0, -1_000.0),
+                Vec3::new(10_000.0, 10_000.0, 1_000.0),
+            )
+        });
+
+        region.insert_player(player_id, position);
+        drop(regions);
 
         {
             let mut player_regions = self.player_regions.write().await;
@@ -71,5 +78,32 @@ impl SpatialPartition {
     pub async fn region_count(&self) -> usize {
         let regions = self.regions.read().await;
         regions.len()
+    }
+
+    /// Removes a player from the spatial partition
+    pub async fn remove_player(&self, player_id: PlayerId) {
+        let region_id = {
+            let mut player_regions = self.player_regions.write().await;
+            player_regions.remove(&player_id)
+        };
+
+        if let Some(region_id) = region_id {
+            let mut regions = self.regions.write().await;
+            if let Some(region) = regions.get_mut(&region_id) {
+                region.remove_player(player_id);
+            }
+        }
+    }
+
+    /// Runs a spatial query with filters
+    pub async fn query(&self, query: SpatialQuery) -> Vec<QueryResult> {
+        let mut regions = self.regions.write().await;
+        let mut results = Vec::new();
+
+        for region in regions.values_mut() {
+            results.extend(region.query(query.clone()))
+        }
+
+        results
     }
 }
