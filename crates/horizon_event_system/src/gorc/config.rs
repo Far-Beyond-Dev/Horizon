@@ -68,12 +68,10 @@ impl Default for GorcGeneralConfig {
 pub struct SpatialConfig {
     /// World bounds for spatial partitioning (min_x, min_y, min_z, max_x, max_y, max_z)
     pub world_bounds: (f64, f64, f64, f64, f64, f64),
-    /// Quadtree maximum depth
-    pub max_quadtree_depth: u8,
-    /// Maximum objects per quadtree node before subdivision
-    pub max_objects_per_node: usize,
-    /// Minimum node size to prevent infinite subdivision
-    pub min_node_size: f64,
+    /// Maximum objects stored in a single R-tree leaf node
+    pub max_objects_per_leaf: usize,
+    /// Number of mutations before triggering a bulk rebuild
+    pub rebuild_threshold: usize,
     /// Enable spatial index caching
     pub enable_caching: bool,
     /// Cache expiry time in milliseconds
@@ -84,9 +82,8 @@ impl Default for SpatialConfig {
     fn default() -> Self {
         Self {
             world_bounds: (-10000.0, -10000.0, -1000.0, 10000.0, 10000.0, 1000.0),
-            max_quadtree_depth: 10,
-            max_objects_per_node: 8,
-            min_node_size: 1.0,
+            max_objects_per_leaf: 64,
+            rebuild_threshold: 5_000,
             enable_caching: true,
             cache_expiry_ms: 30000, // 30 seconds
         }
@@ -316,8 +313,12 @@ impl GorcServerConfig {
             return Err(ConfigValidationError::InvalidValue("world_bounds: min values must be < max values".to_string()));
         }
 
-        if self.spatial.max_quadtree_depth == 0 || self.spatial.max_quadtree_depth > 20 {
-            return Err(ConfigValidationError::InvalidValue("max_quadtree_depth must be between 1 and 20".to_string()));
+        if self.spatial.max_objects_per_leaf == 0 {
+            return Err(ConfigValidationError::InvalidValue("max_objects_per_leaf must be greater than 0".to_string()));
+        }
+
+        if self.spatial.rebuild_threshold == 0 {
+            return Err(ConfigValidationError::InvalidValue("rebuild_threshold must be greater than 0".to_string()));
         }
 
         // Validate network config
@@ -355,13 +356,16 @@ impl GorcServerConfig {
 
         // Adjust spatial index settings
         if memory_gb >= 16 {
-            self.spatial.max_quadtree_depth = 12;
+            self.spatial.max_objects_per_leaf = 128;
+            self.spatial.rebuild_threshold = 10_000;
             self.spatial.enable_caching = true;
         } else if memory_gb >= 8 {
-            self.spatial.max_quadtree_depth = 10;
+            self.spatial.max_objects_per_leaf = 64;
+            self.spatial.rebuild_threshold = 5_000;
             self.spatial.enable_caching = true;
         } else {
-            self.spatial.max_quadtree_depth = 8;
+            self.spatial.max_objects_per_leaf = 32;
+            self.spatial.rebuild_threshold = 2_000;
             self.spatial.enable_caching = false;
         }
 
@@ -437,7 +441,8 @@ mod tests {
 
         assert!(config.virtualization.enabled);
         assert_eq!(config.virtualization.density_threshold, 0.2);
-        assert_eq!(config.spatial.max_quadtree_depth, 12);
+        assert_eq!(config.spatial.max_objects_per_leaf, 128);
+        assert_eq!(config.spatial.rebuild_threshold, 10_000);
         assert!(config.spatial.enable_caching);
     }
 

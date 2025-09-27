@@ -202,7 +202,7 @@ pub use gorc::{
     
     // Zones and spatial management
     ObjectZone, ZoneManager, ZoneAnalysis, ZoneConfig, 
-    SpatialPartition, SpatialQuery, RegionQuadTree,
+    SpatialPartition, SpatialQuery, RegionRTree,
     
     // Network and replication
     NetworkReplicationEngine, ReplicationCoordinator, NetworkConfig, 

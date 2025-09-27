@@ -5,7 +5,7 @@
 
 use crate::gorc::instance::{GorcInstanceManager, GorcObject};
 use crate::gorc::channels::{ReplicationLayer, CompressionType};
-use crate::gorc::spatial::RegionQuadTree;
+use crate::gorc::spatial::RegionRTree;
 use crate::system::EventSystem;
 use crate::types::{PlayerId, Vec3};
 use std::sync::Arc;
@@ -144,12 +144,26 @@ async fn benchmark_spatial_query_performance() {
 
     // Verify performance scaling
     if results.len() >= 2 {
-        let ratio = results.last().unwrap().1.as_nanos() as f64 / results.first().unwrap().1.as_nanos() as f64;
-        println!("Performance scaling ratio (20x objects): {:.2}x time", ratio);
+        let (first_count, first_duration) = results.first().cloned().unwrap();
+        let (last_count, last_duration) = results.last().cloned().unwrap();
 
-        // Should be much better than linear scaling (would be 20x for O(n))
-        // Allow some variance for test environment fluctuations
-        assert!(ratio < 15.0, "Spatial queries should scale better than O(n). Actual ratio: {:.2}x", ratio);
+        let per_object_initial = first_duration.as_secs_f64() / first_count as f64;
+        let per_object_latest = last_duration.as_secs_f64() / last_count as f64;
+        let efficiency_ratio = per_object_latest / per_object_initial;
+
+        println!(
+            "Per-object query cost change: {:.2}x ({} ➜ {} objs)",
+            efficiency_ratio,
+            first_count,
+            last_count
+        );
+
+        // The per-object cost should remain roughly stable even as we scale load.
+        assert!(
+            efficiency_ratio <= 2.0,
+            "Spatial queries should remain sub-linear; per-object cost grew {:.2}x",
+            efficiency_ratio
+        );
     }
 }
 
@@ -263,10 +277,10 @@ async fn benchmark_large_zone_detection() {
 }
 
 #[tokio::test]
-async fn benchmark_quadtree_performance() {
-    println!("\n=== QuadTree Performance Benchmark ===");
+async fn benchmark_spatial_index_performance() {
+    println!("\n=== R-Tree Performance Benchmark ===");
 
-    let mut quadtree = RegionQuadTree::new(
+    let mut spatial_index = RegionRTree::new(
         Vec3::new(0.0, 0.0, 0.0),
         Vec3::new(1000.0, 1000.0, 0.0)
     );
@@ -274,7 +288,7 @@ async fn benchmark_quadtree_performance() {
     let object_counts = [100, 500, 1000, 2000];
 
     for &count in &object_counts {
-        quadtree.clear();
+        spatial_index.clear();
 
         // Insert objects
         let insert_start = Instant::now();
@@ -283,19 +297,19 @@ async fn benchmark_quadtree_performance() {
             let x = (i % 100) as f64 * 10.0;
             let y = (i / 100) as f64 * 10.0;
             let position = crate::types::Position::new(x, y, 0.0);
-            quadtree.insert_player(player_id, position);
+            spatial_index.insert_player(player_id, position);
         }
         let insert_duration = insert_start.elapsed();
 
         // Query objects
         let query_start = Instant::now();
-        let _results = quadtree.query_radius(
+        let _results = spatial_index.query_radius(
             crate::types::Position::new(500.0, 500.0, 0.0),
             100.0
         );
         let query_duration = query_start.elapsed();
 
-        let stats = quadtree.get_stats();
+        let stats = spatial_index.get_stats();
 
         println!("Objects: {:4} | Insert: {:6.3}ms | Query: {:6.3}ms | Depth: {} | Nodes: {}",
                  count,

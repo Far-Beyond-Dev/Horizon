@@ -391,13 +391,13 @@ GORC's spatial management system goes beyond simple distance calculations to pro
 
 ### Multi-Layered Spatial Indexing
 
-The spatial partitioning system uses adaptive quadtrees that automatically adjust their granularity based on player density and object distribution:
+The spatial partitioning system is backed by adaptive R*-trees that automatically adjust their leaf occupancy based on player density and object distribution:
 
 ```mermaid
 graph TD
-    A[Spatial Partition Manager] --> B[Dense Combat Zone<br/>High Resolution Quadtree]
-    A --> C[Sparse Exploration Area<br/>Low Resolution Quadtree]
-    A --> D[Social Hub<br/>Player-Optimized Quadtree]
+    A[Spatial Partition Manager] --> B[Dense Combat Zone<br/>Compact R*-Tree Leaves]
+    A --> C[Sparse Exploration Area<br/>Wide R*-Tree Leaves]
+    A --> D[Social Hub<br/>Player-Optimized Branching]
     
     B --> B1[Players 1-20<br/>Frequent Updates]
     C --> C1[Players 21-25<br/>Standard Updates]
@@ -408,7 +408,7 @@ graph TD
     G[Subscription Management] --> A
 ```
 
-In areas with many players fighting, the quadtree subdivides aggressively to enable fast proximity queries. In empty space, large quadtree nodes reduce memory overhead and query complexity. Social areas like stations use specialized indexing optimized for the high player interaction rates typical in these locations.
+In areas with many players fighting, the R*-tree naturally keeps leaves small to enable fast proximity queries without deep recursion. In empty space, broader leaves reduce memory overhead and query fan-out. Social areas like stations balance branch factors to stay responsive even with frequent small movements.
 
 ### Predictive Subscription Management
 

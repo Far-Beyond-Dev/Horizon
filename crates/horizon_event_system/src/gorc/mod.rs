@@ -100,8 +100,8 @@ pub use multicast::{
 };
 
 pub use spatial::{
-    SpatialPartition, SpatialQuery, RegionQuadTree, QueryResult, QueryFilters,
-    SpatialStats, GlobalSpatialStats
+    SpatialPartition, SpatialQuery, RegionRTree, QueryResult, QueryFilters,
+    SpatialStats, GlobalSpatialStats, SpatialIndexStats, NodeStats, SpatialObject
 };
 
 pub use virtualization::{

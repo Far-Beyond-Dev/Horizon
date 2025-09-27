@@ -5,7 +5,7 @@
 //! Each object instance has its own zones that revolve around it for efficient
 //! proximity-based replication.
 
-use crate::types::{PlayerId, Vec3};
+use crate::types::{PlayerId, Position, Vec3};
 use crate::gorc::channels::{ReplicationPriority, ReplicationLayer};
 use crate::gorc::zones::ZoneManager;
 use crate::gorc::spatial::SpatialPartition;
@@ -260,7 +260,7 @@ pub struct GorcInstanceManager {
     objects: Arc<RwLock<HashMap<GorcObjectId, ObjectInstance>>>,
     /// Type name to object IDs mapping
     type_registry: Arc<RwLock<HashMap<String, HashSet<GorcObjectId>>>>,
-    /// Spatial index using proper quadtree for efficient proximity queries
+    /// Spatial index using an R-tree for efficient proximity queries
     spatial_index: Arc<RwLock<SpatialPartition>>,
     /// Object positions for spatial tracking
     object_positions: Arc<RwLock<HashMap<GorcObjectId, Vec3>>>,
@@ -457,6 +457,14 @@ impl GorcInstanceManager {
             old_pos
         };
 
+        {
+            let spatial_position: Position = new_position.into();
+            let partition = self.spatial_index.read().await;
+            partition
+                .update_player_position(player_id, spatial_position)
+                .await;
+        }
+
 
         // Check all objects for zone membership changes
         let objects = self.objects.read().await;
@@ -537,14 +545,29 @@ impl GorcInstanceManager {
     pub async fn add_player(&self, player_id: PlayerId, position: Vec3) {
         debug!("🎮 GORC: Adding player {} at position {:?}", player_id, position);
 
-        let mut player_positions = self.player_positions.write().await;
-        player_positions.insert(player_id, position);
+        let total_players = {
+            let mut player_positions = self.player_positions.write().await;
+            player_positions.insert(player_id, position);
+            player_positions.len()
+        };
+
+        {
+            let spatial_position: Position = position.into();
+            let partition = self.spatial_index.read().await;
+            partition
+                .update_player_position(player_id, spatial_position)
+                .await;
+        }
         
         // Update statistics
         let mut stats = self.stats.write().await;
         stats.total_subscriptions += 1;
 
-        info!("🎮 GORC: Player {} added. Total tracked players: {}", player_id, player_positions.len());
+        info!(
+            "🎮 GORC: Player {} added. Total tracked players: {}",
+            player_id,
+            total_players
+        );
     }
     
     /// Remove a player from all subscriptions
@@ -552,6 +575,11 @@ impl GorcInstanceManager {
         {
             let mut player_positions = self.player_positions.write().await;
             player_positions.remove(&player_id);
+        }
+
+        {
+            let partition = self.spatial_index.read().await;
+            partition.remove_player(player_id).await;
         }
 
         let mut objects = self.objects.write().await;

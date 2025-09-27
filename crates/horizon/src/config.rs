@@ -84,9 +84,8 @@ fn default_max_objects_per_virtual_zone() -> usize { 20 }
 fn default_world_bounds() -> (f64, f64, f64, f64, f64, f64) {
     (-10000.0, -10000.0, -1000.0, 10000.0, 10000.0, 1000.0)
 }
-fn default_max_quadtree_depth() -> u8 { 10 }
-fn default_max_objects_per_node() -> usize { 8 }
-fn default_min_node_size() -> f64 { 1.0 }
+fn default_max_objects_per_leaf() -> usize { 64 }
+fn default_rebuild_threshold() -> usize { 5_000 }
 fn default_enable_caching() -> bool { true }
 fn default_cache_expiry_ms() -> u64 { 30000 }
 
@@ -229,15 +228,12 @@ pub struct SpatialSettings {
     /// World bounds for spatial partitioning (min_x, min_y, min_z, max_x, max_y, max_z)
     #[serde(default = "default_world_bounds")]
     pub world_bounds: (f64, f64, f64, f64, f64, f64),
-    /// Quadtree maximum depth
-    #[serde(default = "default_max_quadtree_depth")]
-    pub max_quadtree_depth: u8,
-    /// Maximum objects per quadtree node before subdivision
-    #[serde(default = "default_max_objects_per_node")]
-    pub max_objects_per_node: usize,
-    /// Minimum node size to prevent infinite subdivision
-    #[serde(default = "default_min_node_size")]
-    pub min_node_size: f64,
+    /// Maximum objects stored in a single R-tree leaf node
+    #[serde(default = "default_max_objects_per_leaf")]
+    pub max_objects_per_leaf: usize,
+    /// Number of mutations before triggering a bulk rebuild
+    #[serde(default = "default_rebuild_threshold")]
+    pub rebuild_threshold: usize,
     /// Enable spatial index caching
     #[serde(default = "default_enable_caching")]
     pub enable_caching: bool,
@@ -341,9 +337,8 @@ impl Default for SpatialSettings {
     fn default() -> Self {
         Self {
             world_bounds: default_world_bounds(),
-            max_quadtree_depth: default_max_quadtree_depth(),
-            max_objects_per_node: default_max_objects_per_node(),
-            min_node_size: default_min_node_size(),
+            max_objects_per_leaf: default_max_objects_per_leaf(),
+            rebuild_threshold: default_rebuild_threshold(),
             enable_caching: default_enable_caching(),
             cache_expiry_ms: default_cache_expiry_ms(),
         }
@@ -506,9 +501,8 @@ impl AppConfig {
             },
             spatial: SpatialConfig {
                 world_bounds: self.gorc.spatial.world_bounds,
-                max_quadtree_depth: self.gorc.spatial.max_quadtree_depth,
-                max_objects_per_node: self.gorc.spatial.max_objects_per_node,
-                min_node_size: self.gorc.spatial.min_node_size,
+                max_objects_per_leaf: self.gorc.spatial.max_objects_per_leaf,
+                rebuild_threshold: self.gorc.spatial.rebuild_threshold,
                 enable_caching: self.gorc.spatial.enable_caching,
                 cache_expiry_ms: self.gorc.spatial.cache_expiry_ms,
             },
@@ -573,6 +567,14 @@ impl AppConfig {
                 "Invalid log level: {}. Must be one of: {valid_levels:?}",
                 &self.logging.level
             ));
+        }
+
+        if self.gorc.spatial.max_objects_per_leaf == 0 {
+            return Err("gorc.spatial.max_objects_per_leaf must be greater than 0".to_string());
+        }
+
+        if self.gorc.spatial.rebuild_threshold == 0 {
+            return Err("gorc.spatial.rebuild_threshold must be greater than 0".to_string());
         }
 
         Ok(())
