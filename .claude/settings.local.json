@@ -33,7 +33,8 @@
       "Bash(timeout 15 cargo run --bin simulate -- --players 2)",
       "Bash(timeout 20 cargo run --bin horizon)",
       "Bash(sed:*)",
-      "Bash(RUST_BACKTRACE=1 cargo test test_debug_event_emission_and_handling -- --nocapture)"
+      "Bash(RUST_BACKTRACE=1 cargo test test_debug_event_emission_and_handling -- --nocapture)",
+      "Bash(RUST_LOG=debug cargo test test_rapid_merge_split_cycles -- --nocapture)"
     ],
     "deny": []
   }

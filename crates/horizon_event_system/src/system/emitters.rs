@@ -242,30 +242,82 @@ impl EventSystem {
     
     /// Update player position and handle zone membership changes (event-driven GORC)
     pub async fn update_player_position(&self, player_id: PlayerId, new_position: Vec3) -> Result<(), EventError> {
-        
+
         // Get the GORC instances manager
         let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
             EventError::HandlerExecution("GORC instance manager not available".to_string())
         })?;
-        
-        
+
+
         // Update position and get zone changes
         let (zone_entries, zone_exits) = gorc_instances.update_player_position(player_id, new_position).await;
-        
+
         debug!("🎮 EVENT DEBUG: Got zone results - {} entries, {} exits", zone_entries.len(), zone_exits.len());
-        
+
         // Handle zone entries - send zone entry messages with current layer state
         for (object_id, channel) in zone_entries {
             debug!("🎮 EVENT DEBUG: Sending zone entry message for object {} channel {}", object_id, channel);
             self.send_zone_entry_message(player_id, object_id, channel).await?;
         }
-        
+
         // Handle zone exits - send zone exit messages to inform client
         for (object_id, channel) in zone_exits {
             debug!("🎮 EVENT DEBUG: Sending zone exit message for object {} channel {}", object_id, channel);
             self.send_zone_exit_message(player_id, object_id, channel).await?;
         }
-        
+
+        Ok(())
+    }
+
+    /// Update object position and handle zone membership changes for stationary players
+    pub async fn update_object_position(&self, object_id: GorcObjectId, new_position: Vec3) -> Result<(), EventError> {
+        // Get the GORC instances manager
+        let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("GORC instance manager not available".to_string())
+        })?;
+
+        // Update object position and get zone changes for all players
+        if let Some((old_position, new_position, zone_changes)) = gorc_instances.update_object_position(object_id, new_position).await {
+            debug!("🎯 GORC Object Movement: Object {} moved from {:?} to {:?}, {} zone changes",
+                   object_id, old_position, new_position, zone_changes.len());
+
+            // Handle zone changes caused by object movement
+            for (player_id, channel, is_entry) in zone_changes {
+                if is_entry {
+                    debug!("🎮 GORC Object Movement: Sending zone entry message for object {} channel {} to player {}",
+                           object_id, channel, player_id);
+                    self.send_zone_entry_message(player_id, object_id, channel).await?;
+                } else {
+                    debug!("🎮 GORC Object Movement: Sending zone exit message for object {} channel {} to player {}",
+                           object_id, channel, player_id);
+                    self.send_zone_exit_message(player_id, object_id, channel).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Notify existing players when a new GORC object is created
+    pub async fn notify_players_for_new_gorc_object(&self, object_id: GorcObjectId) -> Result<(), EventError> {
+        // Get the GORC instances manager
+        let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("GORC instance manager not available".to_string())
+        })?;
+
+        // Get zone entries for existing players
+        let zone_entries = gorc_instances.notify_existing_players_for_new_object(object_id).await;
+
+        debug!("🆕 GORC New Object: Object {} created, {} automatic zone entries",
+               object_id, zone_entries.len());
+
+        // Send zone entry messages to all affected players
+        for (player_id, channel) in zone_entries {
+            debug!("🎮 GORC New Object: Sending zone entry message for new object {} channel {} to player {}",
+                   object_id, channel, player_id);
+            self.send_zone_entry_message(player_id, object_id, channel).await?;
+        }
+
         Ok(())
     }
     

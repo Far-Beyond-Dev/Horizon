@@ -5,9 +5,11 @@
 //! Each object instance has its own zones that revolve around it for efficient
 //! proximity-based replication.
 
-use crate::types::{PlayerId, Vec3};
+use crate::types::{PlayerId, Position, Vec3};
 use crate::gorc::channels::{ReplicationPriority, ReplicationLayer};
 use crate::gorc::zones::ZoneManager;
+use crate::gorc::spatial::SpatialPartition;
+use crate::gorc::virtualization::{VirtualizationManager, VirtualizationConfig};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -15,7 +17,7 @@ use std::any::Any;
 use tokio::sync::RwLock;
 use tokio::time::Instant;
 use uuid::Uuid;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Universal identifier for replicated object instances
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -258,10 +260,16 @@ pub struct GorcInstanceManager {
     objects: Arc<RwLock<HashMap<GorcObjectId, ObjectInstance>>>,
     /// Type name to object IDs mapping
     type_registry: Arc<RwLock<HashMap<String, HashSet<GorcObjectId>>>>,
-    /// Spatial index for efficient proximity queries
-    spatial_index: Arc<RwLock<HashMap<GorcObjectId, Vec3>>>,
+    /// Spatial index using an R-tree for efficient proximity queries
+    spatial_index: Arc<RwLock<SpatialPartition>>,
+    /// Object positions for spatial tracking
+    object_positions: Arc<RwLock<HashMap<GorcObjectId, Vec3>>>,
     /// Player positions for subscription management
     player_positions: Arc<RwLock<HashMap<PlayerId, Vec3>>>,
+    /// Zone size warnings tracking (object_id -> largest_zone_radius)
+    zone_size_warnings: Arc<RwLock<HashMap<GorcObjectId, f64>>>,
+    /// Zone virtualization manager for high-density optimization
+    virtualization_manager: Arc<VirtualizationManager>,
     /// Global statistics
     stats: Arc<RwLock<InstanceManagerStats>>,
 }
@@ -269,13 +277,37 @@ pub struct GorcInstanceManager {
 impl GorcInstanceManager {
     /// Creates a new instance manager
     pub fn new() -> Self {
-        Self {
+        Self::new_with_config(VirtualizationConfig::default())
+    }
+
+    /// Creates a new instance manager with custom virtualization configuration
+    pub fn new_with_config(virtualization_config: VirtualizationConfig) -> Self {
+        let spatial_index = SpatialPartition::new();
+        let virtualization_manager = Arc::new(VirtualizationManager::new(virtualization_config));
+
+        let manager = Self {
             objects: Arc::new(RwLock::new(HashMap::new())),
             type_registry: Arc::new(RwLock::new(HashMap::new())),
-            spatial_index: Arc::new(RwLock::new(HashMap::new())),
+            spatial_index: Arc::new(RwLock::new(spatial_index)),
+            object_positions: Arc::new(RwLock::new(HashMap::new())),
             player_positions: Arc::new(RwLock::new(HashMap::new())),
+            zone_size_warnings: Arc::new(RwLock::new(HashMap::new())),
+            virtualization_manager,
             stats: Arc::new(RwLock::new(InstanceManagerStats::default())),
-        }
+        };
+
+        // Initialize spatial index with default region in the background
+        let spatial_index_ref = manager.spatial_index.clone();
+        tokio::spawn(async move {
+            let spatial_index = spatial_index_ref.write().await;
+            spatial_index.add_region(
+                "default".to_string(),
+                Vec3::new(-10000.0, -10000.0, -1000.0),
+                Vec3::new(10000.0, 10000.0, 1000.0)
+            ).await;
+        });
+
+        manager
     }
 
     /// Registers a new object instance
@@ -306,9 +338,20 @@ impl GorcInstanceManager {
         }
         
         {
-            let mut spatial_index = self.spatial_index.write().await;
-            spatial_index.insert(object_id, initial_position);
+            let mut object_positions = self.object_positions.write().await;
+            object_positions.insert(object_id, initial_position);
         }
+
+        // Check and warn about large zone sizes
+        let layers_for_warning = {
+            let objects = self.objects.read().await;
+            if let Some(instance) = objects.get(&object_id) {
+                instance.object.get_layers()
+            } else {
+                Vec::new()
+            }
+        };
+        self.check_zone_size_warnings(object_id, &layers_for_warning).await;
         
         {
             let mut stats = self.stats.write().await;
@@ -343,8 +386,13 @@ impl GorcInstanceManager {
             }
             
             {
-                let mut spatial_index = self.spatial_index.write().await;
-                spatial_index.remove(&object_id);
+                let mut object_positions = self.object_positions.write().await;
+                object_positions.remove(&object_id);
+            }
+
+            {
+                let mut zone_warnings = self.zone_size_warnings.write().await;
+                zone_warnings.remove(&object_id);
             }
             
             {
@@ -359,25 +407,41 @@ impl GorcInstanceManager {
         }
     }
 
-    /// Update an object's position
-    pub async fn update_object_position(&self, object_id: GorcObjectId, new_position: Vec3) -> bool {
-        let mut objects = self.objects.write().await;
-        if let Some(instance) = objects.get_mut(&object_id) {
-            let old_position = instance.object.position();
-            instance.update_position(new_position);
-            
-            // Update spatial index
-            drop(objects);
-            let mut spatial_index = self.spatial_index.write().await;
-            spatial_index.insert(object_id, new_position);
-            
-            // Recalculate subscriptions for players that might be affected
-            self.recalculate_subscriptions_for_object(object_id, old_position, new_position).await;
-            
-            true
-        } else {
-            false
+    /// Update an object's position and return zone membership changes for zone events
+    pub async fn update_object_position(&self, object_id: GorcObjectId, new_position: Vec3) -> Option<(Vec3, Vec3, Vec<(PlayerId, u8, bool)>)> {
+        let old_position = {
+            let mut objects = self.objects.write().await;
+            if let Some(instance) = objects.get_mut(&object_id) {
+                let old_pos = instance.object.position();
+                instance.update_position(new_position);
+                old_pos
+            } else {
+                return None;
+            }
+        };
+
+        // Update object position tracking
+        {
+            let mut object_positions = self.object_positions.write().await;
+            object_positions.insert(object_id, new_position);
         }
+
+        // Check for virtual zone splits due to object movement
+        let virtual_zones_to_split = self.virtualization_manager
+            .update_object_position(object_id, old_position, new_position)
+            .await;
+
+        // Handle virtual zone splits
+        for virtual_id in virtual_zones_to_split {
+            if let Err(e) = self.virtualization_manager.split_virtual_zone(virtual_id).await {
+                warn!("Failed to split virtual zone due to object movement: {}", e);
+            }
+        }
+
+        // Calculate zone membership changes for all players
+        let zone_changes = self.recalculate_subscriptions_for_object_with_events(object_id, old_position, new_position).await;
+
+        Some((old_position, new_position, zone_changes))
     }
 
     /// Update a player's position and return zone membership changes
@@ -392,6 +456,14 @@ impl GorcInstanceManager {
             player_positions.insert(player_id, new_position);
             old_pos
         };
+
+        {
+            let spatial_position: Position = new_position.into();
+            let partition = self.spatial_index.read().await;
+            partition
+                .update_player_position(player_id, spatial_position)
+                .await;
+        }
 
 
         // Check all objects for zone membership changes
@@ -473,14 +545,29 @@ impl GorcInstanceManager {
     pub async fn add_player(&self, player_id: PlayerId, position: Vec3) {
         debug!("🎮 GORC: Adding player {} at position {:?}", player_id, position);
 
-        let mut player_positions = self.player_positions.write().await;
-        player_positions.insert(player_id, position);
+        let total_players = {
+            let mut player_positions = self.player_positions.write().await;
+            player_positions.insert(player_id, position);
+            player_positions.len()
+        };
+
+        {
+            let spatial_position: Position = position.into();
+            let partition = self.spatial_index.read().await;
+            partition
+                .update_player_position(player_id, spatial_position)
+                .await;
+        }
         
         // Update statistics
         let mut stats = self.stats.write().await;
         stats.total_subscriptions += 1;
 
-        info!("🎮 GORC: Player {} added. Total tracked players: {}", player_id, player_positions.len());
+        info!(
+            "🎮 GORC: Player {} added. Total tracked players: {}",
+            player_id,
+            total_players
+        );
     }
     
     /// Remove a player from all subscriptions
@@ -488,6 +575,11 @@ impl GorcInstanceManager {
         {
             let mut player_positions = self.player_positions.write().await;
             player_positions.remove(&player_id);
+        }
+
+        {
+            let partition = self.spatial_index.read().await;
+            partition.remove_player(player_id).await;
         }
 
         let mut objects = self.objects.write().await;
@@ -532,14 +624,40 @@ impl GorcInstanceManager {
         objects_by_type.into_iter().next()
     }
 
-    /// Get objects within range of a position
+    /// Get objects within range of a position using spatial index optimization
     pub async fn get_objects_in_range(&self, position: Vec3, range: f64) -> Vec<GorcObjectId> {
+        let mut result_objects = Vec::new();
+        let object_positions = self.object_positions.read().await;
+
+        // Get largest zone radius for query optimization
+        let query_radius = self.get_max_zone_radius().await.max(range);
+
+        // Use spatial queries for efficiency when available
         let spatial_index = self.spatial_index.read().await;
-        spatial_index
-            .iter()
-            .filter(|(_, &obj_pos)| obj_pos.distance(position) <= range)
-            .map(|(&obj_id, _)| obj_id)
-            .collect()
+        let query_results = spatial_index.query_radius(
+            crate::types::Position::new(position.x as f64, position.y as f64, position.z as f64),
+            query_radius
+        ).await;
+
+        // Filter by actual object positions and range
+        for _query_result in query_results {
+            for (&object_id, &obj_pos) in object_positions.iter() {
+                if obj_pos.distance(position) <= range {
+                    result_objects.push(object_id);
+                }
+            }
+        }
+
+        // Fallback to direct position checking if spatial index is empty
+        if result_objects.is_empty() {
+            result_objects = object_positions
+                .iter()
+                .filter(|(_, &obj_pos)| obj_pos.distance(position) <= range)
+                .map(|(&obj_id, _)| obj_id)
+                .collect();
+        }
+
+        result_objects
     }
     
     /// Find all players within radius of a position (for event-driven GORC emission)
@@ -591,8 +709,8 @@ impl GorcInstanceManager {
     /// Recalculate subscriptions for a player
     async fn recalculate_player_subscriptions(&self, player_id: PlayerId, player_position: Vec3) {
         let object_ids: Vec<GorcObjectId> = {
-            let spatial_index = self.spatial_index.read().await;
-            spatial_index.keys().copied().collect()
+            let object_positions = self.object_positions.read().await;
+            object_positions.keys().copied().collect()
         };
 
         let mut objects = self.objects.write().await;
@@ -620,13 +738,15 @@ impl GorcInstanceManager {
         }
     }
 
-    /// Recalculate subscriptions when an object moves
-    async fn recalculate_subscriptions_for_object(
-        &self, 
-        object_id: GorcObjectId, 
-        _old_position: Vec3, 
-        _new_position: Vec3
-    ) {
+    /// Recalculate subscriptions when an object moves and return zone changes for events
+    async fn recalculate_subscriptions_for_object_with_events(
+        &self,
+        object_id: GorcObjectId,
+        old_position: Vec3,
+        new_position: Vec3
+    ) -> Vec<(PlayerId, u8, bool)> {
+        let mut zone_changes = Vec::new();
+
         let player_positions: Vec<(PlayerId, Vec3)> = {
             let player_positions = self.player_positions.read().await;
             player_positions.iter().map(|(&id, &pos)| (id, pos)).collect()
@@ -634,30 +754,208 @@ impl GorcInstanceManager {
 
         let mut objects = self.objects.write().await;
         if let Some(instance) = objects.get_mut(&object_id) {
+            let layers = instance.object.get_layers();
+
             for (player_id, player_pos) in player_positions {
-                for channel in 0..4 {
-                    let should_sub = instance.zone_manager.is_in_zone(player_pos, channel);
+                // Use inner zone optimization - check smallest zones first
+                let mut player_in_inner_zone = false;
+                let mut sorted_layers = layers.clone();
+                sorted_layers.sort_by(|a, b| a.radius.partial_cmp(&b.radius).unwrap());
+
+                let smallest_radius = sorted_layers.get(0).map(|l| l.radius).unwrap_or(0.0);
+                for layer in &sorted_layers {
+                    let channel = layer.channel;
+
+                    // Skip larger zones if player is already in a smaller inner zone
+                    if player_in_inner_zone && layer.radius > smallest_radius {
+                        if instance.is_subscribed(channel, player_id) {
+                            // Player is guaranteed to be in this larger zone too
+                            continue;
+                        }
+                    }
+
+                    let was_in_zone = player_pos.distance(old_position) <= layer.radius;
+                    let is_in_zone = player_pos.distance(new_position) <= layer.radius;
                     let is_subbed = instance.is_subscribed(channel, player_id);
 
-                    match (should_sub, is_subbed) {
-                        (true, false) => {
+                    if is_in_zone && layer.radius == smallest_radius {
+                        player_in_inner_zone = true;
+                    }
+
+                    match (was_in_zone, is_in_zone, is_subbed) {
+                        (false, true, false) => {
+                            // Zone entry
                             instance.add_subscriber(channel, player_id);
                             instance.stats.zone_transitions += 1;
+                            zone_changes.push((player_id, channel, true)); // true = entry
+                            debug!("🎯 GORC Object Movement: Player {} entered zone {} of object {}", player_id, channel, object_id);
                         }
-                        (false, true) => {
+                        (true, false, true) => {
+                            // Zone exit
                             instance.remove_subscriber(channel, player_id);
                             instance.stats.zone_transitions += 1;
+                            zone_changes.push((player_id, channel, false)); // false = exit
+                            debug!("🚪 GORC Object Movement: Player {} exited zone {} of object {}", player_id, channel, object_id);
+                        }
+                        (false, true, true) | (true, false, false) => {
+                            // Subscription state matches zone state - sync if needed
+                            if !is_subbed && is_in_zone {
+                                instance.add_subscriber(channel, player_id);
+                            } else if is_subbed && !is_in_zone {
+                                instance.remove_subscriber(channel, player_id);
+                            }
                         }
                         _ => {}
                     }
                 }
             }
         }
+
+        zone_changes
+    }
+
+    /// Check for large zone sizes and emit warnings
+    async fn check_zone_size_warnings(&self, object_id: GorcObjectId, layers: &[ReplicationLayer]) {
+        let max_radius = layers.iter()
+            .map(|layer| layer.radius)
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(0.0);
+
+        // Warning threshold for large zones that might impact performance
+        const LARGE_ZONE_WARNING_THRESHOLD: f64 = 500.0;
+        const VERY_LARGE_ZONE_WARNING_THRESHOLD: f64 = 1000.0;
+
+        if max_radius > VERY_LARGE_ZONE_WARNING_THRESHOLD {
+            warn!("⚠️ GORC: Object {} has very large zone radius {:.1} - this significantly increases spatial query cost. Consider reducing zone size if possible.", object_id, max_radius);
+
+            let mut zone_warnings = self.zone_size_warnings.write().await;
+            zone_warnings.insert(object_id, max_radius);
+        } else if max_radius > LARGE_ZONE_WARNING_THRESHOLD {
+            warn!("⚠️ GORC: Object {} has large zone radius {:.1} - monitor performance impact.", object_id, max_radius);
+        }
+    }
+
+    /// Get the maximum zone radius across all objects for spatial query optimization
+    async fn get_max_zone_radius(&self) -> f64 {
+        let objects = self.objects.read().await;
+        objects.values()
+            .flat_map(|instance| instance.object.get_layers())
+            .map(|layer| layer.radius)
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .unwrap_or(100.0) // Default reasonable radius
+    }
+
+    /// Notify existing players when a new object is created (handles Issue #1)
+    pub async fn notify_existing_players_for_new_object(&self, object_id: GorcObjectId) -> Vec<(PlayerId, u8)> {
+        let mut zone_entries = Vec::new();
+
+        let (object_position, layers) = {
+            let objects = self.objects.read().await;
+            if let Some(instance) = objects.get(&object_id) {
+                (instance.object.position(), instance.object.get_layers())
+            } else {
+                return zone_entries;
+            }
+        };
+
+        let player_positions = {
+            let player_positions = self.player_positions.read().await;
+            player_positions.iter().map(|(&id, &pos)| (id, pos)).collect::<Vec<_>>()
+        };
+
+        let mut objects = self.objects.write().await;
+        if let Some(instance) = objects.get_mut(&object_id) {
+            for (player_id, player_pos) in player_positions {
+                // Check if player should be subscribed to any zones of this new object
+                for layer in &layers {
+                    let channel = layer.channel;
+                    let distance = player_pos.distance(object_position);
+
+                    if distance <= layer.radius {
+                        instance.add_subscriber(channel, player_id);
+                        zone_entries.push((player_id, channel));
+                        debug!("🆕 GORC New Object: Player {} automatically entered zone {} of new object {}", player_id, channel, object_id);
+                    }
+                }
+            }
+        }
+
+        zone_entries
+    }
+
+    /// Analyzes virtualization opportunities and applies recommendations
+    pub async fn process_virtualization(&self) -> Result<(), Box<dyn std::error::Error>> {
+        // Collect current objects and their zones
+        let objects_info = {
+            let objects = self.objects.read().await;
+            let object_positions = self.object_positions.read().await;
+
+            let mut info = HashMap::new();
+            for (object_id, instance) in objects.iter() {
+                if let Some(&position) = object_positions.get(object_id) {
+                    let layers = instance.object.get_layers();
+                    info.insert(*object_id, (position, layers));
+                }
+            }
+            info
+        };
+
+        // Get virtualization recommendations
+        let recommendations = self.virtualization_manager
+            .analyze_virtualization_opportunities(&objects_info)
+            .await;
+
+        // Apply merge recommendations
+        for merge_request in recommendations.merge_recommendations {
+            match self.virtualization_manager.merge_zones(merge_request).await {
+                Ok(virtual_id) => {
+                    debug!("✅ Successfully created virtual zone {}", virtual_id.0);
+                }
+                Err(e) => {
+                    warn!("❌ Failed to merge zones: {}", e);
+                }
+            }
+        }
+
+        // Apply split recommendations
+        for split_request in recommendations.split_recommendations {
+            match self.virtualization_manager.split_virtual_zone(split_request.virtual_id).await {
+                Ok(liberated_objects) => {
+                    debug!("✅ Successfully split virtual zone - liberated {} objects", liberated_objects.len());
+                }
+                Err(e) => {
+                    warn!("❌ Failed to split virtual zone: {}", e);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Checks if a position is within a virtual zone
+    pub async fn is_in_virtual_zone(&self, position: Vec3, channel: u8) -> Option<crate::gorc::virtualization::VirtualZoneId> {
+        self.virtualization_manager.is_in_virtual_zone(position, channel).await
+    }
+
+    /// Gets all objects in a virtual zone
+    pub async fn get_virtual_zone_objects(&self, virtual_id: crate::gorc::virtualization::VirtualZoneId) -> Vec<GorcObjectId> {
+        self.virtualization_manager.get_virtual_zone_objects(virtual_id).await
+    }
+
+    /// Gets virtualization statistics
+    pub async fn get_virtualization_stats(&self) -> crate::gorc::virtualization::VirtualizationStats {
+        self.virtualization_manager.get_stats().await
     }
 
     /// Get statistics for the instance manager
     pub async fn get_stats(&self) -> InstanceManagerStats {
-        self.stats.read().await.clone()
+        let mut stats = self.stats.read().await.clone();
+
+        // Add zone warning count to stats
+        let zone_warnings = self.zone_size_warnings.read().await;
+        stats.large_zone_warnings = zone_warnings.len();
+
+        stats
     }
 }
 
@@ -680,4 +978,6 @@ pub struct InstanceManagerStats {
     pub total_bytes_transmitted: u64,
     /// Average objects per type
     pub avg_objects_per_type: f32,
+    /// Number of objects with large zone warnings
+    pub large_zone_warnings: usize,
 }

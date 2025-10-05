@@ -51,6 +51,8 @@ pub mod network;
 pub mod subscription;
 pub mod multicast;
 pub mod spatial;
+pub mod virtualization;
+pub mod config;
 pub mod system;
 
 // Utility modules
@@ -61,9 +63,7 @@ pub mod migration_guide;
 
 // Test modules
 #[cfg(test)]
-pub mod replication_test;
-#[cfg(test)]
-pub mod integration_test;
+pub mod tests;
 
 // Re-export core types for use elsewhere in the core and for use in plugins
 pub use channels::{
@@ -100,8 +100,18 @@ pub use multicast::{
 };
 
 pub use spatial::{
-    SpatialPartition, SpatialQuery, RegionQuadTree, QueryResult, QueryFilters,
-    SpatialStats, GlobalSpatialStats
+    SpatialPartition, SpatialQuery, RegionRTree, QueryResult, QueryFilters,
+    SpatialStats, GlobalSpatialStats, SpatialIndexStats, NodeStats, SpatialObject
+};
+
+pub use virtualization::{
+    VirtualizationManager, VirtualizationConfig, VirtualZone, VirtualZoneId,
+    VirtualizationStats, VirtualizationRecommendations, ZoneMergeRequest, ZoneSplitRequest
+};
+
+pub use config::{
+    GorcServerConfig, GorcConfigBuilder, GorcGeneralConfig, SpatialConfig,
+    NetworkConfig as GorcNetworkConfig, MonitoringConfig, ConfigValidationError
 };
 
 pub use system::{
