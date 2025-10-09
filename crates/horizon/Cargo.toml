@@ -3,6 +3,14 @@ name = "horizon"
 version = "0.40.0"
 edition = "2021"
 
+[[bin]]
+name = "horizon"
+path = "src/main.rs"
+
+[lib]
+name = "lib_horizon"
+path = "src/lib.rs"
+
 [dependencies]
 horizon_event_system = { workspace = true }
 tracing-subscriber = { workspace = true }
