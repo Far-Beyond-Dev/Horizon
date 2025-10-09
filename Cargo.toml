@@ -10,7 +10,7 @@ members = [
 async-trait = "0.1"
 futures = "0.3"
 horizon_sockets = { git = "https://github.com/Far-Beyond-Dev/Horizon-Sockets", rev = "aa0badb262e1344a8aceaaf5caf55012dc7fa89a" }
-luminal_rt = "0.3.0"
+luminal_rt = { git = "https://github.com/tristanpoland/Luminal", rev = "8c9870bca5d983ccefbc8ba00f4f7e6c7857d5da" }
 tokio = { version = "1.46.1", features = ["full"] }
 tokio-tungstenite = "0.27.0"
 
