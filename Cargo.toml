@@ -60,7 +60,6 @@ ue_types = { git = "https://github.com/tristanpoland/UE5-rs", rev = "15df47693e3
 # === Workspace Dependencies ===
 game_server = { path = "crates/game_server" }
 horizon = { path = "crates/horizon" }
-lib_horizon = { path = "crates/horizon" }
 horizon_event_system = { path = "crates/horizon_event_system" }
 plugin_system = { path = "crates/plugin_system" }
 horizon_bugs = { path = "crates/horizon_bugs" }
