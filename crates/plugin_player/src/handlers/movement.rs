@@ -194,13 +194,13 @@ pub fn handle_movement_request_sync(
     }
     debug!("🚀 STEP 6: ✅ Player ownership validated");
 
-    // Update the object instance position directly (this is the authoritative update)
+    // Update the object instance position locally (for immediate response)
     object_instance.object.update_position(move_data.new_position);
-    debug!("🚀 STEP 7: ✅ Updated ship position for {} to {:?}",
+    debug!("🚀 STEP 7: ✅ Updated local ship position for {} to {:?}",
         client_player, move_data.new_position);
     
     // Broadcast position update to nearby players (within 25m range)
-    // CRITICAL: Update GORC spatial tracking BEFORE broadcasting to ensure correct distance calculations
+    // CRITICAL: Update BOTH player AND object positions in GORC tracking before broadcasting
     debug!("🚀 STEP 8: Beginning position update broadcast for player {}", client_player);
     let object_id_str = gorc_event.object_id.clone();
     debug!("🚀 STEP 9: Using object ID: {}", object_id_str);
@@ -217,17 +217,28 @@ pub fn handle_movement_request_sync(
     luminal_handle.spawn(async move {
         debug!("🚀 STEP 11: Inside async broadcast task");
         
-        // CRITICAL FIX: Update GORC spatial tracking FIRST before finding players in radius
-        // This ensures the distance calculations use the updated position
+        // CRITICAL FIX: Update BOTH player position AND object position in GORC tracking
+        // This ensures the spatial tracking has the correct positions for distance calculations
+        
+        // Update player position in GORC tracking
         if let Err(e) = events.update_player_position(client_player, move_data.new_position).await {
-            error!("🚀 STEP 11.5: ❌ Failed to update GORC spatial tracking: {}", e);
+            error!("🚀 STEP 11.5: ❌ Failed to update GORC player tracking: {}", e);
         } else {
-            debug!("🚀 STEP 11.5: ✅ Updated GORC spatial tracking for player {} at position {:?}",
+            debug!("🚀 STEP 11.5: ✅ Updated GORC player tracking for {} at {:?}",
                 client_player, move_data.new_position);
         }
         
+        // Update object position in GORC tracking
         if let Ok(gorc_id) = GorcObjectId::from_str(&object_id_str) {
             debug!("🚀 STEP 12: Parsed GORC ID successfully: {:?}", gorc_id);
+            
+            if let Err(e) = events.update_object_position(gorc_id, move_data.new_position).await {
+                error!("🚀 STEP 12.5: ❌ Failed to update GORC object tracking: {}", e);
+            } else {
+                debug!("🚀 STEP 12.5: ✅ Updated GORC object tracking for {:?} at {:?}",
+                    gorc_id, move_data.new_position);
+            }
+            
             debug!("🚀 STEP 13: About to call emit_gorc_instance on channel 0");
 
             match events.emit_gorc_instance(

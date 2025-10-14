@@ -6,6 +6,7 @@
 //! - Integration testing
 //! - Performance benchmarks
 //! - Distance filtering regression tests
+//! - Realistic client movement simulation
 
 #[cfg(test)]
 pub mod zone_event_test;
@@ -24,3 +25,6 @@ pub mod virtualization_test;
 
 #[cfg(test)]
 pub mod distance_filtering_test;
+
+#[cfg(test)]
+pub mod realistic_movement_test;

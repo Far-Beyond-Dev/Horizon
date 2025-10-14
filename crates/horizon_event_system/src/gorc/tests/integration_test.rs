@@ -195,6 +195,15 @@ impl IntegrationTestScenario {
         let test_object = TestGameObject::new(Vec3::new(0.0, 0.0, 0.0), "TestObject".to_string());
         let object_id = gorc_instances.register_object(test_object, Vec3::new(0.0, 0.0, 0.0)).await;
         
+        // CRITICAL: Re-add players to trigger subscription recalculation now that the object exists
+        // This ensures players are subscribed to the object based on their distances
+        for (player_id, position) in players.iter().zip(positions.iter()) {
+            gorc_instances.add_player(*player_id, *position).await;
+        }
+        
+        // Give time for subscriptions to be fully established
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+        
         Self {
             event_system,
             gorc_instances,

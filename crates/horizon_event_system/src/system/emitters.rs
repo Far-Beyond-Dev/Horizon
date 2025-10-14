@@ -192,7 +192,7 @@ impl EventSystem {
             EventError::HandlerExecution("GORC instance manager not available".to_string())
         })?;
         
-        // Get the object instance to find its position and layer configuration
+        // Get the object instance
         let instance = gorc_instances.get_object(object_id).await.ok_or_else(|| {
             EventError::HandlerNotFound(format!("Object instance {} not found", object_id))
         })?;
@@ -203,11 +203,15 @@ impl EventSystem {
             EventError::HandlerExecution(format!("Channel {} not defined for object {}", channel, object_id))
         })?;
         
-        // Find all players within this layer's radius
-        let subscribers = gorc_instances.find_players_in_radius(
-            instance.object.position(), 
-            layer.radius
-        ).await;
+        // CRITICAL: Get subscribers from the instance's subscription list
+        // The subscribers list is managed by zone enter/exit logic and is the authoritative source
+        let subscribers: Vec<PlayerId> = instance.subscribers
+            .get(&channel)
+            .map(|subs| subs.iter().copied().collect())
+            .unwrap_or_else(Vec::new);
+        
+        debug!("📡 GORC EMIT: Object {} channel {} has {} subscribers", 
+               object_id, channel, subscribers.len());
         
         // Create the event message for clients - just use the event_name directly
         let client_event = serde_json::json!({

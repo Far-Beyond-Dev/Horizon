@@ -34,6 +34,36 @@ impl MockClientSender {
         messages.get(&player_id).map(|v| v.len()).unwrap_or(0)
     }
     
+    pub fn get_move_events(&self, player_id: PlayerId) -> usize {
+        let messages = self.sent_messages.lock().unwrap();
+        messages.get(&player_id)
+            .map(|msgs| msgs.iter()
+                .filter(|data| {
+                    if let Ok(msg) = serde_json::from_slice::<serde_json::Value>(data) {
+                        msg.get("event_type").and_then(|v| v.as_str()) == Some("move")
+                    } else {
+                        false
+                    }
+                })
+                .count())
+            .unwrap_or(0)
+    }
+    
+    pub fn get_zone_exits(&self, player_id: PlayerId) -> usize {
+        let messages = self.sent_messages.lock().unwrap();
+        messages.get(&player_id)
+            .map(|msgs| msgs.iter()
+                .filter(|data| {
+                    if let Ok(msg) = serde_json::from_slice::<serde_json::Value>(data) {
+                        msg.get("type").and_then(|v| v.as_str()) == Some("gorc_zone_exit")
+                    } else {
+                        false
+                    }
+                })
+                .count())
+            .unwrap_or(0)
+    }
+    
     pub fn clear_messages(&self) {
         let mut messages = self.sent_messages.lock().unwrap();
         messages.clear();
@@ -187,20 +217,21 @@ async fn test_distance_filtering_after_movement() {
     
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     
-    let player1_msgs = mock_sender.get_message_count(player1_id);
-    let player2_msgs = mock_sender.get_message_count(player2_id);
+    // Check for MOVE events only (filter out zone messages)
+    let player1_move_events = mock_sender.get_move_events(player1_id);
+    let player2_move_events = mock_sender.get_move_events(player2_id);
     
-    println!("  Player 1 received: {} messages", player1_msgs);
-    println!("  Player 2 received: {} messages", player2_msgs);
+    println!("  Player 1 received: {} move events", player1_move_events);
+    println!("  Player 2 received: {} move events", player2_move_events);
     
-    assert!(player1_msgs > 0, "Player 1 should receive their own movement echo");
-    assert!(player2_msgs > 0, "Player 2 should receive Player 1's movement (within 25m)");
+    assert!(player1_move_events > 0, "Player 1 should receive their own movement");
+    assert!(player2_move_events > 0, "Player 2 should receive Player 1's movement (within 25m)");
     
-    println!("  ✅ Both players received updates as expected");
+    println!("  ✅ Both players received move events as expected");
     
     println!("\n📡 PHASE 2: Player 1 moves to 500km away");
     
-    // Clear messages
+    // Clear messages from phase 1
     mock_sender.clear_messages();
     
     // Move player 1 far away (500km = 500,000m)
@@ -212,12 +243,11 @@ async fn test_distance_filtering_after_movement() {
     
     println!("  Updated Player 1 position to {:?}", far_position);
     
-    // Also update the object's position (simulating what the movement handler does)
-    // We need to get a mutable instance and update it through the proper API
-    if let Some(mut instance) = gorc_instances.get_object(player1_obj_id).await {
-        instance.object.update_position(far_position);
-        gorc_instances.update_object(player1_obj_id, instance).await;
-    }
+    // CRITICAL: Update the object position in GORC tracking (this is what the movement handler should do)
+    event_system.update_object_position(player1_obj_id, far_position).await
+        .expect("Failed to update object position");
+    
+    println!("  Updated Player 1 OBJECT position to {:?}", far_position);
     
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     
@@ -237,17 +267,26 @@ async fn test_distance_filtering_after_movement() {
     
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     
-    let player1_msgs_after = mock_sender.get_message_count(player1_id);
-    let player2_msgs_after = mock_sender.get_message_count(player2_id);
+    // Check for MOVE events only (ignore zone messages)
+    let player1_move_events_after = mock_sender.get_move_events(player1_id);
+    let player2_move_events_after = mock_sender.get_move_events(player2_id);
     
-    println!("  Player 1 received: {} messages", player1_msgs_after);
-    println!("  Player 2 received: {} messages", player2_msgs_after);
+    println!("  Player 1 received: {} move events", player1_move_events_after);
+    println!("  Player 2 received: {} move events", player2_move_events_after);
     
-    assert!(player1_msgs_after > 0, "Player 1 should still receive their own movement echo");
-    assert_eq!(player2_msgs_after, 0, 
-        "Player 2 should NOT receive Player 1's movement (500km away, outside 25m range)");
+    // Check zone messages (informational)
+    let player2_zone_exits = mock_sender.get_zone_exits(player2_id);
+    println!("  Player 2 also received: {} zone_exit messages (expected)", player2_zone_exits);
+    
+    assert!(player1_move_events_after > 0, "Player 1 should still receive their own movement");
+    assert_eq!(player2_move_events_after, 0, 
+        "Player 2 should NOT receive Player 1's MOVE event (500km away, outside 25m range)");
+    assert!(player2_zone_exits > 0,
+        "Player 2 SHOULD receive zone_exit messages (informational)");
     
     println!("  ✅ Distance filtering working correctly!");
+    println!("     - Move events: filtered ✅");
+    println!("     - Zone exits: sent ✅");
     
     println!("\n🎉 TEST PASSED: Distance-based filtering works correctly after movement");
 }
@@ -298,11 +337,9 @@ async fn test_distance_filtering_with_multiple_movements() {
         event_system.update_player_position(player1_id, position).await
             .expect("Failed to update position");
         
-        // Update object position
-        if let Some(mut instance) = gorc_instances.get_object(player1_obj_id).await {
-            instance.object.update_position(position);
-            gorc_instances.update_object(player1_obj_id, instance).await;
-        }
+        // Update object position in GORC tracking (CRITICAL)
+        event_system.update_object_position(player1_obj_id, position).await
+            .expect("Failed to update object position");
         
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         
@@ -322,14 +359,15 @@ async fn test_distance_filtering_with_multiple_movements() {
         
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         
-        let player2_msgs = mock_sender.get_message_count(player2_id);
+        // Check for MOVE events only (filter out zone messages)
+        let player2_move_events = mock_sender.get_move_events(player2_id);
         
         if should_receive {
-            assert!(player2_msgs > 0, "  ❌ Expected Player 2 to receive message at {}", description);
-            println!("  ✅ Player 2 correctly received update");
+            assert!(player2_move_events > 0, "  ❌ Expected Player 2 to receive MOVE event at {}", description);
+            println!("  ✅ Player 2 correctly received move event");
         } else {
-            assert_eq!(player2_msgs, 0, "  ❌ Expected Player 2 to NOT receive message at {}", description);
-            println!("  ✅ Player 2 correctly did NOT receive update");
+            assert_eq!(player2_move_events, 0, "  ❌ Expected Player 2 to NOT receive MOVE event at {}", description);
+            println!("  ✅ Player 2 correctly did NOT receive move event");
         }
     }
     

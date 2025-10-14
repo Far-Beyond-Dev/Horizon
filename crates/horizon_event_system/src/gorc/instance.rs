@@ -468,12 +468,21 @@ impl GorcInstanceManager {
 
         // Check all objects for zone membership changes
         let objects = self.objects.read().await;
+        let object_positions_map = self.object_positions.read().await;
         
         for (object_id, instance) in objects.iter() {
+            // CRITICAL: Get object position from tracking HashMap (single source of truth)
+            let object_position = match object_positions_map.get(object_id) {
+                Some(&pos) => pos,
+                None => {
+                    warn!("Object {} not found in object_positions tracking", object_id);
+                    continue;
+                }
+            };
+            
             let layers = instance.object.get_layers();
             
             for layer in layers {
-                let object_position = instance.object.position();
                 let distance_to_object = new_position.distance(object_position);
                 let was_in_zone = old_position.map_or(false, |pos| pos.distance(object_position) <= layer.radius);
                 let is_in_zone = distance_to_object <= layer.radius;
@@ -508,6 +517,8 @@ impl GorcInstanceManager {
         // N.B. `recalculate_player_subscriptions` tries to acquire a write lock to `objects`,
         // which will deadlock. release the read lock now
         drop(objects);
+        
+        // If this is a new player or they moved significantly, recalculate subscriptions
         if old_position.is_none() || 
            old_position.map(|old| old.distance(new_position) > 5.0).unwrap_or(true) {
             self.recalculate_player_subscriptions(player_id, new_position).await;
@@ -558,6 +569,10 @@ impl GorcInstanceManager {
                 .update_player_position(player_id, spatial_position)
                 .await;
         }
+        
+        // CRITICAL: Calculate initial subscriptions for this player
+        // This ensures they're subscribed to nearby objects immediately
+        self.recalculate_player_subscriptions(player_id, position).await;
         
         // Update statistics
         let mut stats = self.stats.write().await;
@@ -660,14 +675,35 @@ impl GorcInstanceManager {
         result_objects
     }
     
+    /// Get the tracked position of an object (single source of truth for spatial queries)
+    pub async fn get_object_position(&self, object_id: GorcObjectId) -> Option<Vec3> {
+        let object_positions = self.object_positions.read().await;
+        object_positions.get(&object_id).copied()
+    }
+    
     /// Find all players within radius of a position (for event-driven GORC emission)
     pub async fn find_players_in_radius(&self, position: Vec3, radius: f64) -> Vec<PlayerId> {
         let player_positions = self.player_positions.read().await;
-        player_positions
+        debug!("🔍 GORC: Finding players within {}m of position {:?}", radius, position);
+        debug!("🔍 GORC: Total tracked players: {}", player_positions.len());
+        
+        let subscribers: Vec<PlayerId> = player_positions
             .iter()
-            .filter(|(_, &player_pos)| player_pos.distance(position) <= radius)
-            .map(|(&player_id, _)| player_id)
-            .collect()
+            .filter_map(|(&player_id, &player_pos)| {
+                let distance = player_pos.distance(position);
+                debug!("🔍 GORC: Player {} at {:?}, distance: {:.2}m", player_id, player_pos, distance);
+                if distance <= radius {
+                    debug!("  ✅ Within range");
+                    Some(player_id)
+                } else {
+                    debug!("  ❌ Outside range");
+                    None
+                }
+            })
+            .collect();
+        
+        debug!("🔍 GORC: Returning {} subscribers", subscribers.len());
+        subscribers
     }
     
     
