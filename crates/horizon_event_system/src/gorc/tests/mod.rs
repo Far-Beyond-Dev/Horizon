@@ -5,6 +5,7 @@
 //! - Replication system testing
 //! - Integration testing
 //! - Performance benchmarks
+//! - Distance filtering regression tests
 
 #[cfg(test)]
 pub mod zone_event_test;
@@ -20,3 +21,6 @@ pub mod performance_test;
 
 #[cfg(test)]
 pub mod virtualization_test;
+
+#[cfg(test)]
+pub mod distance_filtering_test;

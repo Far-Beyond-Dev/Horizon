@@ -200,6 +200,7 @@ pub fn handle_movement_request_sync(
         client_player, move_data.new_position);
     
     // Broadcast position update to nearby players (within 25m range)
+    // CRITICAL: Update GORC spatial tracking BEFORE broadcasting to ensure correct distance calculations
     debug!("🚀 STEP 8: Beginning position update broadcast for player {}", client_player);
     let object_id_str = gorc_event.object_id.clone();
     debug!("🚀 STEP 9: Using object ID: {}", object_id_str);
@@ -215,6 +216,16 @@ pub fn handle_movement_request_sync(
     
     luminal_handle.spawn(async move {
         debug!("🚀 STEP 11: Inside async broadcast task");
+        
+        // CRITICAL FIX: Update GORC spatial tracking FIRST before finding players in radius
+        // This ensures the distance calculations use the updated position
+        if let Err(e) = events.update_player_position(client_player, move_data.new_position).await {
+            error!("🚀 STEP 11.5: ❌ Failed to update GORC spatial tracking: {}", e);
+        } else {
+            debug!("🚀 STEP 11.5: ✅ Updated GORC spatial tracking for player {} at position {:?}",
+                client_player, move_data.new_position);
+        }
+        
         if let Ok(gorc_id) = GorcObjectId::from_str(&object_id_str) {
             debug!("🚀 STEP 12: Parsed GORC ID successfully: {:?}", gorc_id);
             debug!("🚀 STEP 13: About to call emit_gorc_instance on channel 0");
