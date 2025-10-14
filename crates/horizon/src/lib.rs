@@ -64,7 +64,9 @@ use horizon_event_system::async_logging;
 /// 
 /// * **0**: Successful execution and shutdown
 /// * **1**: Error during startup, configuration, or runtime
-#[tokio::main(flavor = "multi_thread")]
+/// 
+/// Note: This function is called from an async context (main with #[tokio::main]),
+/// so it should NOT have #[tokio::main] itself.
 pub async fn init() -> Result<(), Box<dyn std::error::Error>> {
 
     // Parse CLI arguments first

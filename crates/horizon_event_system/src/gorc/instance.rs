@@ -358,6 +358,30 @@ impl GorcInstanceManager {
             stats.total_objects += 1;
         }
         
+        // CRITICAL: Check all existing players and subscribe them to this new object if in range
+        // This ensures players receive zone_enter messages when new objects spawn near them
+        let player_ids: Vec<PlayerId> = {
+            let player_positions = self.player_positions.read().await;
+            player_positions.keys().copied().collect()
+        };
+        
+        for player_id in player_ids {
+            if let Some(player_pos) = self.player_positions.read().await.get(&player_id).copied() {
+                // Check each channel of the new object
+                let mut objects = self.objects.write().await;
+                if let Some(instance) = objects.get_mut(&object_id) {
+                    for channel in 0..4 {
+                        let should_sub = instance.zone_manager.is_in_zone(player_pos, channel);
+                        if should_sub {
+                            instance.add_subscriber(channel, player_id);
+                            tracing::debug!("➕ New object {}: Player {} auto-subscribed to channel {}", 
+                                          object_id, player_id, channel);
+                        }
+                    }
+                }
+            }
+        }
+        
         tracing::info!("🎯 Registered GORC object {} ({})", object_id, type_name_for_log);
         object_id
     }
@@ -553,15 +577,14 @@ impl GorcInstanceManager {
     }
 
     /// Add a player to the position tracking system
+    /// NOTE: This only registers the player. You MUST call update_player_position()
+    /// afterwards to set the position and calculate subscriptions.
     pub async fn add_player(&self, player_id: PlayerId, position: Vec3) {
         debug!("🎮 GORC: Adding player {} at position {:?}", player_id, position);
 
-        let total_players = {
-            let mut player_positions = self.player_positions.write().await;
-            player_positions.insert(player_id, position);
-            player_positions.len()
-        };
-
+        // Don't insert position here - let update_player_position handle it
+        // This ensures old_position will be None, triggering subscription calculation
+        
         {
             let spatial_position: Position = position.into();
             let partition = self.spatial_index.read().await;
@@ -570,14 +593,16 @@ impl GorcInstanceManager {
                 .await;
         }
         
-        // CRITICAL: Calculate initial subscriptions for this player
-        // This ensures they're subscribed to nearby objects immediately
-        self.recalculate_player_subscriptions(player_id, position).await;
+        // NOTE: Subscription calculation should be done via update_player_position()
+        // which is typically called before or after this method. We don't do it here
+        // to avoid nested async calls that can cause runtime issues when called from
+        // plugin contexts using luminal runtime.
         
         // Update statistics
         let mut stats = self.stats.write().await;
         stats.total_subscriptions += 1;
 
+        let total_players = self.player_positions.read().await.len();
         info!(
             "🎮 GORC: Player {} added. Total tracked players: {}",
             player_id,
@@ -885,10 +910,17 @@ impl GorcInstanceManager {
     pub async fn notify_existing_players_for_new_object(&self, object_id: GorcObjectId) -> Vec<(PlayerId, u8)> {
         let mut zone_entries = Vec::new();
 
+        // CRITICAL: Get object position from tracking HashMap (single source of truth)
         let (object_position, layers) = {
+            let object_positions = self.object_positions.read().await;
             let objects = self.objects.read().await;
-            if let Some(instance) = objects.get(&object_id) {
-                (instance.object.position(), instance.object.get_layers())
+            
+            if let Some(&pos) = object_positions.get(&object_id) {
+                if let Some(instance) = objects.get(&object_id) {
+                    (pos, instance.object.get_layers())
+                } else {
+                    return zone_entries;
+                }
             } else {
                 return zone_entries;
             }

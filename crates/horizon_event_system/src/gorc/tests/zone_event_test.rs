@@ -191,6 +191,9 @@ async fn test_object_movement_zone_events() {
     // Add a stationary player at origin
     let player_id = PlayerId::new();
     gorc_manager.add_player(player_id, Vec3::new(0.0, 0.0, 0.0)).await;
+    
+    // CRITICAL: Set player position (add_player no longer does this to avoid runtime issues)
+    events.update_player_position(player_id, Vec3::new(0.0, 0.0, 0.0)).await.unwrap();
 
     // Move the object close to the stationary player - should trigger zone entry events
     events.update_object_position(object_id, Vec3::new(25.0, 25.0, 0.0)).await.unwrap();
@@ -232,6 +235,9 @@ async fn test_new_object_creation_zone_events() {
     // Add a player at a specific position first
     let player_id = PlayerId::new();
     gorc_manager.add_player(player_id, Vec3::new(25.0, 25.0, 0.0)).await;
+    
+    // CRITICAL: Set player position (add_player no longer does this to avoid runtime issues)
+    events.update_player_position(player_id, Vec3::new(25.0, 25.0, 0.0)).await.unwrap();
 
     // Create a new object near the existing player - should trigger zone entry events
     let test_object = TestGorcObject::new(Vec3::new(0.0, 0.0, 0.0), "new_asteroid".to_string());

@@ -194,6 +194,12 @@ async fn test_distance_filtering_after_movement() {
     gorc_instances.add_player(player1_id, Vec3::new(0.0, 0.0, 0.0)).await;
     gorc_instances.add_player(player2_id, Vec3::new(0.0, 0.0, 0.0)).await;
     
+    // CRITICAL: Trigger subscription calculation for both players
+    event_system.update_player_position(player1_id, Vec3::new(0.0, 0.0, 0.0)).await
+        .expect("Failed to update player 1 position");
+    event_system.update_player_position(player2_id, Vec3::new(0.0, 0.0, 0.0)).await
+        .expect("Failed to update player 2 position");
+    
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     
     println!("\n📡 PHASE 1: Both players at (0,0,0) - should receive each other's updates");
@@ -316,6 +322,12 @@ async fn test_distance_filtering_with_multiple_movements() {
     
     gorc_instances.add_player(player1_id, Vec3::new(0.0, 0.0, 0.0)).await;
     gorc_instances.add_player(player2_id, Vec3::new(0.0, 0.0, 0.0)).await;
+    
+    // CRITICAL: Trigger subscription calculation for both players
+    event_system.update_player_position(player1_id, Vec3::new(0.0, 0.0, 0.0)).await
+        .expect("Failed to update player 1 position");
+    event_system.update_player_position(player2_id, Vec3::new(0.0, 0.0, 0.0)).await
+        .expect("Failed to update player 2 position");
     
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
     
