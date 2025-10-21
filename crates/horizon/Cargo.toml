@@ -1,6 +1,6 @@
 [package]
 name = "horizon"
-version = "0.40.0"
+version = "0.41.0"
 edition = "2021"
 
 [[bin]]
@@ -25,4 +25,5 @@ toml = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
 
