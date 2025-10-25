@@ -4,10 +4,14 @@
 
 <br>
 
-A high-performance, modular game server architecture built in Rust, designed for large-scale multiplayer games with real-time networking requirements. The server provides a plugin-first architecture that separates infrastructure concerns from game logic, enabling rapid development and deployment of multiplayer game features.
-
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange.svg)](https://www.rust-lang.org/)
+
+A high-performance, modular game server architecture built in Rust, designed for large-scale multiplayer games with real-time networking requirements. The server provides a plugin-first architecture that separates infrastructure concerns from game logic, enabling rapid development and deployment of multiplayer game features.
+
+## Before you continue
+
+**Do you like this project?** You may like the pulsar game engine from many of the same developers who work on Horizon. [Check it out](https://github.com/Far-Beyond-Pulsar/Pulsar-Native)
 
 ## Table of Contents
 
@@ -442,5 +446,6 @@ Before contributing, please review the contribution guidelines and ensure that y
 The development process includes continuous integration with automated testing, code coverage reporting, and performance regression detection. All contributions undergo code review by project maintainers to ensure quality and consistency with the existing codebase.
 
 ## License
+
 
 This project is licensed under the Apache License 2.0. See the LICENSE file for details.
