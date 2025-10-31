@@ -585,7 +585,7 @@ impl ExampleAsteroid {
 }
 
 impl GorcObject for ExampleAsteroid {
-    fn type_name(&self) -> &'static str { "ExampleAsteroid" }
+    fn type_name(&self) -> &str { "ExampleAsteroid" }
     
     fn position(&self) -> Vec3 { self.position }
     
@@ -712,7 +712,7 @@ impl ExamplePlayer {
 }
 
 impl GorcObject for ExamplePlayer {
-    fn type_name(&self) -> &'static str { "ExamplePlayer" }
+    fn type_name(&self) -> &str { "ExamplePlayer" }
     
     fn position(&self) -> Vec3 { self.position }
     
@@ -841,7 +841,7 @@ impl ExampleProjectile {
 }
 
 impl GorcObject for ExampleProjectile {
-    fn type_name(&self) -> &'static str { "ExampleProjectile" }
+    fn type_name(&self) -> &str { "ExampleProjectile" }
     
     fn position(&self) -> Vec3 { self.position }
     

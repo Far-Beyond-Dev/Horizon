@@ -50,7 +50,7 @@ impl std::fmt::Display for GorcObjectId {
 /// Trait for objects that can be replicated through GORC instances
 pub trait GorcObject: Send + Sync + Any + std::fmt::Debug {
     /// Get the type name of this object
-    fn type_name(&self) -> &'static str;
+    fn type_name(&self) -> &str;
     
     /// Get the current position of this object
     fn position(&self) -> Vec3;
@@ -310,13 +310,23 @@ impl GorcInstanceManager {
         manager
     }
 
-    /// Registers a new object instance
+    /// Registers a new object instance (convenience - auto-generated UUID)
     pub async fn register_object<T: GorcObject + 'static>(
         &self,
         object: T,
         initial_position: Vec3,
     ) -> GorcObjectId {
-        let object_id = GorcObjectId::new();
+        self.register_object_with_uuid(object, initial_position, None).await
+    }
+
+    /// Registers a new object instance (optionally provide UUID)
+    pub async fn register_object_with_uuid<T: GorcObject + 'static>(
+        &self,
+        object: T,
+        initial_position: Vec3,
+        uuid: Option<GorcObjectId>,
+    ) -> GorcObjectId {
+        let object_id = uuid.unwrap_or_else(GorcObjectId::new);
         let type_name = object.type_name().to_string();
         let type_name_for_registry = type_name.clone();
         let type_name_for_log = type_name.clone();

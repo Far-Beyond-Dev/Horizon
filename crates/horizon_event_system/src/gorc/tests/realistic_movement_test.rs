@@ -188,7 +188,7 @@ impl SimPlayer {
 }
 
 impl GorcObject for SimPlayer {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         "GorcPlayer"
     }
     

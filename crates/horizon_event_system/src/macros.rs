@@ -429,7 +429,7 @@ macro_rules! on_event {
 /// }
 /// 
 /// impl GorcObject for Asteroid {
-///     fn type_name(&self) -> &'static str { "Asteroid" }
+///     fn type_name(&self) -> &str { "Asteroid" }
 ///     fn position(&self) -> Vec3 { self.position }
 ///     fn get_layers(&self) -> Vec<ReplicationLayer> {
 ///         vec![ReplicationLayer::new(

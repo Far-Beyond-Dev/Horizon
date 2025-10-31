@@ -53,7 +53,7 @@ struct SpaceShip {
 }
 
 impl GorcObject for SpaceShip {
-    fn type_name(&self) -> &'static str { "SpaceShip" }
+    fn type_name(&self) -> &str { "SpaceShip" }
     
     fn position(&self) -> Vec3 { self.position }
     

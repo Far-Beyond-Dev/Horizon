@@ -83,7 +83,7 @@ impl TestGameObject {
 }
 
 impl GorcObject for TestGameObject {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         "TestGameObject"
     }
     

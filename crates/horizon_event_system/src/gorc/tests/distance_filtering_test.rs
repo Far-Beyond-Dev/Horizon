@@ -111,7 +111,7 @@ impl TestPlayer {
 }
 
 impl GorcObject for TestPlayer {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         "TestPlayer"
     }
     

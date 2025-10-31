@@ -52,7 +52,7 @@ impl<T> crate::GorcObject for T
 where 
     T: SimpleGorcObject + serde::Serialize + for<'de> serde::Deserialize<'de>,
 {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         T::object_type()
     }
     
