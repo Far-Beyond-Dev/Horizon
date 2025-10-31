@@ -28,7 +28,7 @@ impl PerfTestObject {
 }
 
 impl GorcObject for PerfTestObject {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         "PerfTestObject"
     }
 
@@ -390,7 +390,7 @@ impl LargeZoneTestObject {
 }
 
 impl GorcObject for LargeZoneTestObject {
-    fn type_name(&self) -> &'static str {
+    fn type_name(&self) -> &str {
         "LargeZoneTestObject"
     }
 

@@ -84,7 +84,7 @@ macro_rules! impl_gorc_object {
         $crate::__check_duplicate_zone_types!($($zone_type),*);
         
         impl $crate::GorcObject for $name {
-            fn type_name(&self) -> &'static str {
+            fn type_name(&self) -> &str {
                 stringify!($name)
             }
             
