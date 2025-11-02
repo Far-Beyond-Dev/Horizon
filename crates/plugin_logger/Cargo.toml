@@ -1,4 +1,4 @@
- [package]
+[package]
 tracing-subscriber = "0.3"
 name = "plugin_logger"
 version = "0.1.0"
