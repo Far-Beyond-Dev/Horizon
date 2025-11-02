@@ -1,4 +1,5 @@
-[package]
+ [package]
+tracing-subscriber = "0.3"
 name = "plugin_logger"
 version = "0.1.0"
 edition = "2021"
@@ -18,3 +19,4 @@ tracing = { workspace = true }
 async-trait = { workspace = true }
 dashmap = { workspace = true }
 ue_types = { workspace = true }
+tracing-subscriber = "0.3"

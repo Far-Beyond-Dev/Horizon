@@ -105,11 +105,11 @@ impl GameServer {
     /// 3. Initializes plugin manager with event system binding
     /// 4. Creates all GORC components for advanced networking
     /// 5. Generates unique region ID for this server instance
-    pub fn new(config: ServerConfig) -> Self {
-    let region_id = RegionId::new();
-    use horizon_event_system::gorc::instance::GorcInstanceManager;
-    let gorc_instance_manager = Arc::new(GorcInstanceManager::new());
-    let mut horizon_event_system = Arc::new(EventSystem::with_gorc(gorc_instance_manager.clone()));
+    pub fn new(config: ServerConfig, log_level: horizon_event_system::LogLevel) -> Self {
+        let region_id = RegionId::new();
+        use horizon_event_system::gorc::instance::GorcInstanceManager;
+        let gorc_instance_manager = Arc::new(GorcInstanceManager::new());
+        let mut horizon_event_system = Arc::new(EventSystem::with_gorc(gorc_instance_manager.clone()));
         let connection_manager = Arc::new(ConnectionManager::new());
         let (shutdown_sender, _) = broadcast::channel(1);
 
@@ -135,15 +135,6 @@ impl GameServer {
         let multicast_manager = Arc::new(MulticastManager::new());
         let spatial_partition = Arc::new(SpatialPartition::new());
 
-        // Determine log level from config (default to Info)
-        let log_level = match config.logging.level.as_str() {
-            "error" => horizon_event_system::LogLevel::Error,
-            "warn" => horizon_event_system::LogLevel::Warn,
-            "info" => horizon_event_system::LogLevel::Info,
-            "debug" => horizon_event_system::LogLevel::Debug,
-            "trace" => horizon_event_system::LogLevel::Trace,
-            _ => horizon_event_system::LogLevel::Info,
-        };
         Self {
             config,
             log_level,
@@ -157,10 +148,11 @@ impl GameServer {
             multicast_manager,
             spatial_partition,
         }
+    }
+
     /// Returns the log level for plugin and server logging
     pub fn log_level(&self) -> horizon_event_system::LogLevel {
         self.log_level
-    }
     }
 
     /// Starts the game server and begins accepting connections with graceful shutdown support.

@@ -96,6 +96,9 @@ impl BasicServerContext {
 
 #[async_trait::async_trait]
 impl ServerContext for BasicServerContext {
+    fn log_level(&self) -> horizon_event_system::LogLevel {
+        horizon_event_system::LogLevel::Info
+    }
     fn events(&self) -> Arc<EventSystem> {
         self.event_system.clone()
     }

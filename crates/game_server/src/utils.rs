@@ -25,7 +25,7 @@ use crate::{config::ServerConfig, server::GameServer};
 /// # }
 /// ```
 pub fn create_server() -> GameServer {
-    GameServer::new(ServerConfig::default())
+    GameServer::new(ServerConfig::default(), horizon_event_system::LogLevel::Info)
 }
 
 /// Creates a new game server with custom configuration.
@@ -59,5 +59,5 @@ pub fn create_server() -> GameServer {
 /// # }
 /// ```
 pub fn create_server_with_config(config: ServerConfig) -> GameServer {
-    GameServer::new(config)
+    GameServer::new(config, horizon_event_system::LogLevel::Info)
 }

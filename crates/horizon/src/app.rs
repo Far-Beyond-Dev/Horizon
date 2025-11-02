@@ -90,7 +90,18 @@ impl Application {
 
         // Create server with new architecture
         let server_config = config.to_server_config(plugin_safety_config)?;
-        let server = GameServer::new(server_config);
+        
+        // Parse log level from config
+        let log_level = match config.logging.level.as_str() {
+            "error" => horizon_event_system::LogLevel::Error,
+            "warn" => horizon_event_system::LogLevel::Warn,
+            "info" => horizon_event_system::LogLevel::Info,
+            "debug" => horizon_event_system::LogLevel::Debug,
+            "trace" => horizon_event_system::LogLevel::Trace,
+            _ => horizon_event_system::LogLevel::Info,
+        };
+        
+        let server = GameServer::new(server_config, log_level);
 
         // Log startup information
         info!("🚀 Horizon Game Server v1.0.0 - Community Edition");
