@@ -2,7 +2,8 @@
 
 pkgs.mkShell {
   buildInputs = [
-    pkgs.rust-bin.stable.latest.default
+    pkgs.rustc
+    pkgs.cargo
     pkgs.pkg-config
     pkgs.openssl
     pkgs.protobuf
