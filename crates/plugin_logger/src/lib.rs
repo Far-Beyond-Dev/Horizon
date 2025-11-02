@@ -300,9 +300,22 @@ impl SimplePlugin for LoggerPlugin {
     }
 
     async fn on_init(&mut self, context: Arc<dyn ServerContext>) -> Result<(), PluginError> {
+        // Set up tracing_subscriber with the log level from ServerContext
+        let plugin_log_level = context.log_level();
+        let filter = match plugin_log_level {
+            LogLevel::Error => "error",
+            LogLevel::Warn => "warn",
+            LogLevel::Info => "info",
+            LogLevel::Debug => "debug",
+            LogLevel::Trace => "trace",
+        };
+        tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .init();
+
         context.log(
             LogLevel::Info,
-            "📝 LoggerPlugin: Comprehensive event logging activated!",
+            &format!("📝 LoggerPlugin: Comprehensive event logging activated at level: {:?}!", plugin_log_level),
         );
 
         // Announce our logging service to other plugins

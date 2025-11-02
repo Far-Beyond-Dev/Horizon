@@ -6,12 +6,20 @@ use tracing::debug;
 // Mock server context for testing
 #[cfg(test)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct MockServerContext;
+struct MockServerContext {
+    log_level: LogLevel,
+}
 
 #[cfg(test)]
 impl MockServerContext {
     fn new() -> Self {
-        Self
+        Self {
+            log_level: LogLevel::Info,
+        }
+    }
+
+    fn with_log_level(log_level: LogLevel) -> Self {
+        Self { log_level }
     }
 }
 
@@ -46,6 +54,10 @@ impl ServerContext for MockServerContext {
 
     fn gorc_instance_manager(&self) -> Option<Arc<crate::gorc::GorcInstanceManager>> {
         None
+    }
+
+    fn log_level(&self) -> LogLevel {
+        self.log_level
     }
 }
 

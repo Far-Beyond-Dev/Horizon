@@ -162,6 +162,11 @@ pub trait ServerContext: Send + Sync + Debug {
     /// Returns an Arc to the GorcInstanceManager if available, or None if GORC
     /// is not enabled for this server context.
     fn gorc_instance_manager(&self) -> Option<Arc<crate::gorc::GorcInstanceManager>>;
+
+    /// Returns the current log level for this server context.
+    ///
+    /// Plugins can use this to set up their own logging/tracing subscribers.
+    fn log_level(&self) -> LogLevel;
 }
 
 // ============================================================================
