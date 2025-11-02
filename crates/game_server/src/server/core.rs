@@ -127,7 +127,7 @@ impl GameServer {
         }
 
         // Initialize plugin manager with safety configuration and GORC support
-        let plugin_manager = Arc::new(PluginManager::with_gorc(horizon_event_system.clone(), config.plugin_safety.clone(), gorc_instance_manager.clone()));
+        let plugin_manager = Arc::new(PluginManager::with_gorc(horizon_event_system.clone(), config.plugin_safety.clone(), gorc_instance_manager.clone(), log_level));
 
         // Initialize GORC components
         let gorc_manager = Arc::new(GorcManager::new());

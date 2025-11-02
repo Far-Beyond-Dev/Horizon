@@ -36,6 +36,7 @@ struct BasicServerContext {
     region_id: horizon_event_system::types::RegionId,
     luminal_handle: luminal::Handle,
     gorc_instance_manager: Option<Arc<horizon_event_system::gorc::GorcInstanceManager>>,
+    log_level: horizon_event_system::LogLevel,
 }
 
 impl std::fmt::Debug for BasicServerContext {
@@ -48,48 +49,52 @@ impl std::fmt::Debug for BasicServerContext {
 
 impl BasicServerContext {
     /// Create a new basic context with a specific region.
-    fn new(event_system: Arc<EventSystem>) -> Self {
+    fn new(event_system: Arc<EventSystem>, log_level: horizon_event_system::LogLevel) -> Self {
         let luminal_rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
             luminal_handle: luminal_rt.handle().clone(),
             gorc_instance_manager: None,
+            log_level,
         }
     }
 
     /// Create a context with a custom region id.
     #[allow(dead_code)]
-    fn with_region(event_system: Arc<EventSystem>, region_id: horizon_event_system::types::RegionId) -> Self {
+    fn with_region(event_system: Arc<EventSystem>, region_id: horizon_event_system::types::RegionId, log_level: horizon_event_system::LogLevel) -> Self {
         let luminal_rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
         Self { 
             event_system, 
             region_id,
             luminal_handle: luminal_rt.handle().clone(),
             gorc_instance_manager: None,
+            log_level,
         }
     }
 
     /// Create a context with an explicit luminal handle.
     #[allow(dead_code)]
-    fn with_luminal_handle(event_system: Arc<EventSystem>, luminal_handle: luminal::Handle) -> Self {
+    fn with_luminal_handle(event_system: Arc<EventSystem>, luminal_handle: luminal::Handle, log_level: horizon_event_system::LogLevel) -> Self {
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
             luminal_handle: luminal_handle,
             gorc_instance_manager: None,
+            log_level,
         }
     }
 
     /// Create a context with a GORC instance manager.
     #[allow(dead_code)]
-    fn with_gorc(event_system: Arc<EventSystem>, gorc_instance_manager: Arc<horizon_event_system::gorc::GorcInstanceManager>) -> Self {
+    fn with_gorc(event_system: Arc<EventSystem>, gorc_instance_manager: Arc<horizon_event_system::gorc::GorcInstanceManager>, log_level: horizon_event_system::LogLevel) -> Self {
         let luminal_rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
             luminal_handle: luminal_rt.handle().clone(),
             gorc_instance_manager: Some(gorc_instance_manager),
+            log_level,
         }
     }
 }
@@ -97,7 +102,7 @@ impl BasicServerContext {
 #[async_trait::async_trait]
 impl ServerContext for BasicServerContext {
     fn log_level(&self) -> horizon_event_system::LogLevel {
-        horizon_event_system::LogLevel::Info
+        self.log_level
     }
     fn events(&self) -> Arc<EventSystem> {
         self.event_system.clone()
@@ -165,6 +170,8 @@ pub struct PluginManager {
     safety_config: PluginSafetyConfig,
     /// Optional GORC instance manager for object replication
     gorc_instance_manager: Option<Arc<horizon_event_system::gorc::GorcInstanceManager>>,
+    /// Log level for plugins
+    log_level: horizon_event_system::LogLevel,
 }
 
 impl PluginManager {
@@ -174,16 +181,18 @@ impl PluginManager {
     ///
     /// * `event_system` - The event system that plugins will use for communication
     /// * `safety_config` - Configuration for plugin loading safety checks
+    /// * `log_level` - Log level for plugin contexts
     ///
     /// # Returns
     ///
     /// A new `PluginManager` instance ready to load plugins.
-    pub fn new(event_system: Arc<EventSystem>, safety_config: PluginSafetyConfig) -> Self {
+    pub fn new(event_system: Arc<EventSystem>, safety_config: PluginSafetyConfig, log_level: horizon_event_system::LogLevel) -> Self {
         Self {
             event_system,
             loaded_plugins: DashMap::new(),
             safety_config,
             gorc_instance_manager: None,
+            log_level,
         }
     }
 
@@ -194,6 +203,7 @@ impl PluginManager {
     /// * `event_system` - The event system that plugins will use for communication
     /// * `safety_config` - Configuration for plugin loading safety checks
     /// * `gorc_instance_manager` - GORC instance manager for object replication
+    /// * `log_level` - Log level for plugin contexts
     ///
     /// # Returns
     ///
@@ -201,13 +211,15 @@ impl PluginManager {
     pub fn with_gorc(
         event_system: Arc<EventSystem>, 
         safety_config: PluginSafetyConfig,
-        gorc_instance_manager: Arc<horizon_event_system::gorc::GorcInstanceManager>
+        gorc_instance_manager: Arc<horizon_event_system::gorc::GorcInstanceManager>,
+        log_level: horizon_event_system::LogLevel,
     ) -> Self {
         Self {
             event_system,
             loaded_plugins: DashMap::new(),
             safety_config,
             gorc_instance_manager: Some(gorc_instance_manager),
+            log_level,
         }
     }
 
@@ -436,9 +448,9 @@ impl PluginManager {
         info!("🔧 Initializing {} loaded plugins", self.loaded_plugins.len());
 
         let context = if let Some(gorc_manager) = &self.gorc_instance_manager {
-            Arc::new(BasicServerContext::with_gorc(self.event_system.clone(), gorc_manager.clone()))
+            Arc::new(BasicServerContext::with_gorc(self.event_system.clone(), gorc_manager.clone(), self.log_level))
         } else {
-            Arc::new(BasicServerContext::new(self.event_system.clone()))
+            Arc::new(BasicServerContext::new(self.event_system.clone(), self.log_level))
         };
 
         // Phase 1: Pre-initialization (register handlers)
@@ -488,9 +500,9 @@ impl PluginManager {
         info!("🛑 Shutting down {} plugins", self.loaded_plugins.len());
 
         let context = if let Some(gorc_manager) = &self.gorc_instance_manager {
-            Arc::new(BasicServerContext::with_gorc(self.event_system.clone(), gorc_manager.clone()))
+            Arc::new(BasicServerContext::with_gorc(self.event_system.clone(), gorc_manager.clone(), self.log_level))
         } else {
-            Arc::new(BasicServerContext::new(self.event_system.clone()))
+            Arc::new(BasicServerContext::new(self.event_system.clone(), self.log_level))
         };
 
         // Call shutdown on all plugins and collect libraries for controlled cleanup
