@@ -504,17 +504,37 @@ impl EventSystem {
                 }
             };
 
-            // TODO: This blocking call is not ideal - we should implement this in a non-blocking way
-            let result = tokio::task::block_in_place(move || {
-                let runtime = tokio::runtime::Handle::current();
-                runtime.block_on(async move {
-                    if let Some(mut instance) = instances.get_object(object_id).await {
-                        handler_fn(event, &mut instance)
-                    } else {
-                        Err(EventError::HandlerExecution("Object instance not found".to_string()))
-                    }
+            // Try to get the current runtime handle, or create a new runtime if needed
+            let result = if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                // We're in a runtime context, use block_in_place for efficiency
+                tokio::task::block_in_place(move || {
+                    handle.block_on(async move {
+                        if let Some(mut instance) = instances.get_object(object_id).await {
+                            handler_fn(event, &mut instance)
+                        } else {
+                            Err(EventError::HandlerExecution("Object instance not found".to_string()))
+                        }
+                    })
                 })
-            });
+            } else {
+                // No runtime context available, create a new single-threaded runtime
+                match tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                {
+                    Ok(rt) => rt.block_on(async move {
+                        if let Some(mut instance) = instances.get_object(object_id).await {
+                            handler_fn(event, &mut instance)
+                        } else {
+                            Err(EventError::HandlerExecution("Object instance not found".to_string()))
+                        }
+                    }),
+                    Err(e) => {
+                        error!("❌ Failed to create runtime for GORC handler: {}", e);
+                        Err(EventError::RuntimeError(format!("Failed to create runtime: {}", e)))
+                    }
+                }
+            };
 
             result
         });

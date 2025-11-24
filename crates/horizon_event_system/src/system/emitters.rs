@@ -151,8 +151,19 @@ impl EventSystem {
                 if dest == Dest::Server || dest == Dest::Both {
                     let instance_key = CompactString::new_inline("gorc_instance:") + object_type + ":" + &channel.to_string() + ":" + event_name;
                     
+                    // Wrap the event data in a GorcEvent structure for server-side handlers
+                    let gorc_event = crate::events::GorcEvent {
+                        object_id: object_id.to_string(),
+                        instance_uuid: object_id.to_string(),
+                        object_type: object_type.clone(),
+                        channel,
+                        data: Event::serialize(event)?,
+                        priority: "Normal".to_string(),
+                        timestamp: crate::utils::current_timestamp(),
+                    };
+                    
                     // Emit to instance-specific handlers only
-                    if let Err(e) = self.emit_event(&instance_key, event).await {
+                    if let Err(e) = self.emit_event(&instance_key, &gorc_event).await {
                         warn!("Failed to emit instance event: {}", e);
                     }
                 }
