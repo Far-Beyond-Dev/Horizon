@@ -517,9 +517,10 @@ impl GorcInstanceManager {
             let layers = instance.object.get_layers();
             
             for layer in layers {
-                let distance_to_object = new_position.distance(object_position);
-                let was_in_zone = old_position.map_or(false, |pos| pos.distance(object_position) <= layer.radius);
-                let is_in_zone = distance_to_object <= layer.radius;
+                let radius_sq = layer.radius * layer.radius;
+                let distance_sq = new_position.distance_squared(object_position);
+                let was_in_zone = old_position.map_or(false, |pos| pos.distance_squared(object_position) <= radius_sq);
+                let is_in_zone = distance_sq <= radius_sq;
                 
                 
                 match (was_in_zone, is_in_zone) {
@@ -553,8 +554,9 @@ impl GorcInstanceManager {
         drop(objects);
         
         // If this is a new player or they moved significantly, recalculate subscriptions
+        const MOVEMENT_THRESHOLD_SQ: f64 = 25.0; // 5.0 * 5.0
         if old_position.is_none() || 
-           old_position.map(|old| old.distance(new_position) > 5.0).unwrap_or(true) {
+           old_position.map(|old| old.distance_squared(new_position) > MOVEMENT_THRESHOLD_SQ).unwrap_or(true) {
             self.recalculate_player_subscriptions(player_id, new_position).await;
         }
         
@@ -690,9 +692,10 @@ impl GorcInstanceManager {
         ).await;
 
         // Filter by actual object positions and range
+        let range_sq = range * range;
         for _query_result in query_results {
             for (&object_id, &obj_pos) in object_positions.iter() {
-                if obj_pos.distance(position) <= range {
+                if obj_pos.distance_squared(position) <= range_sq {
                     result_objects.push(object_id);
                 }
             }
@@ -702,7 +705,7 @@ impl GorcInstanceManager {
         if result_objects.is_empty() {
             result_objects = object_positions
                 .iter()
-                .filter(|(_, &obj_pos)| obj_pos.distance(position) <= range)
+                .filter(|(_, &obj_pos)| obj_pos.distance_squared(position) <= range_sq)
                 .map(|(&obj_id, _)| obj_id)
                 .collect();
         }
@@ -722,12 +725,14 @@ impl GorcInstanceManager {
         debug!("🔍 GORC: Finding players within {}m of position {:?}", radius, position);
         debug!("🔍 GORC: Total tracked players: {}", player_positions.len());
         
+        let radius_sq = radius * radius;
         let subscribers: Vec<PlayerId> = player_positions
             .iter()
             .filter_map(|(&player_id, &player_pos)| {
-                let distance = player_pos.distance(position);
-                debug!("🔍 GORC: Player {} at {:?}, distance: {:.2}m", player_id, player_pos, distance);
-                if distance <= radius {
+                let distance_sq = player_pos.distance_squared(position);
+                // let distance = distance_sq.sqrt(); // Only for debug logging
+                // debug!("🔍 GORC: Player {} at {:?}, distance: {:.2}m", player_id, player_pos, distance);
+                if distance_sq <= radius_sq {
                     debug!("  ✅ Within range");
                     Some(player_id)
                 } else {
@@ -845,8 +850,9 @@ impl GorcInstanceManager {
                         }
                     }
 
-                    let was_in_zone = player_pos.distance(old_position) <= layer.radius;
-                    let is_in_zone = player_pos.distance(new_position) <= layer.radius;
+                    let radius_sq = layer.radius * layer.radius;
+                    let was_in_zone = player_pos.distance_squared(old_position) <= radius_sq;
+                    let is_in_zone = player_pos.distance_squared(new_position) <= radius_sq;
                     let is_subbed = instance.is_subscribed(channel, player_id);
 
                     if is_in_zone && layer.radius == smallest_radius {
@@ -947,9 +953,10 @@ impl GorcInstanceManager {
                 // Check if player should be subscribed to any zones of this new object
                 for layer in &layers {
                     let channel = layer.channel;
-                    let distance = player_pos.distance(object_position);
+                    let radius_sq = layer.radius * layer.radius;
+                    let distance_sq = player_pos.distance_squared(object_position);
 
-                    if distance <= layer.radius {
+                    if distance_sq <= radius_sq {
                         instance.add_subscriber(channel, player_id);
                         zone_entries.push((player_id, channel));
                         debug!("🆕 GORC New Object: Player {} automatically entered zone {} of new object {}", player_id, channel, object_id);

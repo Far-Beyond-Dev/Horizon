@@ -8,7 +8,7 @@ use horizon_event_system::{PlayerId, AuthenticationStatus};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{mpsc, RwLock};
 use tracing::info;
 use futures_util::sink::SinkExt;
 use futures_util::stream::SplitSink;
@@ -25,7 +25,7 @@ use tokio_tungstenite::{WebSocketStream, tungstenite::Message};
 /// 
 /// * Uses `RwLock<HashMap>` for thread-safe connection storage
 /// * Implements atomic connection ID generation
-/// * Provides broadcast channel for outgoing messages
+/// * Per-connection mpsc channels for O(1) message delivery
 /// * Maintains bidirectional player-connection mapping
 #[derive(Debug)]
 pub struct ConnectionManager {
@@ -36,26 +36,25 @@ pub struct ConnectionManager {
     /// Atomic counter for generating unique connection IDs
     next_id: Arc<std::sync::atomic::AtomicUsize>,
     
-    /// Broadcast sender for outgoing messages to specific connections
-    sender: broadcast::Sender<(ConnectionId, Vec<u8>)>,
+    /// Per-connection message senders for O(1) message delivery
+    message_senders: Arc<RwLock<HashMap<ConnectionId, mpsc::UnboundedSender<Vec<u8>>>>>,
 }
 
 impl ConnectionManager {
     /// Creates a new connection manager.
     /// 
-    /// Initializes the internal data structures and broadcast channel
-    /// with a reasonable buffer size for message queuing.
+    /// Initializes the internal data structures with per-connection
+    /// message channels for efficient O(1) message delivery.
     /// 
     /// # Returns
     /// 
     /// A new `ConnectionManager` instance ready to handle connections.
     pub fn new() -> Self {
-        let (sender, _) = broadcast::channel(1000);
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
             ws_senders: Arc::new(RwLock::new(HashMap::new())),
             next_id: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
-            sender,
+            message_senders: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -170,25 +169,64 @@ impl ConnectionManager {
         connections.get(&connection_id).and_then(|c| c.player_id)
     }
 
+    /// Registers a message channel for a connection.
+    /// 
+    /// Creates a new per-connection mpsc channel and returns the receiver.
+    /// This allows O(1) message delivery without filtering overhead.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `connection_id` - The connection to register a channel for
+    /// 
+    /// # Returns
+    /// 
+    /// An unbounded receiver for messages targeted to this connection.
+    pub async fn register_message_channel(&self, connection_id: ConnectionId) -> mpsc::UnboundedReceiver<Vec<u8>> {
+        let (sender, receiver) = mpsc::unbounded_channel();
+        let mut senders = self.message_senders.write().await;
+        senders.insert(connection_id, sender);
+        tracing::debug!("📬 Registered message channel for connection {}", connection_id);
+        receiver
+    }
+
+    /// Removes the message channel for a connection.
+    /// 
+    /// This should be called during connection cleanup to prevent
+    /// memory leaks from unused channels.
+    /// 
+    /// # Arguments
+    /// 
+    /// * `connection_id` - The connection whose channel should be removed
+    pub async fn remove_message_channel(&self, connection_id: ConnectionId) {
+        let mut senders = self.message_senders.write().await;
+        senders.remove(&connection_id);
+        tracing::debug!("📭 Removed message channel for connection {}", connection_id);
+    }
+
     /// Sends a message to a specific connection.
     /// 
-    /// Queues a message for delivery to the specified connection through
-    /// the internal broadcast channel.
+    /// Uses direct HashMap lookup for O(1) message delivery to the
+    /// connection's dedicated mpsc channel.
     /// 
     /// # Arguments
     /// 
     /// * `connection_id` - The target connection
     /// * `message` - The message data to send
     pub async fn send_to_connection(&self, connection_id: ConnectionId, message: Vec<u8>) {
-        if let Err(e) = self.sender.send((connection_id, message)) {
-            tracing::error!("Failed to send message to connection {}: {:?}", connection_id, e);
+        let senders = self.message_senders.read().await;
+        if let Some(sender) = senders.get(&connection_id) {
+            if let Err(e) = sender.send(message) {
+                tracing::error!("Failed to send message to connection {}: {:?}", connection_id, e);
+            }
+        } else {
+            tracing::warn!("Attempted to send message to non-existent connection {}", connection_id);
         }
     }
 
     /// Broadcasts a message to all currently connected clients.
     /// 
-    /// Sends the same message to every active connection. The message is
-    /// cloned for each connection to ensure proper delivery.
+    /// Sends the same message to every active connection using their
+    /// dedicated mpsc channels for O(N) delivery.
     /// 
     /// # Arguments
     /// 
@@ -196,31 +234,21 @@ impl ConnectionManager {
     /// 
     /// # Returns
     /// 
-    /// The number of connections that the message was queued for.
+    /// The number of connections that the message was sent to.
     pub async fn broadcast_to_all(&self, message: Vec<u8>) -> usize {
-        let connections = self.connections.read().await;
-        let connection_count = connections.len();
+        let senders = self.message_senders.read().await;
+        let mut sent_count = 0;
         
-        for &connection_id in connections.keys() {
-            if let Err(e) = self.sender.send((connection_id, message.clone())) {
+        for (connection_id, sender) in senders.iter() {
+            if let Err(e) = sender.send(message.clone()) {
                 tracing::error!("Failed to broadcast message to connection {}: {:?}", connection_id, e);
+            } else {
+                sent_count += 1;
             }
         }
         
-        tracing::debug!("📡 Broadcasted message to {} connections", connection_count);
-        connection_count
-    }
-
-    /// Creates a new receiver for outgoing messages.
-    /// 
-    /// Each connection handler should call this to get a receiver
-    /// for messages targeted to their specific connection.
-    /// 
-    /// # Returns
-    /// 
-    /// A broadcast receiver for connection-targeted messages.
-    pub fn subscribe(&self) -> broadcast::Receiver<(ConnectionId, Vec<u8>)> {
-        self.sender.subscribe()
+        tracing::debug!("📡 Broadcasted message to {} connections", sent_count);
+        sent_count
     }
 
     /// Finds the connection ID associated with a player.
