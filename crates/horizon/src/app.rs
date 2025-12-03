@@ -7,6 +7,8 @@
 use crate::{cli::CliArgs, config::AppConfig, logging::display_banner, signals::{setup_signal_handlers, setup_signal_handlers_silent}};
 use horizon_event_system::ShutdownState;
 use game_server::GameServer;
+use game_server::atlas_client::{AtlasClient, AtlasConfig, register_with_atlas};
+use std::sync::Arc;
 use tracing::{error, info, warn};
 
 /// Main application struct with enhanced monitoring capabilities.
@@ -26,6 +28,8 @@ pub struct Application {
     config: AppConfig,
     /// Game server instance
     server: GameServer,
+    /// Atlas client for registration (if enabled)
+    atlas_client: Option<Arc<AtlasClient>>,
 }
 
 impl Application {
@@ -101,7 +105,17 @@ impl Application {
             _ => horizon_event_system::LogLevel::Info,
         };
         
-        let server = GameServer::new(server_config, log_level);
+        let server = GameServer::new(server_config.clone(), log_level);
+        
+        // Register with Atlas if enabled
+        let atlas_config = AtlasConfig::from_env();
+        let atlas_client = if atlas_config.enabled {
+            info!("📡 Atlas integration enabled, registering with Atlas...");
+            register_with_atlas(&server_config, atlas_config).await
+        } else {
+            info!("📡 Atlas integration disabled (set HORIZON_ATLAS_ENABLED=true to enable)");
+            None
+        };
 
         // Log startup information
         info!("🚀 Horizon Game Server v1.0.0 - Community Edition");
@@ -113,7 +127,7 @@ impl Application {
             config.plugins.directory
         );
 
-        Ok(Self { config, server })
+        Ok(Self { config, server, atlas_client })
     }
 
     /// Runs the application with enhanced monitoring and error handling.

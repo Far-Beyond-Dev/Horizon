@@ -105,6 +105,7 @@ pub mod server;
 pub mod utils;
 pub mod security;
 pub mod health;
+pub mod atlas_client;
 
 // Internal modules (not part of public API)
 mod connection;
