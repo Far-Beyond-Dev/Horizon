@@ -34,7 +34,11 @@ pub struct PluginSafetyConfig {
 struct BasicServerContext {
     event_system: Arc<EventSystem>,
     region_id: horizon_event_system::types::RegionId,
-    luminal_handle: luminal::Handle,
+    /// The luminal runtime - MUST be stored to keep tasks alive
+    /// Dropping the runtime will terminate all spawned tasks!
+    luminal_runtime: Arc<luminal::Runtime>,
+    /// Tokio runtime handle for spawning async tasks across DLL boundaries
+    tokio_handle: tokio::runtime::Handle,
     gorc_instance_manager: Option<Arc<horizon_event_system::gorc::GorcInstanceManager>>,
     log_level: horizon_event_system::LogLevel,
 }
@@ -50,11 +54,13 @@ impl std::fmt::Debug for BasicServerContext {
 impl BasicServerContext {
     /// Create a new basic context with a specific region.
     fn new(event_system: Arc<EventSystem>, log_level: horizon_event_system::LogLevel) -> Self {
-        let luminal_rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
+        let luminal_rt = Arc::new(luminal::Runtime::new().expect("Failed to create luminal runtime"));
+        let tokio_handle = tokio::runtime::Handle::current();
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
-            luminal_handle: luminal_rt.handle().clone(),
+            luminal_runtime: luminal_rt,
+            tokio_handle,
             gorc_instance_manager: None,
             log_level,
         }
@@ -63,11 +69,13 @@ impl BasicServerContext {
     /// Create a context with a custom region id.
     #[allow(dead_code)]
     fn with_region(event_system: Arc<EventSystem>, region_id: horizon_event_system::types::RegionId, log_level: horizon_event_system::LogLevel) -> Self {
-        let luminal_rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
+        let luminal_rt = Arc::new(luminal::Runtime::new().expect("Failed to create luminal runtime"));
+        let tokio_handle = tokio::runtime::Handle::current();
         Self { 
             event_system, 
             region_id,
-            luminal_handle: luminal_rt.handle().clone(),
+            luminal_runtime: luminal_rt,
+            tokio_handle,
             gorc_instance_manager: None,
             log_level,
         }
@@ -75,11 +83,13 @@ impl BasicServerContext {
 
     /// Create a context with an explicit luminal handle.
     #[allow(dead_code)]
-    fn with_luminal_handle(event_system: Arc<EventSystem>, luminal_handle: luminal::Handle, log_level: horizon_event_system::LogLevel) -> Self {
+    fn with_luminal_handle(event_system: Arc<EventSystem>, luminal_runtime: Arc<luminal::Runtime>, log_level: horizon_event_system::LogLevel) -> Self {
+        let tokio_handle = tokio::runtime::Handle::current();
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
-            luminal_handle: luminal_handle,
+            luminal_runtime,
+            tokio_handle,
             gorc_instance_manager: None,
             log_level,
         }
@@ -88,11 +98,13 @@ impl BasicServerContext {
     /// Create a context with a GORC instance manager.
     #[allow(dead_code)]
     fn with_gorc(event_system: Arc<EventSystem>, gorc_instance_manager: Arc<horizon_event_system::gorc::GorcInstanceManager>, log_level: horizon_event_system::LogLevel) -> Self {
-        let luminal_rt = luminal::Runtime::new().expect("Failed to create luminal runtime");
+        let luminal_rt = Arc::new(luminal::Runtime::new().expect("Failed to create luminal runtime"));
+        let tokio_handle = tokio::runtime::Handle::current();
         Self {
             event_system,
             region_id: horizon_event_system::types::RegionId::default(),
-            luminal_handle: luminal_rt.handle().clone(),
+            luminal_runtime: luminal_rt,
+            tokio_handle,
             gorc_instance_manager: Some(gorc_instance_manager),
             log_level,
         }
@@ -134,7 +146,11 @@ impl ServerContext for BasicServerContext {
     }
 
     fn luminal_handle(&self) -> luminal::Handle {
-        self.luminal_handle.clone()
+        self.luminal_runtime.handle().clone()
+    }
+
+    fn tokio_handle(&self) -> tokio::runtime::Handle {
+        self.tokio_handle.clone()
     }
 
     fn gorc_instance_manager(&self) -> Option<Arc<horizon_event_system::gorc::GorcInstanceManager>> {
@@ -172,6 +188,10 @@ pub struct PluginManager {
     gorc_instance_manager: Option<Arc<horizon_event_system::gorc::GorcInstanceManager>>,
     /// Log level for plugins
     log_level: horizon_event_system::LogLevel,
+    /// The server context - MUST be stored to keep the luminal runtime alive!
+    /// Without this, all spawned async tasks in plugins would be orphaned and never execute.
+    /// The context is created during plugin initialization and kept alive for the server lifetime.
+    server_context: std::sync::RwLock<Option<Arc<BasicServerContext>>>,
 }
 
 impl PluginManager {
@@ -193,6 +213,7 @@ impl PluginManager {
             safety_config,
             gorc_instance_manager: None,
             log_level,
+            server_context: std::sync::RwLock::new(None),
         }
     }
 
@@ -220,6 +241,7 @@ impl PluginManager {
             safety_config,
             gorc_instance_manager: Some(gorc_instance_manager),
             log_level,
+            server_context: std::sync::RwLock::new(None),
         }
     }
 
@@ -444,6 +466,10 @@ impl PluginManager {
     ///
     /// This method calls the initialization methods on all loaded plugins
     /// in a safe manner, isolating any panics or errors to individual plugins.
+    /// 
+    /// CRITICAL: The context is stored in self.server_context to keep the luminal
+    /// runtime alive. Without this, all spawned async tasks in plugins would be
+    /// orphaned and never execute when this function returns.
     async fn initialize_plugins(&self) -> Result<(), PluginSystemError> {
         info!("🔧 Initializing {} loaded plugins", self.loaded_plugins.len());
 
@@ -452,6 +478,14 @@ impl PluginManager {
         } else {
             Arc::new(BasicServerContext::new(self.event_system.clone(), self.log_level))
         };
+
+        // CRITICAL: Store the context to keep the luminal runtime alive!
+        // This ensures spawned tasks continue running after initialization completes.
+        {
+            let mut stored_context = self.server_context.write().expect("Failed to lock server_context for write");
+            *stored_context = Some(context.clone());
+            info!("🔧 Server context stored - luminal runtime will persist for plugin tasks");
+        }
 
         // Phase 1: Pre-initialization (register handlers)
         let plugin_names: Vec<String> = self.loaded_plugins.iter().map(|entry| entry.key().clone()).collect();
