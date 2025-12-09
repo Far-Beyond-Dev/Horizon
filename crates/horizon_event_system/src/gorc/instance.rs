@@ -333,18 +333,18 @@ impl GorcInstanceManager {
         // === PHASE 1: Preparation (no locks) ===
         let object_id = uuid.unwrap_or_else(GorcObjectId::new);
         let type_name = object.type_name().to_string();
-        println!("🔧 REGISTER[{}]: Starting - type={}", object_id, type_name);
+        debug!("🔧 REGISTER[{}]: Starting - type={}", object_id, type_name);
         
         let layers_for_warning = object.get_layers();
         let mut instance = ObjectInstance::new(object_id, Box::new(object));
         
-        println!("🔧 REGISTER[{}]: Phase 1 - acquiring player_positions read lock", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 1 - acquiring player_positions read lock", object_id);
         // Snapshot player positions FIRST (short read lock)
         let player_positions_snapshot: Vec<(PlayerId, Vec3)> = {
             let player_positions = self.player_positions.read().await;
             player_positions.iter().map(|(&id, &pos)| (id, pos)).collect()
         };
-        println!("🔧 REGISTER[{}]: Phase 1 - got {} players", object_id, player_positions_snapshot.len());
+        debug!("🔧 REGISTER[{}]: Phase 1 - got {} players", object_id, player_positions_snapshot.len());
         
         // Pre-calculate subscriptions BEFORE acquiring write lock (no lock needed)
         // This moves the expensive zone checking outside the critical section
@@ -355,15 +355,15 @@ impl GorcInstanceManager {
                 }
             }
         }
-        println!("🔧 REGISTER[{}]: Phase 1 - subscriptions calculated", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 1 - subscriptions calculated", object_id);
         
         // === PHASE 2: Critical section - each lock is independent ===
         // Insert into objects map (lock-free with DashMap)
-        println!("🔧 REGISTER[{}]: Phase 2 - inserting into objects (DashMap)", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 2 - inserting into objects (DashMap)", object_id);
         self.objects.insert(object_id, instance);
-        println!("🔧 REGISTER[{}]: Phase 2 - objects inserted", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 2 - objects inserted", object_id);
         
-        println!("🔧 REGISTER[{}]: Phase 2 - acquiring type_registry write lock", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 2 - acquiring type_registry write lock", object_id);
         // Update type registry
         {
             let mut type_registry = self.type_registry.write().await;
@@ -372,27 +372,27 @@ impl GorcInstanceManager {
                 .or_insert_with(HashSet::new)
                 .insert(object_id);
         }
-        println!("🔧 REGISTER[{}]: Phase 2 - type_registry updated", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 2 - type_registry updated", object_id);
         
         // Update positions (lock-free with DashMap)
-        println!("🔧 REGISTER[{}]: Phase 2 - inserting object_positions (DashMap)", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 2 - inserting object_positions (DashMap)", object_id);
         self.object_positions.insert(object_id, initial_position);
-        println!("🔧 REGISTER[{}]: Phase 2 - object_positions updated", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 2 - object_positions updated", object_id);
         
-        println!("🔧 REGISTER[{}]: Phase 2 - acquiring stats write lock", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 2 - acquiring stats write lock", object_id);
         // Update stats
         {
             let mut stats = self.stats.write().await;
             stats.total_objects += 1;
         }
-        println!("🔧 REGISTER[{}]: Phase 2 - stats updated", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 2 - stats updated", object_id);
         
         // === PHASE 3: Post-registration (no contention-sensitive work) ===
-        println!("🔧 REGISTER[{}]: Phase 3 - checking zone warnings", object_id);
+        debug!("🔧 REGISTER[{}]: Phase 3 - checking zone warnings", object_id);
         // Zone warnings can happen outside critical section
         self.check_zone_size_warnings(object_id, &layers_for_warning).await;
         
-        println!("🔧 REGISTER[{}]: COMPLETE", object_id);
+        debug!("🔧 REGISTER[{}]: COMPLETE", object_id);
         tracing::info!("🎯 Registered GORC object {} ({})", object_id, type_name);
         object_id
     }

@@ -266,6 +266,8 @@ impl EventSystem {
     /// Update player position and handle zone membership changes (event-driven GORC)
     pub async fn update_player_position(&self, player_id: PlayerId, new_position: Vec3) -> Result<(), EventError> {
 
+        debug!("🎮 UPDATE_PLAYER_POSITION called for player {} at {:?}", player_id, new_position);
+
         // Get the GORC instances manager
         let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
             EventError::HandlerExecution("GORC instance manager not available".to_string())
