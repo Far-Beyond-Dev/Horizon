@@ -392,7 +392,7 @@ impl GorcInstanceManager {
         // Zone warnings can happen outside critical section
         self.check_zone_size_warnings(object_id, &layers_for_warning).await;
         
-        debug!("🔧 REGISTER[{}]: COMPLETE", object_id);
+        trace!("🔧 REGISTER[{}]: COMPLETE", object_id);
         tracing::info!("🎯 Registered GORC object {} ({})", object_id, type_name);
         object_id
     }
