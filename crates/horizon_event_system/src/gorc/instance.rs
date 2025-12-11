@@ -777,7 +777,6 @@ impl GorcInstanceManager {
             .filter_map(|(&player_id, &player_pos)| {
                 let distance_sq = player_pos.distance_squared(position);
                 // let distance = distance_sq.sqrt(); // Only for debug logging
-                // debug!("🔍 GORC: Player {} at {:?}, distance: {:.2}m", player_id, player_pos, distance);
                 if distance_sq <= radius_sq {
                     debug!("  ✅ Within range");
                     Some(player_id)
