@@ -547,6 +547,51 @@ impl GameServer {
             .await
             .map_err(|e| ServerError::Internal(e.to_string()))?;
 
+        // Register handler to update player_id in connection manager
+        // This allows plugins to replace the temporary connection-level player_id
+        // with a permanent database player_id after authentication
+        let connection_manager_for_update = self.connection_manager.clone();
+        self.horizon_event_system
+            .on_core_async("update_player_id", move |event: serde_json::Value| {
+                let conn_mgr = connection_manager_for_update.clone();
+
+                info!("🔄 Received update_player_id event: {:?}", event);
+
+                // Deserialize player IDs from the event
+                let old_player_id = serde_json::from_value::<horizon_event_system::PlayerId>(event["old_player_id"].clone());
+                let new_player_id = serde_json::from_value::<horizon_event_system::PlayerId>(event["new_player_id"].clone());
+
+                if let (Ok(old_player_id), Ok(new_player_id)) = (old_player_id, new_player_id) {
+                    // Spawn a dedicated thread with its own runtime to handle the async work
+                    // This is necessary because on_core_async handlers don't have a guaranteed tokio runtime context
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .expect("Failed to build runtime for update_player_id");
+
+                        rt.block_on(async move {
+                            // Get the connection_id for this player
+                            if let Some(connection_id) = conn_mgr.get_connection_id_by_player(old_player_id).await {
+                                // Update the player_id stored in the connection
+                                conn_mgr.set_player_id(connection_id, new_player_id).await;
+                                info!(
+                                    "🔄 Updated player_id in connection {} from {} to {}",
+                                    connection_id, old_player_id, new_player_id
+                                );
+                            } else {
+                                warn!("⚠️ Failed to find connection for player {} when updating player_id", old_player_id);
+                            }
+                        });
+                    });
+                } else {
+                    warn!("⚠️ Failed to deserialize player IDs from update_player_id event: {:?}", event);
+                }
+
+                Ok(())
+            })
+            .await
+            .map_err(|e| ServerError::Internal(e.to_string()))?;
 
         // Register a simple ping handler for testing validity of the client connection
         self.horizon_event_system
