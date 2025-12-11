@@ -224,7 +224,7 @@ impl EventSystem {
         // DEBUG: Also check subscriber count directly from DashMap for diagnostic purposes
         let direct_sub_count = gorc_instances.get_subscriber_count(object_id, channel).await;
         
-        if subscribers.len() != direct_sub_count {
+        if cfg!(debug_assertions) && subscribers.len() != direct_sub_count {
             warn!("📡 GORC EMIT MISMATCH: Object {} ({}) ch{} - cloned has {} subs, DashMap has {} subs!",
                   object_id, instance.type_name, channel, subscribers.len(), direct_sub_count);
         }
