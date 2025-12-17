@@ -150,6 +150,21 @@ pub trait ServerContext: Send + Sync + Debug {
     /// Returns the luminal runtime handle for cross-DLL async execution.
     fn luminal_handle(&self) -> luminal::Handle;
 
+    /// Returns the tokio runtime handle for spawning async tasks.
+    /// 
+    /// This provides plugins with access to the tokio runtime handle for spawning
+    /// async tasks. This is essential for plugins that need to use tokio::sync
+    /// primitives (RwLock, Semaphore, etc.) which require a tokio runtime context.
+    /// 
+    /// Unlike `tokio::runtime::Handle::current()`, this method works across DLL
+    /// boundaries because it explicitly passes the handle rather than relying on
+    /// thread-local storage.
+    /// 
+    /// # Returns
+    /// 
+    /// Returns the tokio runtime handle for async task spawning.
+    fn tokio_handle(&self) -> tokio::runtime::Handle;
+
     /// Returns access to the GORC instance manager for object replication.
     /// 
     /// This provides plugins with direct access to the GORC (Game Object Replication
