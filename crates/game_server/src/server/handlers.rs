@@ -92,7 +92,8 @@ pub async fn handle_connection(
         .await
         .map_err(|e| ServerError::Internal(e.to_string()))?;
 
-    let mut message_receiver = connection_manager.subscribe();
+    // Register per-connection message channel for O(1) message delivery
+    let mut message_receiver = connection_manager.register_message_channel(connection_id).await;
     let ws_sender_incoming = ws_sender.clone();
     let ws_sender_outgoing = ws_sender.clone();
 
@@ -135,21 +136,19 @@ pub async fn handle_connection(
         }
     };
 
-    // Outgoing message task
+    // Outgoing message task - receives directly from dedicated channel (O(1) complexity)
     let outgoing_task = {
         let ws_sender = ws_sender_outgoing;
         async move {
-            while let Ok((target_connection_id, message)) = message_receiver.recv().await {
-                if target_connection_id == connection_id {
-                    let message_text = String::from_utf8_lossy(&message);
-                    let mut ws_sender = ws_sender.lock().await;
-                    if let Err(e) = ws_sender
-                        .send(Message::Text(message_text.to_string().into()))
-                        .await
-                    {
-                        error!("Failed to send message: {}", e);
-                        break;
-                    }
+            while let Some(message) = message_receiver.recv().await {
+                let message_text = String::from_utf8_lossy(&message);
+                let mut ws_sender = ws_sender.lock().await;
+                if let Err(e) = ws_sender
+                    .send(Message::Text(message_text.to_string().into()))
+                    .await
+                {
+                    error!("Failed to send message: {}", e);
+                    break;
                 }
             }
         }
@@ -177,7 +176,9 @@ pub async fn handle_connection(
             .map_err(|e| ServerError::Internal(e.to_string()))?;
     }
 
+    // Cleanup: remove connection and message channel
     connection_manager.remove_connection(connection_id).await;
     connection_manager.remove_ws_sender(connection_id).await;
+    connection_manager.remove_message_channel(connection_id).await;
     Ok(())
 }

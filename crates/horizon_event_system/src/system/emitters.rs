@@ -151,8 +151,19 @@ impl EventSystem {
                 if dest == Dest::Server || dest == Dest::Both {
                     let instance_key = CompactString::new_inline("gorc_instance:") + object_type + ":" + &channel.to_string() + ":" + event_name;
                     
+                    // Wrap the event data in a GorcEvent structure for server-side handlers
+                    let gorc_event = crate::events::GorcEvent {
+                        object_id: object_id.to_string(),
+                        instance_uuid: object_id.to_string(),
+                        object_type: object_type.clone(),
+                        channel,
+                        data: Event::serialize(event)?,
+                        priority: "Normal".to_string(),
+                        timestamp: crate::utils::current_timestamp(),
+                    };
+                    
                     // Emit to instance-specific handlers only
-                    if let Err(e) = self.emit_event(&instance_key, event).await {
+                    if let Err(e) = self.emit_event(&instance_key, &gorc_event).await {
                         warn!("Failed to emit instance event: {}", e);
                     }
                 }
@@ -192,7 +203,7 @@ impl EventSystem {
             EventError::HandlerExecution("GORC instance manager not available".to_string())
         })?;
         
-        // Get the object instance
+        // Get the object instance (this creates a clone)
         let instance = gorc_instances.get_object(object_id).await.ok_or_else(|| {
             EventError::HandlerNotFound(format!("Object instance {} not found", object_id))
         })?;
@@ -210,8 +221,16 @@ impl EventSystem {
             .map(|subs| subs.iter().copied().collect())
             .unwrap_or_else(Vec::new);
         
-        debug!("📡 GORC EMIT: Object {} channel {} has {} subscribers", 
-               object_id, channel, subscribers.len());
+        // DEBUG: Also check subscriber count directly from DashMap for diagnostic purposes
+        let direct_sub_count = gorc_instances.get_subscriber_count(object_id, channel).await;
+        
+        if cfg!(debug_assertions) && subscribers.len() != direct_sub_count {
+            warn!("📡 GORC EMIT MISMATCH: Object {} ({}) ch{} - cloned has {} subs, DashMap has {} subs!",
+                  object_id, instance.type_name, channel, subscribers.len(), direct_sub_count);
+        }
+        
+        debug!("📡 GORC EMIT: Object {} ({}) ch{} event '{}' -> {} subscribers", 
+               object_id, instance.type_name, channel, event_name, subscribers.len());
         
         // Create the event message for clients - just use the event_name directly
         let client_event = serde_json::json!({
@@ -247,6 +266,8 @@ impl EventSystem {
     /// Update player position and handle zone membership changes (event-driven GORC)
     pub async fn update_player_position(&self, player_id: PlayerId, new_position: Vec3) -> Result<(), EventError> {
 
+        debug!("🎮 UPDATE_PLAYER_POSITION called for player {} at {:?}", player_id, new_position);
+
         // Get the GORC instances manager
         let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
             EventError::HandlerExecution("GORC instance manager not available".to_string())
@@ -268,6 +289,31 @@ impl EventSystem {
         for (object_id, channel) in zone_exits {
             debug!("🎮 EVENT DEBUG: Sending zone exit message for object {} channel {}", object_id, channel);
             self.send_zone_exit_message(player_id, object_id, channel).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Subscribe a newly added player to all existing objects they are within range of.
+    /// Call this AFTER add_player() and AFTER the player's own object is registered.
+    /// Sends zone entry messages for all objects the player is initially inside.
+    pub async fn subscribe_player_to_existing_objects(&self, player_id: PlayerId, player_position: Vec3) -> Result<(), EventError> {
+        // Get the GORC instances manager
+        let gorc_instances = self.gorc_instances.as_ref().ok_or_else(|| {
+            EventError::HandlerExecution("GORC instance manager not available".to_string())
+        })?;
+
+        // Get zone entries for this new player against existing objects
+        let zone_entries = gorc_instances.subscribe_player_to_existing_objects(player_id, player_position).await;
+
+        info!("🆕 GORC New Player: Player {} initial zone detection - {} objects in range",
+              player_id, zone_entries.len());
+
+        // Send zone entry messages for all objects the player starts inside
+        for (object_id, channel) in zone_entries {
+            debug!("🎮 GORC Initial: Sending zone entry message for object {} channel {} to new player {}",
+                   object_id, channel, player_id);
+            self.send_zone_entry_message(player_id, object_id, channel).await?;
         }
 
         Ok(())

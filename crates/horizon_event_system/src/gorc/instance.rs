@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::any::Any;
-use tokio::sync::RwLock;
+use async_lock::RwLock;
+use dashmap::DashMap;
 use tokio::time::Instant;
 use uuid::Uuid;
 use tracing::{debug, info, warn};
@@ -256,14 +257,14 @@ pub struct ObjectStats {
 /// Manager for all GORC object instances
 #[derive(Debug)]
 pub struct GorcInstanceManager {
-    /// All registered object instances
-    objects: Arc<RwLock<HashMap<GorcObjectId, ObjectInstance>>>,
+    /// All registered object instances (lock-free for concurrent access)
+    objects: Arc<DashMap<GorcObjectId, ObjectInstance>>,
     /// Type name to object IDs mapping
     type_registry: Arc<RwLock<HashMap<String, HashSet<GorcObjectId>>>>,
     /// Spatial index using an R-tree for efficient proximity queries
     spatial_index: Arc<RwLock<SpatialPartition>>,
-    /// Object positions for spatial tracking
-    object_positions: Arc<RwLock<HashMap<GorcObjectId, Vec3>>>,
+    /// Object positions for spatial tracking (lock-free for fast reads)
+    object_positions: Arc<DashMap<GorcObjectId, Vec3>>,
     /// Player positions for subscription management
     player_positions: Arc<RwLock<HashMap<PlayerId, Vec3>>>,
     /// Zone size warnings tracking (object_id -> largest_zone_radius)
@@ -286,10 +287,10 @@ impl GorcInstanceManager {
         let virtualization_manager = Arc::new(VirtualizationManager::new(virtualization_config));
 
         let manager = Self {
-            objects: Arc::new(RwLock::new(HashMap::new())),
+            objects: Arc::new(DashMap::new()),
             type_registry: Arc::new(RwLock::new(HashMap::new())),
             spatial_index: Arc::new(RwLock::new(spatial_index)),
-            object_positions: Arc::new(RwLock::new(HashMap::new())),
+            object_positions: Arc::new(DashMap::new()),
             player_positions: Arc::new(RwLock::new(HashMap::new())),
             zone_size_warnings: Arc::new(RwLock::new(HashMap::new())),
             virtualization_manager,
@@ -320,92 +321,90 @@ impl GorcInstanceManager {
     }
 
     /// Registers a new object instance (optionally provide UUID)
+    /// 
+    /// OPTIMIZED: Preparation work done before locks, locks held minimally
+    /// NO SEMAPHORE - the write locks provide sufficient serialization
     pub async fn register_object_with_uuid<T: GorcObject + 'static>(
         &self,
         object: T,
         initial_position: Vec3,
         uuid: Option<GorcObjectId>,
     ) -> GorcObjectId {
+        // === PHASE 1: Preparation (no locks) ===
         let object_id = uuid.unwrap_or_else(GorcObjectId::new);
         let type_name = object.type_name().to_string();
-        let type_name_for_registry = type_name.clone();
-        let type_name_for_log = type_name.clone();
+        debug!("🔧 REGISTER[{}]: Starting - type={}", object_id, type_name);
         
-        let instance = ObjectInstance::new(object_id, Box::new(object));
+        let layers_for_warning = object.get_layers();
+        let mut instance = ObjectInstance::new(object_id, Box::new(object));
         
-        // Register in all mappings
-        {
-            let mut objects = self.objects.write().await;
-            objects.insert(object_id, instance);
+        debug!("🔧 REGISTER[{}]: Phase 1 - acquiring player_positions read lock", object_id);
+        // Snapshot player positions FIRST (short read lock)
+        let player_positions_snapshot: Vec<(PlayerId, Vec3)> = {
+            let player_positions = self.player_positions.read().await;
+            player_positions.iter().map(|(&id, &pos)| (id, pos)).collect()
+        };
+        debug!("🔧 REGISTER[{}]: Phase 1 - got {} players", object_id, player_positions_snapshot.len());
+        
+        // Pre-calculate subscriptions BEFORE acquiring write lock (no lock needed)
+        // This moves the expensive zone checking outside the critical section
+        for (player_id, player_pos) in &player_positions_snapshot {
+            for channel in 0..4 {
+                if instance.zone_manager.is_in_zone(*player_pos, channel) {
+                    instance.add_subscriber(channel, *player_id);
+                }
+            }
         }
+        debug!("🔧 REGISTER[{}]: Phase 1 - subscriptions calculated", object_id);
         
+        // === PHASE 2: Critical section - each lock is independent ===
+        // Insert into objects map (lock-free with DashMap)
+        debug!("🔧 REGISTER[{}]: Phase 2 - inserting into objects (DashMap)", object_id);
+        self.objects.insert(object_id, instance);
+        debug!("🔧 REGISTER[{}]: Phase 2 - objects inserted", object_id);
+        
+        debug!("🔧 REGISTER[{}]: Phase 2 - acquiring type_registry write lock", object_id);
+        // Update type registry
         {
             let mut type_registry = self.type_registry.write().await;
             type_registry
-                .entry(type_name_for_registry)
+                .entry(type_name.clone())
                 .or_insert_with(HashSet::new)
                 .insert(object_id);
         }
+        debug!("🔧 REGISTER[{}]: Phase 2 - type_registry updated", object_id);
         
-        {
-            let mut object_positions = self.object_positions.write().await;
-            object_positions.insert(object_id, initial_position);
-        }
-
-        // Check and warn about large zone sizes
-        let layers_for_warning = {
-            let objects = self.objects.read().await;
-            if let Some(instance) = objects.get(&object_id) {
-                instance.object.get_layers()
-            } else {
-                Vec::new()
-            }
-        };
-        self.check_zone_size_warnings(object_id, &layers_for_warning).await;
+        // Update positions (lock-free with DashMap)
+        debug!("🔧 REGISTER[{}]: Phase 2 - inserting object_positions (DashMap)", object_id);
+        self.object_positions.insert(object_id, initial_position);
+        debug!("🔧 REGISTER[{}]: Phase 2 - object_positions updated", object_id);
         
+        debug!("🔧 REGISTER[{}]: Phase 2 - acquiring stats write lock", object_id);
+        // Update stats
         {
             let mut stats = self.stats.write().await;
             stats.total_objects += 1;
         }
+        debug!("🔧 REGISTER[{}]: Phase 2 - stats updated", object_id);
         
-        // CRITICAL: Check all existing players and subscribe them to this new object if in range
-        // This ensures players receive zone_enter messages when new objects spawn near them
-        let player_ids: Vec<PlayerId> = {
-            let player_positions = self.player_positions.read().await;
-            player_positions.keys().copied().collect()
-        };
+        // === PHASE 3: Post-registration (no contention-sensitive work) ===
+        debug!("🔧 REGISTER[{}]: Phase 3 - checking zone warnings", object_id);
+        // Zone warnings can happen outside critical section
+        self.check_zone_size_warnings(object_id, &layers_for_warning).await;
         
-        for player_id in player_ids {
-            if let Some(player_pos) = self.player_positions.read().await.get(&player_id).copied() {
-                // Check each channel of the new object
-                let mut objects = self.objects.write().await;
-                if let Some(instance) = objects.get_mut(&object_id) {
-                    for channel in 0..4 {
-                        let should_sub = instance.zone_manager.is_in_zone(player_pos, channel);
-                        if should_sub {
-                            instance.add_subscriber(channel, player_id);
-                            tracing::debug!("➕ New object {}: Player {} auto-subscribed to channel {}", 
-                                          object_id, player_id, channel);
-                        }
-                    }
-                }
-            }
-        }
-        
-        tracing::info!("🎯 Registered GORC object {} ({})", object_id, type_name_for_log);
+        trace!("🔧 REGISTER[{}]: COMPLETE", object_id);
+        tracing::info!("🎯 Registered GORC object {} ({})", object_id, type_name);
         object_id
     }
 
     /// Unregisters an object instance
     pub async fn unregister_object(&self, object_id: GorcObjectId) -> bool {
-        let type_name = {
-            let mut objects = self.objects.write().await;
-            if let Some(mut instance) = objects.remove(&object_id) {
-                instance.object.on_unregister();
-                Some(instance.type_name)
-            } else {
-                None
-            }
+        // Remove from objects (lock-free with DashMap)
+        let type_name = if let Some((_, mut instance)) = self.objects.remove(&object_id) {
+            instance.object.on_unregister();
+            Some(instance.type_name)
+        } else {
+            None
         };
 
         if let Some(type_name) = type_name {
@@ -419,10 +418,8 @@ impl GorcInstanceManager {
                 }
             }
             
-            {
-                let mut object_positions = self.object_positions.write().await;
-                object_positions.remove(&object_id);
-            }
+            // Remove from object_positions (lock-free with DashMap)
+            self.object_positions.remove(&object_id);
 
             {
                 let mut zone_warnings = self.zone_size_warnings.write().await;
@@ -443,22 +440,17 @@ impl GorcInstanceManager {
 
     /// Update an object's position and return zone membership changes for zone events
     pub async fn update_object_position(&self, object_id: GorcObjectId, new_position: Vec3) -> Option<(Vec3, Vec3, Vec<(PlayerId, u8, bool)>)> {
-        let old_position = {
-            let mut objects = self.objects.write().await;
-            if let Some(instance) = objects.get_mut(&object_id) {
-                let old_pos = instance.object.position();
-                instance.update_position(new_position);
-                old_pos
-            } else {
-                return None;
-            }
+        // Get old position and update (using DashMap get_mut for lock-free access)
+        let old_position = if let Some(mut instance) = self.objects.get_mut(&object_id) {
+            let old_pos = instance.object.position();
+            instance.update_position(new_position);
+            old_pos
+        } else {
+            return None;
         };
 
-        // Update object position tracking
-        {
-            let mut object_positions = self.object_positions.write().await;
-            object_positions.insert(object_id, new_position);
-        }
+        // Update object position tracking (lock-free with DashMap)
+        self.object_positions.insert(object_id, new_position);
 
         // Check for virtual zone splits due to object movement
         let virtual_zones_to_split = self.virtualization_manager
@@ -500,14 +492,14 @@ impl GorcInstanceManager {
         }
 
 
-        // Check all objects for zone membership changes
-        let objects = self.objects.read().await;
-        let object_positions_map = self.object_positions.read().await;
-        
-        for (object_id, instance) in objects.iter() {
-            // CRITICAL: Get object position from tracking HashMap (single source of truth)
-            let object_position = match object_positions_map.get(object_id) {
-                Some(&pos) => pos,
+        // Check all objects for zone membership changes (lock-free iteration over DashMap)
+        for entry in self.objects.iter() {
+            let object_id = entry.key();
+            let instance = entry.value();
+            
+            // CRITICAL: Get object position from DashMap (lock-free, single source of truth)
+            let object_position = match self.object_positions.get(object_id) {
+                Some(pos) => *pos,
                 None => {
                     warn!("Object {} not found in object_positions tracking", object_id);
                     continue;
@@ -517,9 +509,10 @@ impl GorcInstanceManager {
             let layers = instance.object.get_layers();
             
             for layer in layers {
-                let distance_to_object = new_position.distance(object_position);
-                let was_in_zone = old_position.map_or(false, |pos| pos.distance(object_position) <= layer.radius);
-                let is_in_zone = distance_to_object <= layer.radius;
+                let radius_sq = layer.radius * layer.radius;
+                let distance_sq = new_position.distance_squared(object_position);
+                let was_in_zone = old_position.map_or(false, |pos| pos.distance_squared(object_position) <= radius_sq);
+                let is_in_zone = distance_sq <= radius_sq;
                 
                 
                 match (was_in_zone, is_in_zone) {
@@ -545,16 +538,10 @@ impl GorcInstanceManager {
 
         debug!("🎮 GORC: Zone changes for player {} - {} entries, {} exits", player_id, zone_entries.len(), zone_exits.len());
 
-
         // If this is a new player or they moved significantly, recalculate subscriptions
-        //
-        // N.B. `recalculate_player_subscriptions` tries to acquire a write lock to `objects`,
-        // which will deadlock. release the read lock now
-        drop(objects);
-        
-        // If this is a new player or they moved significantly, recalculate subscriptions
+        const MOVEMENT_THRESHOLD_SQ: f64 = 25.0; // 5.0 * 5.0
         if old_position.is_none() || 
-           old_position.map(|old| old.distance(new_position) > 5.0).unwrap_or(true) {
+           old_position.map(|old| old.distance_squared(new_position) > MOVEMENT_THRESHOLD_SQ).unwrap_or(true) {
             self.recalculate_player_subscriptions(player_id, new_position).await;
         }
         
@@ -587,13 +574,17 @@ impl GorcInstanceManager {
     }
 
     /// Add a player to the position tracking system
-    /// NOTE: This only registers the player. You MUST call update_player_position()
-    /// afterwards to set the position and calculate subscriptions.
+    /// NOTE: This registers the player in both spatial_index AND player_positions.
+    /// After calling this, call subscribe_player_to_existing_objects() for zone detection.
     pub async fn add_player(&self, player_id: PlayerId, position: Vec3) {
         debug!("🎮 GORC: Adding player {} at position {:?}", player_id, position);
 
-        // Don't insert position here - let update_player_position handle it
-        // This ensures old_position will be None, triggering subscription calculation
+        // CRITICAL FIX: Insert into player_positions so register_object_with_uuid
+        // can find the player and auto-subscribe them to their own object
+        {
+            let mut player_positions = self.player_positions.write().await;
+            player_positions.insert(player_id, position);
+        }
         
         {
             let spatial_position: Position = position.into();
@@ -602,11 +593,6 @@ impl GorcInstanceManager {
                 .update_player_position(player_id, spatial_position)
                 .await;
         }
-        
-        // NOTE: Subscription calculation should be done via update_player_position()
-        // which is typically called before or after this method. We don't do it here
-        // to avoid nested async calls that can cause runtime issues when called from
-        // plugin contexts using luminal runtime.
         
         // Update statistics
         let mut stats = self.stats.write().await;
@@ -618,6 +604,58 @@ impl GorcInstanceManager {
             player_id,
             total_players
         );
+    }
+    
+    /// Subscribe a newly added player to all existing objects they are within range of.
+    /// Returns list of (object_id, channel) pairs for zone entries.
+    /// MUST be called AFTER add_player() and AFTER player's own object is registered.
+    pub async fn subscribe_player_to_existing_objects(&self, player_id: PlayerId, player_position: Vec3) -> Vec<(GorcObjectId, u8)> {
+        let mut zone_entries = Vec::new();
+        
+        // Collect object positions from DashMap (lock-free)
+        let object_ids_and_positions: Vec<(GorcObjectId, Vec3)> = 
+            self.object_positions.iter().map(|entry| (*entry.key(), *entry.value())).collect();
+        
+        info!(
+            "🔍 GORC Subscribe: Player {} at {:?} checking {} existing objects",
+            player_id, player_position, object_ids_and_positions.len()
+        );
+        
+        // Use DashMap get_mut for lock-free mutable access
+        for (object_id, object_position) in object_ids_and_positions {
+            if let Some(mut instance) = self.objects.get_mut(&object_id) {
+                let layers = instance.object.get_layers();
+                let object_type = instance.type_name.clone();
+                
+                for layer in layers {
+                    let radius_sq = layer.radius * layer.radius;
+                    let distance_sq = player_position.distance_squared(object_position);
+                    let is_in_zone = distance_sq <= radius_sq;
+                    let is_already_subscribed = instance.is_subscribed(layer.channel, player_id);
+                    
+                    debug!(
+                        "🔍 GORC Subscribe Check: Object {} ({}) ch{} - distance²={:.2}, radius²={:.2}, in_zone={}, already_sub={}",
+                        object_id, object_type, layer.channel, distance_sq, radius_sq, is_in_zone, is_already_subscribed
+                    );
+                    
+                    if is_in_zone && !is_already_subscribed {
+                        instance.add_subscriber(layer.channel, player_id);
+                        zone_entries.push((object_id, layer.channel));
+                        info!(
+                            "✅ GORC Subscribe: Player {} SUBSCRIBED to {} ({}) ch{} (distance: {:.2}m, radius: {:.2}m)",
+                            player_id, object_id, object_type, layer.channel, distance_sq.sqrt(), layer.radius
+                        );
+                    }
+                }
+            }
+        }
+        
+        info!(
+            "🎮 GORC Subscribe COMPLETE: Player {} - {} zone entries to existing objects",
+            player_id, zone_entries.len()
+        );
+        
+        zone_entries
     }
     
     /// Remove a player from all subscriptions
@@ -632,8 +670,9 @@ impl GorcInstanceManager {
             partition.remove_player(player_id).await;
         }
 
-        let mut objects = self.objects.write().await;
-        for instance in objects.values_mut() {
+        // Use DashMap iter_mut for lock-free mutable iteration
+        for mut entry in self.objects.iter_mut() {
+            let instance = entry.value_mut();
             for channel in 0..4 {
                 instance.remove_subscriber(channel, player_id);
             }
@@ -642,10 +681,19 @@ impl GorcInstanceManager {
 
     /// Get an object instance by ID
     pub async fn get_object(&self, object_id: GorcObjectId) -> Option<ObjectInstance> {
-        let objects = self.objects.read().await;
-        // Note: This clones the entire instance, which might be expensive for large objects
-        // In production, you might want to return a reference or use Arc<Mutex<ObjectInstance>>
-        objects.get(&object_id).cloned()
+        // Use DashMap get for lock-free read access
+        self.objects.get(&object_id).map(|entry| entry.value().clone())
+    }
+    
+    /// Get subscriber count for an object channel directly from DashMap (for diagnostics)
+    pub async fn get_subscriber_count(&self, object_id: GorcObjectId, channel: u8) -> usize {
+        if let Some(entry) = self.objects.get(&object_id) {
+            entry.value().subscribers.get(&channel)
+                .map(|subs| subs.len())
+                .unwrap_or(0)
+        } else {
+            0
+        }
     }
 
     /// Get all objects of a specific type
@@ -659,8 +707,8 @@ impl GorcInstanceManager {
 
     /// Update an object instance (after handlers have modified it)
     pub async fn update_object(&self, object_id: GorcObjectId, instance: ObjectInstance) {
-        let mut objects = self.objects.write().await;
-        objects.insert(object_id, instance);
+        // Use DashMap insert for lock-free write access
+        self.objects.insert(object_id, instance);
     }
 
     /// Find a player's GORC object by player ID (for message routing)
@@ -677,7 +725,6 @@ impl GorcInstanceManager {
     /// Get objects within range of a position using spatial index optimization
     pub async fn get_objects_in_range(&self, position: Vec3, range: f64) -> Vec<GorcObjectId> {
         let mut result_objects = Vec::new();
-        let object_positions = self.object_positions.read().await;
 
         // Get largest zone radius for query optimization
         let query_radius = self.get_max_zone_radius().await.max(range);
@@ -689,10 +736,13 @@ impl GorcInstanceManager {
             query_radius
         ).await;
 
-        // Filter by actual object positions and range
+        // Filter by actual object positions and range (lock-free iteration with DashMap)
+        let range_sq = range * range;
         for _query_result in query_results {
-            for (&object_id, &obj_pos) in object_positions.iter() {
-                if obj_pos.distance(position) <= range {
+            for entry in self.object_positions.iter() {
+                let object_id = *entry.key();
+                let obj_pos = *entry.value();
+                if obj_pos.distance_squared(position) <= range_sq {
                     result_objects.push(object_id);
                 }
             }
@@ -700,20 +750,19 @@ impl GorcInstanceManager {
 
         // Fallback to direct position checking if spatial index is empty
         if result_objects.is_empty() {
-            result_objects = object_positions
+            result_objects = self.object_positions
                 .iter()
-                .filter(|(_, &obj_pos)| obj_pos.distance(position) <= range)
-                .map(|(&obj_id, _)| obj_id)
+                .filter(|entry| entry.value().distance_squared(position) <= range_sq)
+                .map(|entry| *entry.key())
                 .collect();
         }
 
         result_objects
     }
     
-    /// Get the tracked position of an object (single source of truth for spatial queries)
-    pub async fn get_object_position(&self, object_id: GorcObjectId) -> Option<Vec3> {
-        let object_positions = self.object_positions.read().await;
-        object_positions.get(&object_id).copied()
+    /// Get the tracked position of an object (lock-free, single source of truth for spatial queries)
+    pub fn get_object_position(&self, object_id: GorcObjectId) -> Option<Vec3> {
+        self.object_positions.get(&object_id).map(|entry| *entry)
     }
     
     /// Find all players within radius of a position (for event-driven GORC emission)
@@ -722,12 +771,13 @@ impl GorcInstanceManager {
         debug!("🔍 GORC: Finding players within {}m of position {:?}", radius, position);
         debug!("🔍 GORC: Total tracked players: {}", player_positions.len());
         
+        let radius_sq = radius * radius;
         let subscribers: Vec<PlayerId> = player_positions
             .iter()
             .filter_map(|(&player_id, &player_pos)| {
-                let distance = player_pos.distance(position);
-                debug!("🔍 GORC: Player {} at {:?}, distance: {:.2}m", player_id, player_pos, distance);
-                if distance <= radius {
+                let distance_sq = player_pos.distance_squared(position);
+                // let distance = distance_sq.sqrt(); // Only for debug logging
+                if distance_sq <= radius_sq {
                     debug!("  ✅ Within range");
                     Some(player_id)
                 } else {
@@ -744,8 +794,8 @@ impl GorcInstanceManager {
     
     /// Get current object state for a specific layer/channel
     pub async fn get_object_state_for_layer(&self, object_id: GorcObjectId, channel: u8) -> Option<Vec<u8>> {
-        let objects = self.objects.read().await;
-        if let Some(instance) = objects.get(&object_id) {
+        // Use DashMap get for lock-free read access
+        if let Some(instance) = self.objects.get(&object_id) {
             let layers = instance.object.get_layers();
             if let Some(layer) = layers.iter().find(|l| l.channel == channel) {
                 // Serialize only the properties defined for this layer
@@ -769,8 +819,8 @@ impl GorcInstanceManager {
             return false;
         };
 
-        let objects = self.objects.read().await;
-        let Some(instance) = objects.get(&object_id) else {
+        // Use DashMap get for lock-free read access
+        let Some(instance) = self.objects.get(&object_id) else {
             return false;
         };
 
@@ -779,14 +829,13 @@ impl GorcInstanceManager {
 
     /// Recalculate subscriptions for a player
     async fn recalculate_player_subscriptions(&self, player_id: PlayerId, player_position: Vec3) {
-        let object_ids: Vec<GorcObjectId> = {
-            let object_positions = self.object_positions.read().await;
-            object_positions.keys().copied().collect()
-        };
+        // Collect object IDs from DashMap (lock-free)
+        let object_ids: Vec<GorcObjectId> = 
+            self.object_positions.iter().map(|entry| *entry.key()).collect();
 
-        let mut objects = self.objects.write().await;
+        // Use DashMap get_mut for lock-free mutable access
         for object_id in object_ids {
-            if let Some(instance) = objects.get_mut(&object_id) {
+            if let Some(mut instance) = self.objects.get_mut(&object_id) {
                 for channel in 0..4 {
                     let should_sub = instance.zone_manager.is_in_zone(player_position, channel);
                     let is_subbed = instance.is_subscribed(channel, player_id);
@@ -823,8 +872,8 @@ impl GorcInstanceManager {
             player_positions.iter().map(|(&id, &pos)| (id, pos)).collect()
         };
 
-        let mut objects = self.objects.write().await;
-        if let Some(instance) = objects.get_mut(&object_id) {
+        // Use DashMap get_mut for lock-free mutable access
+        if let Some(mut instance) = self.objects.get_mut(&object_id) {
             let layers = instance.object.get_layers();
 
             for (player_id, player_pos) in player_positions {
@@ -845,8 +894,9 @@ impl GorcInstanceManager {
                         }
                     }
 
-                    let was_in_zone = player_pos.distance(old_position) <= layer.radius;
-                    let is_in_zone = player_pos.distance(new_position) <= layer.radius;
+                    let radius_sq = layer.radius * layer.radius;
+                    let was_in_zone = player_pos.distance_squared(old_position) <= radius_sq;
+                    let is_in_zone = player_pos.distance_squared(new_position) <= radius_sq;
                     let is_subbed = instance.is_subscribed(channel, player_id);
 
                     if is_in_zone && layer.radius == smallest_radius {
@@ -908,9 +958,9 @@ impl GorcInstanceManager {
 
     /// Get the maximum zone radius across all objects for spatial query optimization
     async fn get_max_zone_radius(&self) -> f64 {
-        let objects = self.objects.read().await;
-        objects.values()
-            .flat_map(|instance| instance.object.get_layers())
+        // Use DashMap iter for lock-free read access
+        self.objects.iter()
+            .flat_map(|entry| entry.value().object.get_layers())
             .map(|layer| layer.radius)
             .max_by(|a, b| a.partial_cmp(b).unwrap())
             .unwrap_or(100.0) // Default reasonable radius
@@ -920,20 +970,17 @@ impl GorcInstanceManager {
     pub async fn notify_existing_players_for_new_object(&self, object_id: GorcObjectId) -> Vec<(PlayerId, u8)> {
         let mut zone_entries = Vec::new();
 
-        // CRITICAL: Get object position from tracking HashMap (single source of truth)
-        let (object_position, layers) = {
-            let object_positions = self.object_positions.read().await;
-            let objects = self.objects.read().await;
-            
-            if let Some(&pos) = object_positions.get(&object_id) {
-                if let Some(instance) = objects.get(&object_id) {
-                    (pos, instance.object.get_layers())
-                } else {
-                    return zone_entries;
-                }
-            } else {
-                return zone_entries;
-            }
+        // CRITICAL: Get object position from DashMap (lock-free, single source of truth)
+        let object_position = match self.object_positions.get(&object_id) {
+            Some(entry) => *entry,
+            None => return zone_entries,
+        };
+
+        // Use DashMap get for lock-free read access
+        let layers = if let Some(instance) = self.objects.get(&object_id) {
+            instance.object.get_layers()
+        } else {
+            return zone_entries;
         };
 
         let player_positions = {
@@ -941,15 +988,16 @@ impl GorcInstanceManager {
             player_positions.iter().map(|(&id, &pos)| (id, pos)).collect::<Vec<_>>()
         };
 
-        let mut objects = self.objects.write().await;
-        if let Some(instance) = objects.get_mut(&object_id) {
+        // Use DashMap get_mut for lock-free mutable access
+        if let Some(mut instance) = self.objects.get_mut(&object_id) {
             for (player_id, player_pos) in player_positions {
                 // Check if player should be subscribed to any zones of this new object
                 for layer in &layers {
                     let channel = layer.channel;
-                    let distance = player_pos.distance(object_position);
+                    let radius_sq = layer.radius * layer.radius;
+                    let distance_sq = player_pos.distance_squared(object_position);
 
-                    if distance <= layer.radius {
+                    if distance_sq <= radius_sq {
                         instance.add_subscriber(channel, player_id);
                         zone_entries.push((player_id, channel));
                         debug!("🆕 GORC New Object: Player {} automatically entered zone {} of new object {}", player_id, channel, object_id);
@@ -963,16 +1011,17 @@ impl GorcInstanceManager {
 
     /// Analyzes virtualization opportunities and applies recommendations
     pub async fn process_virtualization(&self) -> Result<(), Box<dyn std::error::Error>> {
-        // Collect current objects and their zones
+        // Collect current objects and their zones using DashMap iter (lock-free)
         let objects_info = {
-            let objects = self.objects.read().await;
-            let object_positions = self.object_positions.read().await;
-
             let mut info = HashMap::new();
-            for (object_id, instance) in objects.iter() {
-                if let Some(&position) = object_positions.get(object_id) {
+            for entry in self.objects.iter() {
+                let object_id = *entry.key();
+                let instance = entry.value();
+                // Get position from DashMap (lock-free)
+                if let Some(position_entry) = self.object_positions.get(&object_id) {
+                    let position = *position_entry;
                     let layers = instance.object.get_layers();
-                    info.insert(*object_id, (position, layers));
+                    info.insert(object_id, (position, layers));
                 }
             }
             info
